@@ -330,7 +330,7 @@ export default function App() {
   const [selectedSector, setSelectedSector] = useState("1");
   const [selectedBands, setSelectedBands] = useState(ALL_BAND_IDS);
   const [bandDropdownOpen, setBandDropdownOpen] = useState(false);
-  const [filterType, setFilterType] = useState("macro"); // 'macro', 'indoor', 'all'
+  const [filterType, setFilterType] = useState("all"); // 'macro', 'indoor', 'all'
   const [sectorViewMode, setSectorViewMode] = useState("all"); // 'all' (all KPI, one sector) | 'sectoral' (sectors side by side)
   const [sectoralSectors, setSectoralSectors] = useState(['1', '2', '3']); // sectors shown in Sectoral view
 
@@ -646,7 +646,7 @@ export default function App() {
         const dates = getInitialDateRange('hourly');
         setStartDate(dates.start);
         setEndDate(dates.end);
-        fetchSectorData("MRW002", dates.start, dates.end, "4g-hourly", "macro");
+        fetchSectorData("MRW002", dates.start, dates.end, "4g-hourly", "all");
       });
   }, []);
 
