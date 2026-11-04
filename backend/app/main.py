@@ -13,6 +13,8 @@ from .queries_daily import (
     get_scope_aggregation_data,
     DAILY_KPIS_CONFIG
 )
+from .queries_5g import get_5g_sites, get_site_payload_5g_data, KPIS_5G_CONFIG
+from .queries_2g import get_2g_sites, get_site_payload_2g_data, KPIS_2G_CONFIG
 
 app = FastAPI(title="Monitoring KPI Dashboard", version="2.5.0")
 
@@ -194,6 +196,120 @@ def get_daily_aggregation_endpoint(
             "kpis": {},
             "timestamps": []
         }
+
+# =============================================================================
+# 5G Monitoring Endpoints
+# =============================================================================
+@app.get("/api/5g/sites")
+def get_5g_sites_endpoint():
+    """Returns all unique 5G sites for autocomplete/dropdown."""
+    sites = get_5g_sites()
+    return {"sites": sites, "total": len(sites)}
+
+@app.get("/api/5g/kpi_list")
+def get_5g_kpi_list_endpoint():
+    """Returns all 5G KPIs catalog with category grouping."""
+    kpi_items = []
+    for k_id, cfg in KPIS_5G_CONFIG.items():
+        kpi_items.append({
+            "id": k_id,
+            "label": cfg["title"],
+            "unit": cfg["unit"],
+            "category": cfg["category"],
+            "has_tot": cfg.get("has_tot", False),
+            "is_avg": cfg.get("is_avg", True),
+            "source": "measDy5g"
+        })
+    return {"kpis": kpi_items, "total": len(kpi_items)}
+
+@app.get("/api/5g/payload_sectors")
+def get_5g_payload_sectors_endpoint(
+    site_id: str = Query("UPD012", description="Site ID"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    sector: Optional[str] = Query(None),
+    band: Optional[str] = Query(None),
+    cell_type: Optional[str] = Query("macro"),
+    days_back: int = Query(14)
+):
+    """Returns 5G multi-KPI data across all measDy5g radio metrics."""
+    try:
+        s_id = site_id.strip() if isinstance(site_id, str) else "UPD012"
+        s_date = start_date.strip() if isinstance(start_date, str) else None
+        e_date = end_date.strip() if isinstance(end_date, str) else None
+        sec_f = sector.strip() if isinstance(sector, str) else None
+        b_f = band.strip() if isinstance(band, str) else None
+        c_type = cell_type.strip() if isinstance(cell_type, str) else "macro"
+        d_back = days_back if isinstance(days_back, int) else 14
+
+        return get_site_payload_5g_data(
+            site_id=s_id,
+            start_date=s_date,
+            end_date=e_date,
+            sector_filter=sec_f,
+            band_filter=b_f,
+            cell_type=c_type,
+            days_back=d_back
+        )
+    except Exception as e:
+        return {"error": str(e), "site_id": site_id, "sectors": {}}
+
+# =============================================================================
+# 2G Monitoring Endpoints
+# =============================================================================
+@app.get("/api/2g/sites")
+def get_2g_sites_endpoint():
+    """Returns all unique 2G sites for autocomplete/dropdown."""
+    sites = get_2g_sites()
+    return {"sites": sites, "total": len(sites)}
+
+@app.get("/api/2g/kpi_list")
+def get_2g_kpi_list_endpoint():
+    """Returns all 2G KPIs catalog with category grouping."""
+    kpi_items = []
+    for k_id, cfg in KPIS_2G_CONFIG.items():
+        kpi_items.append({
+            "id": k_id,
+            "label": cfg["title"],
+            "unit": cfg["unit"],
+            "category": cfg["category"],
+            "has_tot": cfg.get("has_tot", False),
+            "is_avg": cfg.get("is_avg", True),
+            "source": "measDy2g"
+        })
+    return {"kpis": kpi_items, "total": len(kpi_items)}
+
+@app.get("/api/2g/payload_sectors")
+def get_2g_payload_sectors_endpoint(
+    site_id: str = Query("MRW002", description="Site ID"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    sector: Optional[str] = Query(None),
+    band: Optional[str] = Query(None),
+    cell_type: Optional[str] = Query("macro"),
+    days_back: int = Query(14)
+):
+    """Returns 2G multi-KPI data across all measDy2g radio metrics."""
+    try:
+        s_id = site_id.strip() if isinstance(site_id, str) else "MRW002"
+        s_date = start_date.strip() if isinstance(start_date, str) else None
+        e_date = end_date.strip() if isinstance(end_date, str) else None
+        sec_f = sector.strip() if isinstance(sector, str) else None
+        b_f = band.strip() if isinstance(band, str) else None
+        c_type = cell_type.strip() if isinstance(cell_type, str) else "macro"
+        d_back = days_back if isinstance(days_back, int) else 14
+
+        return get_site_payload_2g_data(
+            site_id=s_id,
+            start_date=s_date,
+            end_date=e_date,
+            sector_filter=sec_f,
+            band_filter=b_f,
+            cell_type=c_type,
+            days_back=d_back
+        )
+    except Exception as e:
+        return {"error": str(e), "site_id": site_id, "sectors": {}}
 
 # Static file serving for React frontend production build
 DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"

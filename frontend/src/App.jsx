@@ -37,10 +37,11 @@ import {
   Network,
   Building2,
   MapPin,
-  Globe
+  Globe,
+  Zap
 } from 'lucide-react';
 
-const BAND_OPTIONS = [
+const BAND_OPTIONS_4G = [
   { id: 'L1800', label: 'L1800 (1.8 GHz)' },
   { id: 'L2100', label: 'L2100 (2.1 GHz)' },
   { id: 'L900', label: 'L900 (900 MHz)' },
@@ -51,7 +52,19 @@ const BAND_OPTIONS = [
   { id: 'L2600', label: 'L2600' }
 ];
 
-const ALL_BAND_IDS = BAND_OPTIONS.map(b => b.id);
+const BAND_OPTIONS_5G = [
+  { id: 'NR2300', label: 'NR2300 (2.3 GHz)' },
+  { id: 'NR2100', label: 'NR2100 (2.1 GHz)' },
+  { id: 'NR3500', label: 'NR3500 (3.5 GHz)' }
+];
+
+const BAND_OPTIONS_2G = [
+  { id: 'GSM', label: 'GSM (900 MHz)' },
+  { id: 'DCS', label: 'DCS (1800 MHz)' }
+];
+
+const BAND_OPTIONS = BAND_OPTIONS_4G;
+const ALL_BAND_IDS = BAND_OPTIONS_4G.map(b => b.id);
 
 // Comprehensive list of Hourly KPIs for TwoDb measHy4g
 const HOURLY_KPIS = [
@@ -202,8 +215,75 @@ const REGIONAL_DEFAULT_KPIS = [
   'ip_delay'
 ];
 
+// Fallback 5G KPIs
+const FALLBACK_5G_KPIS = [
+  { id: 'payload', label: 'Payload (GB)', unit: 'GB', category: 'Productivity' },
+  { id: 'payload_dl', label: 'DL Payload (GB)', unit: 'GB', category: 'Productivity' },
+  { id: 'payload_ul', label: 'UL Payload (GB)', unit: 'GB', category: 'Productivity' },
+  { id: 'user_dl_thp', label: 'User DL Thp (Mbps)', unit: 'Mbps', category: 'Throughput & Speed' },
+  { id: 'user_ul_thp', label: 'User UL Thp (Mbps)', unit: 'Mbps', category: 'Throughput & Speed' },
+  { id: 'cell_dl_thp', label: 'Cell DL Thp (Mbps)', unit: 'Mbps', category: 'Throughput & Speed' },
+  { id: 'cell_ul_thp', label: 'Cell UL Thp (Mbps)', unit: 'Mbps', category: 'Throughput & Speed' },
+  { id: 'spectrum_efficiency', label: 'Spectrum Efficiency (bps/Hz)', unit: 'bps/Hz', category: 'Throughput & Speed' },
+  { id: 'sn_setup_sr', label: 'SN Setup SR (%)', unit: '%', category: 'Accessibility' },
+  { id: 'availability', label: 'Availability (%)', unit: '%', category: 'Accessibility' },
+  { id: 'retainability', label: 'NR Retainability Rate (%)', unit: '%', category: 'Retainability' },
+  { id: 'packet_loss', label: 'Packet Loss Rate (%)', unit: '%', category: 'Retainability' },
+  { id: 'intra_ho_sr', label: 'Intra-Freq HO SR (%)', unit: '%', category: 'Mobility' },
+  { id: 'inter_ho_sr', label: 'Inter-Freq HO SR (%)', unit: '%', category: 'Mobility' },
+  { id: 'dl_prb', label: 'DL PRB Utilization (%)', unit: '%', category: 'Capacity & Utilization' },
+  { id: 'ul_prb', label: 'UL PRB Utilization (%)', unit: '%', category: 'Capacity & Utilization' },
+  { id: 'active_users', label: 'Active Users', unit: 'Users', category: 'User Concurrency' },
+  { id: 'rrc_users', label: 'RRC Users', unit: 'Users', category: 'User Concurrency' },
+  { id: 'max_rrc_users', label: 'Max RRC Users', unit: 'Users', category: 'User Concurrency' },
+  { id: 'cqi', label: 'CQI Average', unit: '', category: 'Quality & Latency' },
+  { id: 'cqi_256qam', label: 'CQI 256 QAM', unit: '', category: 'Quality & Latency' },
+  { id: 'cqi_64qam', label: 'CQI 64 QAM', unit: '', category: 'Quality & Latency' },
+  { id: 'latency_dl', label: 'DL Latency (ms)', unit: 'ms', category: 'Quality & Latency' },
+  { id: 'latency_ul', label: 'UL Latency (ms)', unit: 'ms', category: 'Quality & Latency' },
+  { id: 'uplink_interference', label: 'UL Interference (dBm)', unit: 'dBm', category: 'Quality & Latency' }
+];
+
+const ALL_5G_KPI_IDS = FALLBACK_5G_KPIS.map(k => k.id);
+
+// Fallback 2G KPIs
+const FALLBACK_2G_KPIS = [
+  { id: 'payload_total', label: 'Total 2G Payload (GB)', unit: 'GB', category: 'Traffic & Payload' },
+  { id: 'payload_gprs', label: 'GPRS Payload (GB)', unit: 'GB', category: 'Traffic & Payload' },
+  { id: 'payload_edge', label: 'EDGE Payload (GB)', unit: 'GB', category: 'Traffic & Payload' },
+  { id: 'tch_traffic', label: 'TCH Traffic (Erlang)', unit: 'Erl', category: 'Traffic & Payload' },
+  { id: 'sdcch_traffic', label: 'SDCCH Traffic (Erlang)', unit: 'Erl', category: 'Traffic & Payload' },
+  { id: 'tch_hr_traffic', label: 'TCH Half Rate Traffic (Erl)', unit: 'Erl', category: 'Traffic & Payload' },
+  { id: 'tch_fr_traffic', label: 'TCH Full Rate Traffic (Erl)', unit: 'Erl', category: 'Traffic & Payload' },
+  { id: 'availability', label: 'TCH Availability (%)', unit: '%', category: 'Accessibility' },
+  { id: 'sdsr', label: 'SDCCH Setup SR (%)', unit: '%', category: 'Accessibility' },
+  { id: 'sd_to_tch_sr', label: 'SD to TCH Success Rate (%)', unit: '%', category: 'Accessibility' },
+  { id: 'tch_block_rate', label: 'TCH Blocking Rate (%)', unit: '%', category: 'Accessibility' },
+  { id: 'sdcch_block_rate', label: 'SDCCH Blocking Rate (%)', unit: '%', category: 'Accessibility' },
+  { id: 'tbf_dl_est_sr', label: 'TBF DL Est SR (%)', unit: '%', category: 'Accessibility' },
+  { id: 'tbf_ul_est_sr', label: 'TBF UL Est SR (%)', unit: '%', category: 'Accessibility' },
+  { id: 'tch_drop_rate', label: 'TCH Drop Rate (%)', unit: '%', category: 'Retainability' },
+  { id: 'tbf_comp_sr', label: 'TBF Completion SR (%)', unit: '%', category: 'Retainability' },
+  { id: 'hosr', label: 'Handover Success Rate (HOSR) (%)', unit: '%', category: 'Mobility' },
+  { id: 'fastreturn_lte', label: 'Fast Return to LTE', unit: 'Events', category: 'Mobility' },
+  { id: 'fastreturn_utran', label: 'Fast Return to UTRAN', unit: 'Events', category: 'Mobility' },
+  { id: 'edge_dl_thp', label: 'EDGE DL Throughput (kbps)', unit: 'kbps', category: 'Throughput & Speed' },
+  { id: 'gprs_dl_thp', label: 'GPRS DL Throughput (kbps)', unit: 'kbps', category: 'Throughput & Speed' },
+  { id: 'dl_qual', label: 'DL Qual 0-5 (%)', unit: '%', category: 'Quality & Interference' },
+  { id: 'ul_qual', label: 'UL Qual 0-5 (%)', unit: '%', category: 'Quality & Interference' },
+  { id: 'icm_interference', label: 'ICM Interference (%)', unit: '%', category: 'Quality & Interference' },
+  { id: 'dl_emi', label: 'DL EMI', unit: '', category: 'Quality & Interference' },
+  { id: 'ul_emi', label: 'UL EMI', unit: '', category: 'Quality & Interference' },
+  { id: 'trx_count', label: 'Number of TRX', unit: 'TRX', category: 'Equipment & Capacity' },
+  { id: 'tch_count', label: 'Number of TCH Channels', unit: 'Channels', category: 'Equipment & Capacity' },
+  { id: 'sdcch_count', label: 'Number of SDCCH Channels', unit: 'Channels', category: 'Equipment & Capacity' },
+  { id: 'pdtch_dynamic', label: 'Dynamic PDTCH', unit: 'Channels', category: 'Equipment & Capacity' }
+];
+
+const ALL_2G_KPI_IDS = FALLBACK_2G_KPIS.map(k => k.id);
+
 const LATEST_TWODB_DATE = '2026-10-27';
-const LATEST_ONEDB_DATE = '2026-11-02';
+const LATEST_ONEDB_DATE = '2026-11-03';
 
 const getInitialDateRange = (mode = 'hourly') => {
   const latestDateStr = mode === 'daily' ? LATEST_ONEDB_DATE : LATEST_TWODB_DATE;
@@ -253,6 +333,18 @@ export default function App() {
   const [selectedHourlyKpis, setSelectedHourlyKpis] = useState(DEFAULT_HOURLY_KPIS);
   const [selectedDailyKpiIds, setSelectedDailyKpiIds] = useState(DEFAULT_DAILY_KPIS);
   const [dailyKpisList, setDailyKpisList] = useState(FALLBACK_DAILY_KPIS);
+
+  // 5G & 2G KPI selections (DEFAULT: tampilkan SEMUA KPI!)
+  const [selected5gKpiIds, setSelected5gKpiIds] = useState(ALL_5G_KPI_IDS);
+  const [kpis5gList, setKpis5gList] = useState(FALLBACK_5G_KPIS);
+
+  const [selected2gKpiIds, setSelected2gKpiIds] = useState(ALL_2G_KPI_IDS);
+  const [kpis2gList, setKpis2gList] = useState(FALLBACK_2G_KPIS);
+
+  // Sites list per technology
+  const [sites5g, setSites5g] = useState(['UPD012', 'UPD003', 'UPD076', 'SSU136', 'TER129', 'UPD183', 'COI344', 'COI350']);
+  const [sites2g, setSites2g] = useState(['MRW002', 'UPD012', 'UPD183', 'COI350', 'UPD919', 'TMH018']);
+
   const [kpiDropdownOpen, setKpiDropdownOpen] = useState(false);
 
   // Date range
@@ -353,15 +445,71 @@ export default function App() {
         }
       })
       .catch(err => console.error("Could not fetch daily KPI catalog:", err));
+
+    // Fetch 5G Sites and KPI catalog
+    fetch('/api/5g/sites')
+      .then(res => res.json())
+      .then(json => {
+        if (json.sites && Array.isArray(json.sites)) {
+          setSites5g(json.sites);
+        }
+      })
+      .catch(err => console.error("Could not fetch 5G sites:", err));
+
+    fetch('/api/5g/kpi_list')
+      .then(res => res.json())
+      .then(json => {
+        if (json && Array.isArray(json.kpis)) {
+          setKpis5gList(json.kpis);
+          setSelected5gKpiIds(json.kpis.map(k => k.id));
+        }
+      })
+      .catch(err => console.error("Could not fetch 5G KPI catalog:", err));
+
+    // Fetch 2G Sites and KPI catalog
+    fetch('/api/2g/sites')
+      .then(res => res.json())
+      .then(json => {
+        if (json.sites && Array.isArray(json.sites)) {
+          setSites2g(json.sites);
+        }
+      })
+      .catch(err => console.error("Could not fetch 2G sites:", err));
+
+    fetch('/api/2g/kpi_list')
+      .then(res => res.json())
+      .then(json => {
+        if (json && Array.isArray(json.kpis)) {
+          setKpis2gList(json.kpis);
+          setSelected2gKpiIds(json.kpis.map(k => k.id));
+        }
+      })
+      .catch(err => console.error("Could not fetch 2G KPI catalog:", err));
   }, []);
+
+  // Dynamic band options per technology
+  const activeBandOptions = useMemo(() => {
+    if (activeMenu === '5g') return BAND_OPTIONS_5G;
+    if (activeMenu === '2g') return BAND_OPTIONS_2G;
+    return BAND_OPTIONS_4G;
+  }, [activeMenu]);
+
+  const allActiveBandIds = useMemo(() => activeBandOptions.map(b => b.id), [activeBandOptions]);
+
+  // Dynamic sites list per technology
+  const activeSitesList = useMemo(() => {
+    if (activeMenu === '5g') return sites5g.length > 0 ? sites5g : ['UPD012', 'UPD003', 'UPD076', 'SSU136', 'TER129', 'UPD183'];
+    if (activeMenu === '2g') return sites2g.length > 0 ? sites2g : ['MRW002', 'UPD012', 'UPD183', 'COI350', 'UPD919'];
+    return allSites;
+  }, [activeMenu, sites5g, sites2g, allSites]);
 
   // Filter sites for autocomplete search
   const filteredSites = useMemo(() => {
-    if (!siteSearch) return allSites.slice(0, 50);
-    return allSites
+    if (!siteSearch) return activeSitesList.slice(0, 50);
+    return activeSitesList
       .filter(s => s.toLowerCase().includes(siteSearch.toLowerCase()))
       .slice(0, 50);
-  }, [allSites, siteSearch]);
+  }, [activeSitesList, siteSearch]);
 
   const isDailyMode = activeMenu === "4g-daily";
 
@@ -369,14 +517,17 @@ export default function App() {
   const fetchSectorData = (targetSite, start, end, menuMode, cellType) => {
     setLoading(true);
     const startTime = Date.now();
-    const endpoint = menuMode === "4g-daily" ? "/api/daily/payload_sectors" : "/api/payload_sectors";
+    let endpoint = "/api/payload_sectors";
+    if (menuMode === "4g-daily") endpoint = "/api/daily/payload_sectors";
+    else if (menuMode === "5g") endpoint = "/api/5g/payload_sectors";
+    else if (menuMode === "2g") endpoint = "/api/2g/payload_sectors";
 
     const params = new URLSearchParams();
     params.append('site_id', targetSite);
     if (start) params.append('start_date', start);
     if (end) params.append('end_date', end);
     if (cellType) params.append('cell_type', cellType);
-    params.append('days_back', menuMode === "4g-daily" ? '14' : '6');
+    params.append('days_back', menuMode === "4g-hourly" ? '6' : '14');
 
     fetch(`${endpoint}?${params.toString()}`)
       .then(res => res.json())
@@ -490,23 +641,46 @@ export default function App() {
     fetchScopeAggregationData(aggregationScope, newMode, startDate, endDate, nops, cities, kecs, sites, selectedBands);
   };
 
-  // Switch Menu Mode (4G Hourly <-> 4G Daily)
+  // Switch Menu Mode (4G Hourly <-> 4G Daily <-> 5G <-> 2G)
   const handleSwitchMenu = (targetMenu) => {
     if (targetMenu === activeMenu) return;
     setActiveMenu(targetMenu);
-    const isDaily = targetMenu === "4g-daily";
+    
+    let nextSite = siteId;
+    if (targetMenu === '5g') {
+      const s5List = sites5g.length > 0 ? sites5g : ['UPD012', 'UPD003', 'UPD076'];
+      if (!s5List.includes(siteId.toUpperCase())) {
+        nextSite = 'UPD012';
+        setSiteId('UPD012');
+      }
+      setSelectedBands(BAND_OPTIONS_5G.map(b => b.id));
+      setAggregationScope('sector');
+    } else if (targetMenu === '2g') {
+      const s2List = sites2g.length > 0 ? sites2g : ['MRW002', 'UPD012', 'UPD183'];
+      if (!s2List.includes(siteId.toUpperCase())) {
+        nextSite = 'MRW002';
+        setSiteId('MRW002');
+      }
+      setSelectedBands(BAND_OPTIONS_2G.map(b => b.id));
+      setAggregationScope('sector');
+    } else if (targetMenu === '4g-hourly') {
+      setSelectedBands(BAND_OPTIONS_4G.map(b => b.id));
+      setAggregationScope('sector');
+    } else if (targetMenu === '4g-daily') {
+      setSelectedBands(BAND_OPTIONS_4G.map(b => b.id));
+    }
+
+    const isDaily = targetMenu !== "4g-hourly";
     setTimeMode(isDaily ? "daily" : "hourly");
 
     const newDates = getInitialDateRange(isDaily ? 'daily' : 'hourly');
     setStartDate(newDates.start);
     setEndDate(newDates.end);
 
-    // If switching to Hourly, force scope to 'sector'
-    const targetScope = isDaily ? aggregationScope : 'sector';
-    if (!isDaily) setAggregationScope('sector');
+    const targetScope = targetMenu === '4g-daily' ? aggregationScope : 'sector';
 
     if (targetScope === 'sector') {
-      fetchSectorData(siteId, newDates.start, newDates.end, targetMenu, filterType);
+      fetchSectorData(nextSite, newDates.start, newDates.end, targetMenu, filterType);
     } else {
       fetchScopeAggregationData(targetScope, aggregationMode, newDates.start, newDates.end, selectedNops, selectedCities, selectedKecamatans, selectedSites, selectedBands);
     }
@@ -534,16 +708,34 @@ export default function App() {
   };
 
   const handleToggleAllBands = () => {
-    if (selectedBands.length === ALL_BAND_IDS.length) {
-      setSelectedBands([ALL_BAND_IDS[0]]);
+    if (selectedBands.length === allActiveBandIds.length) {
+      setSelectedBands([allActiveBandIds[0]]);
     } else {
-      setSelectedBands([...ALL_BAND_IDS]);
+      setSelectedBands([...allActiveBandIds]);
     }
   };
 
   // Toggle single KPI
   const handleToggleKpi = (kpiId) => {
-    if (isDailyMode) {
+    if (activeMenu === '5g') {
+      setSelected5gKpiIds(prev => {
+        if (prev.includes(kpiId)) {
+          if (prev.length <= 1) return prev;
+          return prev.filter(id => id !== kpiId);
+        } else {
+          return [...prev, kpiId];
+        }
+      });
+    } else if (activeMenu === '2g') {
+      setSelected2gKpiIds(prev => {
+        if (prev.includes(kpiId)) {
+          if (prev.length <= 1) return prev;
+          return prev.filter(id => id !== kpiId);
+        } else {
+          return [...prev, kpiId];
+        }
+      });
+    } else if (activeMenu === '4g-daily') {
       setSelectedDailyKpiIds(prev => {
         if (prev.includes(kpiId)) {
           if (prev.length <= 1) return prev;
@@ -566,7 +758,11 @@ export default function App() {
 
   // Select all KPIs
   const handleSelectAllKpis = () => {
-    if (isDailyMode) {
+    if (activeMenu === '5g') {
+      setSelected5gKpiIds(kpis5gList.map(k => k.id));
+    } else if (activeMenu === '2g') {
+      setSelected2gKpiIds(kpis2gList.map(k => k.id));
+    } else if (activeMenu === '4g-daily') {
       setSelectedDailyKpiIds(dailyKpisList.map(k => k.id));
     } else {
       setSelectedHourlyKpis(HOURLY_KPIS.map(k => k.id));
@@ -575,7 +771,13 @@ export default function App() {
 
   // Select default KPIs
   const handleSelectDefaultKpis = () => {
-    if (isDailyMode) {
+    if (activeMenu === '5g') {
+      // 5G: Tampilkan semua KPI
+      setSelected5gKpiIds(kpis5gList.map(k => k.id));
+    } else if (activeMenu === '2g') {
+      // 2G: Tampilkan semua KPI
+      setSelected2gKpiIds(kpis2gList.map(k => k.id));
+    } else if (activeMenu === '4g-daily') {
       if (aggregationScope !== 'sector') {
         setSelectedDailyKpiIds(REGIONAL_DEFAULT_KPIS);
       } else {
@@ -587,8 +789,19 @@ export default function App() {
   };
 
   // Current active KPI list and active IDs
-  const activeKpiCatalog = isDailyMode ? dailyKpisList : HOURLY_KPIS;
-  const activeSelectedKpiIds = isDailyMode ? selectedDailyKpiIds : selectedHourlyKpis;
+  const activeKpiCatalog = useMemo(() => {
+    if (activeMenu === '5g') return kpis5gList;
+    if (activeMenu === '2g') return kpis2gList;
+    if (activeMenu === '4g-daily') return dailyKpisList;
+    return HOURLY_KPIS;
+  }, [activeMenu, kpis5gList, kpis2gList, dailyKpisList]);
+
+  const activeSelectedKpiIds = useMemo(() => {
+    if (activeMenu === '5g') return selected5gKpiIds;
+    if (activeMenu === '2g') return selected2gKpiIds;
+    if (activeMenu === '4g-daily') return selectedDailyKpiIds;
+    return selectedHourlyKpis;
+  }, [activeMenu, selected5gKpiIds, selected2gKpiIds, selectedDailyKpiIds, selectedHourlyKpis]);
 
   const actualBands = data?.available_bands || ALL_BAND_IDS;
   const availableSectors = data?.available_sectors || [1, 2, 3];
@@ -659,7 +872,9 @@ export default function App() {
               <span className={`text-[10px] font-medium tracking-wide ${
                 darkMode ? 'text-slate-400' : 'text-slate-500'
               }`}>
-                {isDailyMode ? '4G Daily (oneDB)' : '4G Hourly (twoDB)'}
+                {activeMenu === '2g' ? '2G Monitoring (oneDB)' :
+                 activeMenu === '5g' ? '5G Monitoring (oneDB)' :
+                 isDailyMode ? '4G Daily (oneDB)' : '4G Hourly (twoDB)'}
               </span>
             </div>
           </div>
@@ -681,13 +896,40 @@ export default function App() {
             Main Navigation
           </div>
 
-          {/* 4G Monitoring Group */}
+          {/* 1. 2G Monitoring */}
+          <div className="mb-1">
+            <button 
+              type="button"
+              onClick={() => handleSwitchMenu("2g")}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-bold text-xs transition cursor-pointer ${
+                activeMenu === "2g"
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : darkMode 
+                    ? 'text-slate-300 hover:text-white hover:bg-slate-800/80' 
+                    : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Radio className={`w-4 h-4 ${activeMenu === "2g" ? 'text-white' : 'text-emerald-500'}`} />
+                <span>2G Monitoring</span>
+              </div>
+              {activeMenu === "2g" ? (
+                <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse"></span>
+              ) : (
+                <span className="text-[10px] opacity-60">OneDb</span>
+              )}
+            </button>
+          </div>
+
+          {/* 2. 4G Monitoring Group */}
           <div>
             <button
               type="button"
               onClick={() => setExpanded4G(!expanded4G)}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-bold text-xs transition cursor-pointer ${
-                darkMode ? 'text-slate-200 hover:bg-slate-800/80' : 'text-slate-800 hover:bg-slate-100'
+                (activeMenu === "4g-hourly" || activeMenu === "4g-daily") && !expanded4G
+                  ? 'bg-blue-600 text-white'
+                  : darkMode ? 'text-slate-200 hover:bg-slate-800/80' : 'text-slate-800 hover:bg-slate-100'
               }`}
             >
               <div className="flex items-center gap-2.5">
@@ -748,6 +990,31 @@ export default function App() {
                 </button>
               </div>
             )}
+          </div>
+
+          {/* 3. 5G Monitoring */}
+          <div className="mt-1">
+            <button 
+              type="button"
+              onClick={() => handleSwitchMenu("5g")}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-bold text-xs transition cursor-pointer ${
+                activeMenu === "5g"
+                  ? 'bg-cyan-600 text-white shadow-xs'
+                  : darkMode 
+                    ? 'text-slate-300 hover:text-white hover:bg-slate-800/80' 
+                    : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Wifi className={`w-4 h-4 ${activeMenu === "5g" ? 'text-white' : 'text-cyan-500'}`} />
+                <span>5G Monitoring</span>
+              </div>
+              {activeMenu === "5g" ? (
+                <span className="w-2 h-2 rounded-full bg-cyan-300 animate-pulse"></span>
+              ) : (
+                <span className="text-[10px] opacity-60">OneDb</span>
+              )}
+            </button>
           </div>
         </div>
 
@@ -1059,7 +1326,7 @@ export default function App() {
                       darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
                     }`}
                   >
-                    <span>{selectedBands.length === ALL_BAND_IDS.length ? 'Semua Band' : `${selectedBands.length} selected`}</span>
+                    <span>{selectedBands.length === allActiveBandIds.length ? 'Semua Band' : `${selectedBands.length} selected`}</span>
                     <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
                   </button>
 
@@ -1070,7 +1337,7 @@ export default function App() {
                       <div
                         onClick={handleToggleAllBands}
                         className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer font-bold transition ${
-                          selectedBands.length === ALL_BAND_IDS.length
+                          selectedBands.length === allActiveBandIds.length
                             ? 'bg-blue-600 text-white'
                             : darkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-100 text-slate-800'
                         }`}
@@ -1078,18 +1345,18 @@ export default function App() {
                         <div className="flex items-center gap-2">
                           <input
                             type="checkbox"
-                            checked={selectedBands.length === ALL_BAND_IDS.length}
+                            checked={selectedBands.length === allActiveBandIds.length}
                             onChange={() => {}}
                             className="w-3.5 h-3.5 rounded text-blue-600 pointer-events-none"
                           />
                           <span>Pilih Semua Band</span>
                         </div>
-                        {selectedBands.length === ALL_BAND_IDS.length && <Check className="w-3.5 h-3.5" />}
+                        {selectedBands.length === allActiveBandIds.length && <Check className="w-3.5 h-3.5" />}
                       </div>
 
                       <div className="border-t border-slate-100 dark:border-slate-800 my-1"></div>
 
-                      {BAND_OPTIONS.map(b => {
+                      {activeBandOptions.map(b => {
                         const isActual = actualBands.includes(b.id);
                         const isChecked = selectedBands.includes(b.id);
                         return (
@@ -1931,21 +2198,21 @@ export default function App() {
                   : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
             }`}>
               
-              {/* Sector Level Charts (4G Hourly OR 4G Daily Sector) */}
+              {/* Sector Level Charts (4G Hourly, 4G Daily, 5G, or 2G Sector) */}
               {(!isDailyMode || aggregationScope === 'sector') && currentSectorData && activeSelectedKpiIds.map(k_id => {
                 const kpiData = currentKpis[k_id];
                 if (!kpiData) return null;
 
                 return (
                   <SectorPayloadChart
-                    key={`sector_${selectedSector}_${k_id}`}
+                    key={`${activeMenu}_sector_${selectedSector}_${k_id}`}
                     title={kpiData.title}
                     unit={kpiData.unit}
-                    timestamps={currentSectorData.timestamps}
+                    timestamps={currentSectorData.timestamps || data?.timestamps || []}
                     carrierSeries={kpiData.carrier_series}
                     totalSeries={kpiData.total_series}
                     carrierBands={kpiData.carrier_bands || {}}
-                    hasTotal={kpiData.has_total}
+                    hasTotal={kpiData.has_total || kpiData.has_tot}
                     bandFilter={selectedBands}
                     timeMode={timeMode}
                     minY={kpiData.min_y}
@@ -1995,7 +2262,9 @@ export default function App() {
             <div>
               <span className="font-semibold">Database: </span>
               <span className="font-mono font-medium">
-                {isDailyMode ? 'OneDb Live (measDy4g & measBdbh4g)' : 'TwoDb Live (measHy4g)'}
+                {activeMenu === '2g' ? 'OneDb Live (measDy2g)' :
+                 activeMenu === '5g' ? 'OneDb Live (measDy5g)' :
+                 isDailyMode ? 'OneDb Live (measDy4g & measBdbh4g)' : 'TwoDb Live (measHy4g)'}
               </span>
             </div>
             {data?.enodeb_name && (!isDailyMode || aggregationScope === 'sector') && (

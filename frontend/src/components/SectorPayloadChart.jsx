@@ -14,7 +14,22 @@ export const BAND_COLORS = {
   'L2600_1': '#ec4899',
   'L2600_2': '#db2777',
   'L2600_3': '#be185d',
-  'L2600_4': '#9d174d'
+  'L2600_4': '#9d174d',
+  // 5G Bands & Carriers
+  'NR2300': '#06b6d4',  // Cyan
+  'NR2100': '#c084fc',  // Purple
+  'NR3500': '#8b5cf6',  // Violet
+  'VP1': '#06b6d4',     // Cyan
+  'VQ1': '#3b82f6',     // Blue
+  'MK1': '#10b981',     // Emerald
+  'QP1': '#f59e0b',     // Amber
+  // 2G Bands & Carriers
+  'GSM': '#f97316',     // Vivid Orange (G900)
+  'DCS': '#3b82f6',     // Vivid Blue (G1800)
+  'G900': '#f97316',
+  'G1800': '#3b82f6',
+  'MD1': '#f97316',
+  'MG1': '#3b82f6'
 };
 
 const MONTH_NAMES_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -50,6 +65,8 @@ export function getBandForCarrier(cName, carrierBands = {}) {
   if (upper.includes('VV') || upper.includes('QV') || upper.endsWith('V1') || upper.endsWith('V2') || upper.endsWith('V3')) return 'L2300_3';
   if (upper.includes('MD') || upper.includes('VD')) return 'L700';
   if (upper.includes('MG') || upper.includes('VG')) return 'L2600';
+  if (upper.includes('VP') || upper.includes('VQ') || upper.includes('NR') || upper.includes('5G')) return 'NR2300';
+  if (upper.includes('DCS') || upper.includes('GSM') || upper.includes('2G')) return upper.includes('DCS') ? 'DCS' : 'GSM';
   return 'L1800';
 }
 

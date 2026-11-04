@@ -3,14 +3,17 @@ import { Search, X, Check, CheckSquare, Square, RotateCcw, SlidersHorizontal, Sp
 
 const ORDERED_CATEGORIES = [
   "Productivity",
+  "Traffic & Payload",
   "Accessibility",
   "Retainability",
   "Capacity & Utilization",
   "Throughput & Speed",
   "User Concurrency",
   "Quality & Latency",
+  "Quality & Interference",
   "Mobility",
-  "Equipment & System"
+  "Equipment & System",
+  "Equipment & Capacity"
 ];
 
 export default function KpiDropdownPopover({
