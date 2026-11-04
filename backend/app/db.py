@@ -1,9 +1,46 @@
 import psycopg2
 import logging
+import time
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from .config import settings
 
 logger = logging.getLogger("twodb_connection")
+
+# (db, table) -> (fetched_at_epoch, latest_date)
+_LATEST_DATE_CACHE: Dict[tuple, tuple] = {}
+_LATEST_DATE_TTL_SEC = 600
+
+def get_latest_data_date(db: str, table: str) -> datetime:
+    """
+    Latest "Begin Time" date (midnight) available in `table` on `db` ("twodb" or "onedb").
+    Cached for 10 minutes. Falls back to the last cached value, then yesterday, when unreachable.
+    """
+    key = (db, table)
+    cached = _LATEST_DATE_CACHE.get(key)
+    if cached and time.time() - cached[0] < _LATEST_DATE_TTL_SEC:
+        return cached[1]
+
+    fallback = cached[1] if cached else (datetime.now() - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    conn = get_twodb_connection(timeout=5) if db == "twodb" else get_onedb_connection(timeout=5)
+    if not conn:
+        return fallback
+    try:
+        cur = conn.cursor()
+        cur.execute(f'SELECT MAX("Begin Time") FROM "{table}";')
+        latest = cur.fetchone()[0]
+        cur.close()
+    except Exception as e:
+        logger.warning(f"Could not read latest date from {db}.{table}: {e}")
+        latest = None
+    finally:
+        conn.close()
+
+    if latest is None:
+        return fallback
+    latest_date = datetime(latest.year, latest.month, latest.day)
+    _LATEST_DATE_CACHE[key] = (time.time(), latest_date)
+    return latest_date
 
 def get_twodb_connection(timeout: int = 12):
     """

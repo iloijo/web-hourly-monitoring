@@ -277,11 +277,16 @@ const FALLBACK_2G_KPIS = [
 
 const ALL_2G_KPI_IDS = FALLBACK_2G_KPIS.map(k => k.id);
 
-const LATEST_TWODB_DATE = '2026-10-27';
-const LATEST_ONEDB_DATE = '2026-11-03';
+// Latest data date per menu, filled from /api/latest_dates on mount (fallback: yesterday)
+const yesterdayStr = (() => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+})();
+const latestDates = { '4g-hourly': yesterdayStr, '4g-daily': yesterdayStr, '5g': yesterdayStr, '2g': yesterdayStr };
 
-const getInitialDateRange = (mode = 'hourly') => {
-  const latestDateStr = mode === 'daily' ? LATEST_ONEDB_DATE : LATEST_TWODB_DATE;
+const getInitialDateRange = (mode = 'hourly', menu = mode === 'daily' ? '4g-daily' : '4g-hourly') => {
+  const latestDateStr = latestDates[menu] || yesterdayStr;
   const dEnd = new Date(latestDateStr);
   const dStart = new Date(latestDateStr);
   dStart.setDate(dStart.getDate() - (mode === 'daily' ? 14 : 6));
@@ -629,7 +634,21 @@ export default function App() {
 
   // Initial load on mount
   useEffect(() => {
-    fetchSectorData("MRW002", startDate, endDate, "4g-hourly", "macro");
+    fetch('/api/latest_dates')
+      .then(res => res.json())
+      .then(json => {
+        if (json['4g_hourly']) latestDates['4g-hourly'] = json['4g_hourly'];
+        if (json['4g_daily']) latestDates['4g-daily'] = json['4g_daily'];
+        if (json['5g']) latestDates['5g'] = json['5g'];
+        if (json['2g']) latestDates['2g'] = json['2g'];
+      })
+      .catch(() => {})
+      .finally(() => {
+        const dates = getInitialDateRange('hourly');
+        setStartDate(dates.start);
+        setEndDate(dates.end);
+        fetchSectorData("MRW002", dates.start, dates.end, "4g-hourly", "macro");
+      });
   }, []);
 
   // When scope changes, load appropriate data
@@ -726,7 +745,7 @@ export default function App() {
     const isDaily = targetMenu !== "4g-hourly";
     setTimeMode(isDaily ? "daily" : "hourly");
 
-    const newDates = getInitialDateRange(isDaily ? 'daily' : 'hourly');
+    const newDates = getInitialDateRange(isDaily ? 'daily' : 'hourly', targetMenu);
     setStartDate(newDates.start);
     setEndDate(newDates.end);
 

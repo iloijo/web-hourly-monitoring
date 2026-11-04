@@ -5,7 +5,7 @@ import re
 from collections import defaultdict
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
-from .db import get_onedb_connection
+from .db import get_onedb_connection, get_latest_data_date
 from .queries import get_band_from_ci, normalize_cell_key, get_clean_carrier_label
 from .site_names import get_site_display_name, get_site_name
 
@@ -911,8 +911,8 @@ def get_site_payload_daily_data(
                 except Exception:
                     pass
 
-    # 2. Date ranges (Latest known data in measDy4g is 2026-11-02)
-    max_known_db_date = datetime(2026, 11, 2)
+    # 2. Date ranges (capped at latest data in measDy4g)
+    max_known_db_date = get_latest_data_date("onedb", "measDy4g")
     now = datetime.now()
     yesterday = now - timedelta(days=1)
     
@@ -1261,32 +1261,31 @@ def get_site_payload_daily_data(
         "total_records": len(all_meas_rows),
         "execution_time_sec": round(t1 - t0, 3),
         "source": "OneDb Live (187.127.124.130:5432: measDy4g & measBdbh4g)",
-        "latest_db_date": "2026-11-02"
+        "latest_db_date": max_known_db_date.strftime("%Y-%m-%d")
     }
 
-BAND_CASE_SQL = """
-    CASE 
-        WHEN (d."cellId"::int %% 256) BETWEEN 70 AND 79 OR d."Cell Name" LIKE '%%VE%%' THEN 'L700'
-        WHEN (d."cellId"::int %% 256) BETWEEN 20 AND 29 OR d."Cell Name" LIKE '%%MT%%' THEN 'L900'
-        WHEN (d."cellId"::int %% 256) BETWEEN 10 AND 19 OR d."Cell Name" LIKE '%%MR%%' THEN 'L1800'
-        WHEN (d."cellId"::int %% 256) BETWEEN 0 AND 9   OR d."Cell Name" LIKE '%%SL%%' THEN 'L2100'
-        WHEN (d."cellId"::int %% 256) BETWEEN 40 AND 49 OR d."Cell Name" LIKE '%%MF%%' THEN 'L2300_2'
-        WHEN (d."cellId"::int %% 256) BETWEEN 30 AND 39 OR d."Cell Name" LIKE '%%ME%%' THEN 'L2300_1'
-        ELSE 'L1800'
+def _band_case_sql(alias: str) -> str:
+    """Band_LTE rule (skill band-lte): last digit + length of cellId. Unmatched -> 'OTHER' (skipped)."""
+    c = f'{alias}."cellId"::bigint::text'
+    return f"""
+    CASE
+        WHEN LENGTH({c}) > 2 AND RIGHT({c}, 1) = '8' THEN 'L2600_3'
+        WHEN LENGTH({c}) > 2 AND RIGHT({c}, 1) = '9' THEN 'L2600_4'
+        WHEN RIGHT({c}, 1) = '1' THEN 'L1800'
+        WHEN RIGHT({c}, 1) = '2' THEN 'L900'
+        WHEN RIGHT({c}, 1) = '3' THEN 'L2100'
+        WHEN RIGHT({c}, 1) = '4' THEN 'L2300_1'
+        WHEN RIGHT({c}, 1) = '5' THEN 'L2300_2'
+        WHEN RIGHT({c}, 1) = '6' THEN 'L2300_3'
+        WHEN RIGHT({c}, 1) = '7' THEN 'L700'
+        WHEN RIGHT({c}, 1) = '8' THEN 'L2600_1'
+        WHEN RIGHT({c}, 1) = '9' THEN 'L2600_2'
+        ELSE 'OTHER'
     END
 """
 
-BAND_CASE_BDBH_SQL = """
-    CASE 
-        WHEN (b."cellId"::int %% 256) BETWEEN 70 AND 79 THEN 'L700'
-        WHEN (b."cellId"::int %% 256) BETWEEN 20 AND 29 THEN 'L900'
-        WHEN (b."cellId"::int %% 256) BETWEEN 10 AND 19 THEN 'L1800'
-        WHEN (b."cellId"::int %% 256) BETWEEN 0 AND 9   THEN 'L2100'
-        WHEN (b."cellId"::int %% 256) BETWEEN 40 AND 49 THEN 'L2300_2'
-        WHEN (b."cellId"::int %% 256) BETWEEN 30 AND 39 THEN 'L2300_1'
-        ELSE 'L1800'
-    END
-"""
+BAND_CASE_SQL = _band_case_sql("d")
+BAND_CASE_BDBH_SQL = _band_case_sql("b")
 
 def get_scope_aggregation_data(
     scope: str = "regional",
@@ -1311,10 +1310,10 @@ def get_scope_aggregation_data(
 
     cur = conn.cursor()
 
-    max_known_db_date = datetime(2026, 11, 2)
+    max_known_db_date = get_latest_data_date("onedb", "measDy4g")
     now = datetime.now()
     yesterday = now - timedelta(days=1)
-    
+
     try:
         dt_end = datetime.strptime(end_date.strip(), "%Y-%m-%d") if end_date else max_known_db_date
     except Exception:
@@ -1410,7 +1409,7 @@ def get_scope_aggregation_data(
 
     # Build SQL queries
     if mode_clean == "band":
-        carrier_keys = ["L700", "L900", "L1800", "L2100", "L2300_1", "L2300_2"]
+        carrier_keys = ["L700", "L900", "L1800", "L2100", "L2300_1", "L2300_2", "L2300_3"]
         carrier_bands = {b: b for b in carrier_keys}
 
         where_enb_dy = "AND d.\"eNodeBId\" = ANY(%s)" if enb_list else ""
@@ -1628,7 +1627,7 @@ def get_scope_aggregation_data(
         "end_date": dt_end.strftime("%Y-%m-%d"),
         "timestamps": sorted_ts,
         "active_entities": active_entities,
-        "available_bands": ["L700", "L900", "L1800", "L2100", "L2300_1", "L2300_2"],
+        "available_bands": ["L700", "L900", "L1800", "L2100", "L2300_1", "L2300_2", "L2300_3"],
         "carrier_bands": carrier_bands,
         "carriers": carrier_keys,
         "kpis": result_kpis,

@@ -5,7 +5,7 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from .db import check_db_health, get_twodb_connection
+from .db import check_db_health, get_twodb_connection, get_latest_data_date
 from .queries import get_site_payload_data
 from .queries_daily import (
     get_hierarchy_data, 
@@ -35,6 +35,17 @@ CACHED_SITES: List[str] = []
 def get_status():
     """Returns database connection status."""
     return check_db_health()
+
+@app.get("/api/latest_dates")
+def get_latest_dates():
+    """Latest available data date (YYYY-MM-DD) per monitoring source."""
+    sources = {
+        "4g_hourly": ("twodb", "measHy4g"),
+        "4g_daily": ("onedb", "measDy4g"),
+        "5g": ("onedb", "measDy5g"),
+        "2g": ("onedb", "measDy2g"),
+    }
+    return {k: get_latest_data_date(db, t).strftime("%Y-%m-%d") for k, (db, t) in sources.items()}
 
 @app.get("/api/sites")
 def get_sites():

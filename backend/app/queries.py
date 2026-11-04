@@ -5,7 +5,7 @@ import re
 from collections import defaultdict
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
-from .db import get_twodb_connection
+from .db import get_twodb_connection, get_latest_data_date
 from .site_names import get_site_display_name, get_site_name
 
 def get_band_from_ci(ci, cell_name: str = "") -> str:
@@ -203,10 +203,10 @@ def get_site_payload_data(
         enodebs.add(f"E_{site_clean}M41")
 
     # 2. Date ranges: Default end_date is today - 1 per Gambar 3 instruction
-    # If today is past the known latest data in TwoDb (2026-10-27), cap default to 2026-10-27
+    # If today is past the latest data in measHy4g, cap default to that date
     now = datetime.now()
     yesterday = now - timedelta(days=1)
-    max_known_db_date = datetime(2026, 10, 27)
+    max_known_db_date = get_latest_data_date("twodb", "measHy4g")
     
     try:
         if end_date:
@@ -491,5 +491,5 @@ def get_site_payload_data(
         "total_records": len(all_meas_rows),
         "execution_time_sec": round(t1 - t0, 3),
         "source": "TwoDb Live (127.0.0.1:5434)",
-        "latest_db_date": "2026-10-27"
+        "latest_db_date": max_known_db_date.strftime("%Y-%m-%d")
     }

@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
-from .db import get_onedb_connection
+from .db import get_onedb_connection, get_latest_data_date
 from .site_names import get_site_display_name, get_site_name
 
 # =============================================================================
@@ -372,7 +372,7 @@ def get_site_payload_5g_data(
     cur = conn.cursor()
 
     # Determine date range
-    max_known_db_date = datetime(2026, 11, 3)
+    max_known_db_date = get_latest_data_date("onedb", "measDy5g")
     now = datetime.now()
     yesterday = now - timedelta(days=1)
     
@@ -613,7 +613,7 @@ def get_scope_aggregation_5g_data(
 
     cur = conn.cursor()
 
-    max_known_db_date = datetime(2026, 11, 3)
+    max_known_db_date = get_latest_data_date("onedb", "measDy5g")
     try:
         dt_end = datetime.strptime(end_date.strip(), "%Y-%m-%d") if end_date else max_known_db_date
     except Exception:
