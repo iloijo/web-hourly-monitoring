@@ -282,11 +282,12 @@ def get_5g_sites() -> List[str]:
         return ["UPD012", "UPD003", "UPD076", "SSU136", "TER129", "UPD183", "COI344", "COI350"]
 
 
-def parse_5g_cell(cell_name: str):
+def parse_5g_cell(cell_name: str, cell_id: Optional[float] = None):
     """
-    Parses sector, carrier, band, and type from 5G cell name e.g.:
-    C_UPD012VP1_Divnet-DMT_VP01 -> sector: 1, carrier: 'VP1', band: 'NR2300', type: 'Macro'
-    C_UPD183QP1_OldBuilding_QP015 -> sector: 15, carrier: 'QP1', band: 'NR2300', type: 'Indoor'
+    Parses sector, carrier, band, and type from 5G cell name & cellId:
+    - cellId ending with 4 -> NR2300 (NR 2300)
+    - cellId ending with 6 -> NR2600 (NR 2600)
+    - cellId ending with 3 -> NR2100 (NR 2100)
     """
     c_upper = cell_name.strip().upper()
     
@@ -294,12 +295,30 @@ def parse_5g_cell(cell_name: str):
     is_indoor = "QP" in c_upper or "_IND" in c_upper or "INB" in c_upper or "RRU" in c_upper
     cell_type = "Indoor" if is_indoor else "Macro"
 
-    # Determine band
-    band = "NR2300"
-    if "NR2100" in c_upper or "2100" in c_upper:
+    # Determine band based on rule: cellId akhiran 4 -> NR2300, akhiran 6 -> NR2600
+    last_digit = None
+    if cell_id is not None:
+        try:
+            last_digit = int(float(cell_id)) % 10
+        except (ValueError, TypeError):
+            pass
+
+    if last_digit == 4:
+        band = "NR2300"
+    elif last_digit == 6:
+        band = "NR2600"
+    elif last_digit == 3:
         band = "NR2100"
-    elif "NR3500" in c_upper or "3500" in c_upper:
-        band = "NR3500"
+    else:
+        # Fallback by cell name / carrier token
+        if "VQ" in c_upper or "2600" in c_upper or "EP" in c_upper:
+            band = "NR2600"
+        elif "MK" in c_upper or "2100" in c_upper or "EK" in c_upper:
+            band = "NR2100"
+        elif "NR3500" in c_upper or "3500" in c_upper:
+            band = "NR3500"
+        else:
+            band = "NR2300"
 
     # Determine carrier and sector from suffix (e.g. _VP01, _VQ02, _MK03, _QP015)
     parts = c_upper.split('_')
@@ -389,6 +408,7 @@ def get_site_payload_5g_data(
         SELECT 
             "Begin Time" as begin_time,
             "NRPhysicalCellDU Name" as cell_name,
+            "NRPhysicalCellDU ID" as cell_id,
             -- KPIs
             ROUND("Payload(GB)_LW"::numeric, 2) as payload,
             ROUND("Payload_DL(GB)_LW"::numeric, 2) as payload_dl,
@@ -442,7 +462,7 @@ def get_site_payload_5g_data(
         row = dict(zip(col_names, r_tuple))
         cname = row['cell_name']
         if cname not in cell_meta_cache:
-            cell_meta_cache[cname] = parse_5g_cell(cname)
+            cell_meta_cache[cname] = parse_5g_cell(cname, cell_id=row.get('cell_id'))
         
         meta = cell_meta_cache[cname]
         c_type = meta['type']
@@ -490,7 +510,7 @@ def get_site_payload_5g_data(
             row = dict(zip(col_names, r_tuple))
             cname = row['cell_name']
             if cname not in cell_meta_cache:
-                cell_meta_cache[cname] = parse_5g_cell(cname)
+                cell_meta_cache[cname] = parse_5g_cell(cname, cell_id=row.get('cell_id'))
             meta = cell_meta_cache[cname]
             sec = meta['sector']
             carrier = meta['carrier']
@@ -566,4 +586,263 @@ def get_site_payload_5g_data(
         "available_types": sorted(list(found_types)) if found_types else ["Macro"],
         "sectors": sectors_output,
         "query_duration_sec": round(time.time() - t0, 3)
+    }
+
+
+def get_scope_aggregation_5g_data(
+    scope: str = "regional",
+    mode: str = "full",
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    nops: Optional[List[str]] = None,
+    cities: Optional[List[str]] = None,
+    kecamatans: Optional[List[str]] = None,
+    sites: Optional[List[str]] = None,
+    bands: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """
+    Returns time-series KPI charts aggregated across Regional, NOP, City/Kabupaten,
+    Kecamatan, or Site levels for 5G (measDy5g) in OneDb.
+    Supports Full Aggregation (entity curves) and Mode Band (NR2300, NR2600, NR2100).
+    Band rule: cellId ending in 4 -> NR2300, ending in 6 -> NR2600.
+    """
+    t0 = time.time()
+    conn = get_onedb_connection(timeout=15)
+    if not conn:
+        raise RuntimeError("OneDb is not reachable for 5G scope aggregation.")
+
+    cur = conn.cursor()
+
+    max_known_db_date = datetime(2026, 11, 3)
+    try:
+        dt_end = datetime.strptime(end_date.strip(), "%Y-%m-%d") if end_date else max_known_db_date
+    except Exception:
+        dt_end = max_known_db_date
+
+    try:
+        dt_start = datetime.strptime(start_date.strip(), "%Y-%m-%d") if start_date else (dt_end - timedelta(days=9))
+    except Exception:
+        dt_start = dt_end - timedelta(days=9)
+
+    start_str = dt_start.strftime("%Y-%m-%d 00:00:00")
+    end_str = dt_end.strftime("%Y-%m-%d 23:59:59")
+
+    # Generate expected date strings
+    expected_ts = []
+    cur_t = dt_start
+    while cur_t <= dt_end:
+        expected_ts.append(cur_t.strftime("%Y-%m-%d"))
+        cur_t += timedelta(days=1)
+    sorted_ts = sorted(list(set(expected_ts)))
+
+    scope_clean = (scope or "regional").lower()
+    mode_clean = (mode or "full").lower()
+
+    active_entities: List[str] = []
+    join_sql = ""
+    where_entity = ""
+    params: List[Any] = [start_str, end_str]
+
+    band_case_sql = """
+        CASE 
+            WHEN ("NRPhysicalCellDU ID"::int %% 10) = 4 THEN 'NR2300'
+            WHEN ("NRPhysicalCellDU ID"::int %% 10) = 6 THEN 'NR2600'
+            ELSE 'NR2100'
+        END
+    """
+
+    if mode_clean == "band":
+        # Mode Band: only 1 entity is selected, and curves are the bands: NR2300, NR2600, NR2100
+        carrier_keys = ["NR2300", "NR2600", "NR2100"]
+        if bands and len(bands) > 0 and len(bands) < len(carrier_keys):
+            carrier_keys = [b for b in bands if b in carrier_keys]
+        carrier_bands = {b: b for b in carrier_keys}
+        series_key_sql = band_case_sql
+
+        if scope_clean == "regional":
+            active_entities = ["Region Sulawesi"]
+        elif scope_clean == "nop":
+            ent = nops[0] if (nops and len(nops) > 0) else "MAKASSAR"
+            active_entities = [ent]
+            join_sql = """
+                JOIN "CellListRCI" r ON substring(m."NRPhysicalCellDU Name" from '^[A-Z]_([A-Z0-9]{6})') = r.site_id
+                JOIN "LookupSITEID" l ON r.site_id = l."Prefix Site ID"
+            """
+            where_entity = "AND l.\"NOP\" = %s"
+            params.append(ent)
+        elif scope_clean == "city":
+            ent = cities[0] if (cities and len(cities) > 0) else "KOTA MAKASSAR"
+            active_entities = [ent]
+            join_sql = """JOIN "CellListRCI" r ON substring(m."NRPhysicalCellDU Name" from '^[A-Z]_([A-Z0-9]{6})') = r.site_id"""
+            where_entity = "AND r.kabupaten = %s"
+            params.append(ent)
+        elif scope_clean == "kecamatan":
+            ent = kecamatans[0] if (kecamatans and len(kecamatans) > 0) else "TAMALATE"
+            active_entities = [ent]
+            join_sql = """JOIN "CellListRCI" r ON substring(m."NRPhysicalCellDU Name" from '^[A-Z]_([A-Z0-9]{6})') = r.site_id"""
+            where_entity = "AND r.kecamatan = %s"
+            params.append(ent)
+        elif scope_clean == "site":
+            ent = sites[0].strip().upper() if (sites and len(sites) > 0) else "UPD012"
+            active_entities = [ent]
+            where_entity = "AND substring(m.\"NRPhysicalCellDU Name\" from '^[A-Z]_([A-Z0-9]{6})') = %s"
+            params.append(ent)
+
+    else:
+        # Mode Full: curves are entities (Regional, NOPs, Cities, Kecamatans, Sites)
+        if scope_clean == "regional":
+            active_entities = ["Region Sulawesi"]
+            series_key_sql = "'Region Sulawesi'"
+        elif scope_clean == "nop":
+            active_entities = nops if (nops and len(nops) > 0) else ["MAKASSAR", "MANADO", "BONE"]
+            series_key_sql = "l.\"NOP\""
+            join_sql = """
+                JOIN "CellListRCI" r ON substring(m."NRPhysicalCellDU Name" from '^[A-Z]_([A-Z0-9]{6})') = r.site_id
+                JOIN "LookupSITEID" l ON r.site_id = l."Prefix Site ID"
+            """
+            where_entity = "AND l.\"NOP\" = ANY(%s)"
+            params.append(active_entities)
+        elif scope_clean == "city":
+            active_entities = cities if (cities and len(cities) > 0) else ["KOTA MAKASSAR", "MINAHASA"]
+            series_key_sql = "r.kabupaten"
+            join_sql = """JOIN "CellListRCI" r ON substring(m."NRPhysicalCellDU Name" from '^[A-Z]_([A-Z0-9]{6})') = r.site_id"""
+            where_entity = "AND r.kabupaten = ANY(%s)"
+            params.append(active_entities)
+        elif scope_clean == "kecamatan":
+            active_entities = kecamatans if (kecamatans and len(kecamatans) > 0) else ["TAMALATE"]
+            series_key_sql = "r.kecamatan"
+            join_sql = """JOIN "CellListRCI" r ON substring(m."NRPhysicalCellDU Name" from '^[A-Z]_([A-Z0-9]{6})') = r.site_id"""
+            where_entity = "AND r.kecamatan = ANY(%s)"
+            params.append(active_entities)
+        elif scope_clean == "site":
+            active_entities = [s.strip().upper() for s in sites] if (sites and len(sites) > 0) else ["UPD012", "UPD003"]
+            series_key_sql = "substring(m.\"NRPhysicalCellDU Name\" from '^[A-Z]_([A-Z0-9]{6})')"
+            where_entity = "AND substring(m.\"NRPhysicalCellDU Name\" from '^[A-Z]_([A-Z0-9]{6})') = ANY(%s)"
+            params.append(active_entities)
+
+        carrier_keys = active_entities
+        carrier_bands = {e: "NR2300" for e in carrier_keys}
+
+    # Optional band filter in full mode
+    where_band = ""
+    if mode_clean == "full" and bands and len(bands) < 3:
+        band_clauses = []
+        if "NR2300" in bands:
+            band_clauses.append("(\"NRPhysicalCellDU ID\"::int %% 10) = 4")
+        if "NR2600" in bands:
+            band_clauses.append("(\"NRPhysicalCellDU ID\"::int %% 10) = 6")
+        if "NR2100" in bands:
+            band_clauses.append("(\"NRPhysicalCellDU ID\"::int %% 10) = 3")
+        if band_clauses:
+            where_band = f"AND ({' OR '.join(band_clauses)})"
+
+    sql = f"""
+        SELECT 
+            m."Begin Time"::date as dt,
+            {series_key_sql} as series_key,
+            -- KPIs
+            ROUND(SUM(m."Payload(GB)_LW")::numeric, 2) as payload,
+            ROUND(SUM(m."Payload_DL(GB)_LW")::numeric, 2) as payload_dl,
+            ROUND(SUM(m."Payload_UL(GB)_LW")::numeric, 2) as payload_ul,
+            ROUND(AVG(m."User_Throughput_DL(Mbps)_LW")::numeric, 2) as user_dl_thp,
+            ROUND(AVG(m."User_Throughput_UL(Mbps)_LW")::numeric, 2) as user_ul_thp,
+            ROUND(AVG(m."Cell_Throughput_DL(Mbps)_LW")::numeric, 2) as cell_dl_thp,
+            ROUND(AVG(m."Cell_Throughput_UL(Mbps)_LW")::numeric, 2) as cell_ul_thp,
+            ROUND(AVG(m."Spectrum_Eff-XHJ_1646720283375")::numeric, 2) as spectrum_efficiency,
+            ROUND(AVG(m."SN_Setup_Success_Rate(%%)_LW" * 100)::numeric, 2) as sn_setup_sr,
+            ROUND(AVG(m."Availability(%%)_LW" * 100)::numeric, 2) as availability,
+            ROUND(AVG(m."NR_Retainability(%%)_LW" * 100)::numeric, 4) as retainability,
+            ROUND(AVG(m."Packet_Loss(%%)_LW" * 100)::numeric, 4) as packet_loss,
+            ROUND(AVG(m."Intra_Handover_Success_Rate(%%)_LW" * 100)::numeric, 2) as intra_ho_sr,
+            ROUND(AVG(m."Inter_Handover_Success_Rate(%%)_LW" * 100)::numeric, 2) as inter_ho_sr,
+            ROUND(AVG(m."PRB_Utilization_DL(%%)_LW" * 100)::numeric, 2) as dl_prb,
+            ROUND(AVG(m."PRB_Utilization_UL(%%)_LW" * 100)::numeric, 2) as ul_prb,
+            ROUND(AVG(m."Active_User_Number_LW")::numeric, 2) as active_users,
+            ROUND(AVG(m."RRC_User_Number_LW")::numeric, 2) as rrc_users,
+            ROUND(MAX(m."Max_RRC_User_Number-xhj")::numeric, 2) as max_rrc_users,
+            ROUND(AVG(m."Average_CQI-XHJ_1646720281179")::numeric, 2) as cqi,
+            ROUND(AVG(m."Average_CQI_256 QAM_LW")::numeric, 2) as cqi_256qam,
+            ROUND(AVG(m."Average_CQI_64 QAM_LW")::numeric, 2) as cqi_64qam,
+            ROUND(AVG(m."Latency_DL(ms)_LW")::numeric, 2) as latency_dl,
+            ROUND(AVG(m."Latency_UL(ms)_LW")::numeric, 2) as latency_ul,
+            ROUND(AVG(m."Uplink_Interference(dBm)_LW")::numeric, 2) as uplink_interference
+        FROM "measDy5g" m
+        {join_sql}
+        WHERE m."Begin Time" >= %s AND m."Begin Time" <= %s
+        {where_entity}
+        {where_band}
+        GROUP BY dt, series_key
+        ORDER BY dt, series_key;
+    """
+
+    cur.execute(sql, tuple(params))
+    rows = cur.fetchall()
+    col_names = [d[0] for d in cur.description]
+    cur.close()
+    conn.close()
+
+    # Organize data into data_map[kpi_id][entity_key][date_str] = float
+    data_map = defaultdict(lambda: defaultdict(dict))
+
+    for r_tuple in rows:
+        row = dict(zip(col_names, r_tuple))
+        d_str = row['dt'].strftime("%Y-%m-%d") if hasattr(row['dt'], 'strftime') else str(row['dt'])
+        series_k = str(row['series_key']).strip() if row.get('series_key') is not None else "Other"
+
+        for k_id in KPIS_5G_CONFIG.keys():
+            val = row.get(k_id)
+            if val is not None:
+                try:
+                    data_map[k_id][series_k][d_str] = float(val)
+                except (ValueError, TypeError):
+                    pass
+
+    # Construct result kpis dictionary
+    result_kpis = {}
+    for k_id, cfg in KPIS_5G_CONFIG.items():
+        carrier_series = {}
+        for c_key in carrier_keys:
+            series_vals = [data_map[k_id][c_key].get(t, None) for t in sorted_ts]
+            carrier_series[c_key] = series_vals
+
+        tot_list = None
+        if cfg.get("has_tot", False) and carrier_series:
+            tot_list = []
+            for i in range(len(sorted_ts)):
+                valid = [carrier_series[c][i] for c in carrier_keys if i < len(carrier_series[c]) and carrier_series[c][i] is not None]
+                if valid:
+                    tot_list.append(round(sum(valid), 3))
+                else:
+                    tot_list.append(None)
+
+        result_kpis[k_id] = {
+            "id": k_id,
+            "title": cfg["title"],
+            "unit": cfg["unit"],
+            "category": cfg["category"],
+            "carriers": carrier_keys,
+            "carrier_bands": carrier_bands,
+            "carrier_series": carrier_series,
+            "total_series": tot_list,
+            "has_total": cfg.get("has_tot", False),
+            "is_avg": cfg.get("is_avg", True),
+            "min_y": cfg.get("min_y"),
+            "max_y": cfg.get("max_y")
+        }
+
+    t1 = time.time()
+    return {
+        "scope": scope_clean,
+        "mode": mode_clean,
+        "tech": "5G",
+        "start_date": dt_start.strftime("%Y-%m-%d"),
+        "end_date": dt_end.strftime("%Y-%m-%d"),
+        "timestamps": sorted_ts,
+        "active_entities": active_entities,
+        "available_bands": ["NR2300", "NR2600", "NR2100"],
+        "carrier_bands": carrier_bands,
+        "carriers": carrier_keys,
+        "kpis": result_kpis,
+        "execution_time_sec": round(t1 - t0, 3),
+        "source": "OneDb Live (measDy5g)"
     }

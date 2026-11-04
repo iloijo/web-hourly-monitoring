@@ -55,6 +55,7 @@ const BAND_OPTIONS_4G = [
 
 const BAND_OPTIONS_5G = [
   { id: 'NR2300', label: 'NR2300 (2.3 GHz)' },
+  { id: 'NR2600', label: 'NR2600 (2.6 GHz)' },
   { id: 'NR2100', label: 'NR2100 (2.1 GHz)' },
   { id: 'NR3500', label: 'NR3500 (3.5 GHz)' }
 ];
@@ -574,8 +575,9 @@ export default function App() {
   };
 
   // Fetch Higher-Scope Aggregation Data (Regional, NOP, City, Kecamatan, Site)
-  const fetchScopeAggregationData = (scope, mode, start, end, nopsList, citiesList, kecList, sitesList, bandsList) => {
+  const fetchScopeAggregationData = (scope, mode, start, end, nopsList, citiesList, kecList, sitesList, bandsList, overrideMenu) => {
     setLoading(true);
+    const curMenu = overrideMenu || activeMenu;
     const params = new URLSearchParams();
     params.append('scope', scope);
     params.append('mode', mode);
@@ -604,11 +606,21 @@ export default function App() {
       activeList.forEach(s => params.append('sites', s));
     }
 
-    if (bandsList && bandsList.length > 0 && bandsList.length < BAND_OPTIONS.length) {
+    const currentBandOptions = curMenu === '5g' 
+      ? BAND_OPTIONS_5G 
+      : curMenu === '2g' 
+        ? BAND_OPTIONS_2G 
+        : BAND_OPTIONS_4G;
+
+    if (bandsList && bandsList.length > 0 && bandsList.length < currentBandOptions.length) {
       bandsList.forEach(b => params.append('bands', b));
     }
 
-    fetch(`/api/daily/aggregation?${params.toString()}`)
+    let endpoint = "/api/daily/aggregation";
+    if (curMenu === '2g') endpoint = "/api/2g/aggregation";
+    else if (curMenu === '5g') endpoint = "/api/5g/aggregation";
+
+    fetch(`${endpoint}?${params.toString()}`)
       .then(res => res.json())
       .then(json => {
         setAggregationData(json);
@@ -632,7 +644,17 @@ export default function App() {
     if (newScope === 'sector') {
       fetchSectorData(siteId, startDate, endDate, activeMenu, filterType);
     } else {
-      fetchScopeAggregationData(newScope, aggregationMode, startDate, endDate, selectedNops, selectedCities, selectedKecamatans, selectedSites, selectedBands);
+      let nops = selectedNops;
+      let cities = selectedCities;
+      let kecs = selectedKecamatans;
+      let sites = selectedSites;
+      if (aggregationMode === 'band') {
+        if (nops.length > 1) nops = [nops[0]];
+        if (cities.length > 1) cities = [cities[0]];
+        if (kecs.length > 1) kecs = [kecs[0]];
+        if (sites.length > 1) sites = [sites[0]];
+      }
+      fetchScopeAggregationData(newScope, aggregationMode, startDate, endDate, nops, cities, kecs, sites, selectedBands);
     }
   };
 
@@ -672,27 +694,39 @@ export default function App() {
     setActiveMenu(targetMenu);
     
     let nextSite = siteId;
+    let nextSites = selectedSites;
+    let nextBands = selectedBands;
     if (targetMenu === '5g') {
       const s5List = sites5g.length > 0 ? sites5g : ['UPD012', 'UPD003', 'UPD076'];
       if (!s5List.includes(siteId.toUpperCase())) {
         nextSite = 'UPD012';
         setSiteId('UPD012');
       }
-      setSelectedBands(BAND_OPTIONS_5G.map(b => b.id));
-      setAggregationScope('sector');
+      if (!selectedSites.some(s => s5List.includes(s))) {
+        nextSites = ['UPD012'];
+        setSelectedSites(nextSites);
+      }
+      nextBands = BAND_OPTIONS_5G.map(b => b.id);
+      setSelectedBands(nextBands);
     } else if (targetMenu === '2g') {
       const s2List = sites2g.length > 0 ? sites2g : ['MRW002', 'UPD012', 'UPD183'];
       if (!s2List.includes(siteId.toUpperCase())) {
         nextSite = 'MRW002';
         setSiteId('MRW002');
       }
-      setSelectedBands(BAND_OPTIONS_2G.map(b => b.id));
-      setAggregationScope('sector');
+      if (!selectedSites.some(s => s2List.includes(s))) {
+        nextSites = ['MRW002'];
+        setSelectedSites(nextSites);
+      }
+      nextBands = BAND_OPTIONS_2G.map(b => b.id);
+      setSelectedBands(nextBands);
     } else if (targetMenu === '4g-hourly') {
-      setSelectedBands(BAND_OPTIONS_4G.map(b => b.id));
+      nextBands = BAND_OPTIONS_4G.map(b => b.id);
+      setSelectedBands(nextBands);
       setAggregationScope('sector');
     } else if (targetMenu === '4g-daily') {
-      setSelectedBands(BAND_OPTIONS_4G.map(b => b.id));
+      nextBands = BAND_OPTIONS_4G.map(b => b.id);
+      setSelectedBands(nextBands);
     }
 
     const isDaily = targetMenu !== "4g-hourly";
@@ -702,12 +736,22 @@ export default function App() {
     setStartDate(newDates.start);
     setEndDate(newDates.end);
 
-    const targetScope = targetMenu === '4g-daily' ? aggregationScope : 'sector';
+    const targetScope = targetMenu === '4g-hourly' ? 'sector' : aggregationScope;
 
     if (targetScope === 'sector') {
       fetchSectorData(nextSite, newDates.start, newDates.end, targetMenu, filterType);
     } else {
-      fetchScopeAggregationData(targetScope, aggregationMode, newDates.start, newDates.end, selectedNops, selectedCities, selectedKecamatans, selectedSites, selectedBands);
+      let nops = selectedNops;
+      let cities = selectedCities;
+      let kecs = selectedKecamatans;
+      let sites = nextSites;
+      if (aggregationMode === 'band') {
+        if (nops.length > 1) nops = [nops[0]];
+        if (cities.length > 1) cities = [cities[0]];
+        if (kecs.length > 1) kecs = [kecs[0]];
+        if (sites.length > 1) sites = [sites[0]];
+      }
+      fetchScopeAggregationData(targetScope, aggregationMode, newDates.start, newDates.end, nops, cities, kecs, sites, nextBands, targetMenu);
     }
   };
 
@@ -745,7 +789,6 @@ export default function App() {
     if (activeMenu === '5g') {
       setSelected5gKpiIds(prev => {
         if (prev.includes(kpiId)) {
-          if (prev.length <= 1) return prev;
           return prev.filter(id => id !== kpiId);
         } else {
           return [...prev, kpiId];
@@ -754,7 +797,6 @@ export default function App() {
     } else if (activeMenu === '2g') {
       setSelected2gKpiIds(prev => {
         if (prev.includes(kpiId)) {
-          if (prev.length <= 1) return prev;
           return prev.filter(id => id !== kpiId);
         } else {
           return [...prev, kpiId];
@@ -763,7 +805,6 @@ export default function App() {
     } else if (activeMenu === '4g-daily') {
       setSelectedDailyKpiIds(prev => {
         if (prev.includes(kpiId)) {
-          if (prev.length <= 1) return prev;
           return prev.filter(id => id !== kpiId);
         } else {
           return [...prev, kpiId];
@@ -772,7 +813,6 @@ export default function App() {
     } else {
       setSelectedHourlyKpis(prev => {
         if (prev.includes(kpiId)) {
-          if (prev.length <= 1) return prev;
           return prev.filter(id => id !== kpiId);
         } else {
           return [...prev, kpiId];
@@ -791,6 +831,19 @@ export default function App() {
       setSelectedDailyKpiIds(dailyKpisList.map(k => k.id));
     } else {
       setSelectedHourlyKpis(HOURLY_KPIS.map(k => k.id));
+    }
+  };
+
+  // Deselect all KPIs
+  const handleDeselectAllKpis = () => {
+    if (activeMenu === '5g') {
+      setSelected5gKpiIds([]);
+    } else if (activeMenu === '2g') {
+      setSelected2gKpiIds([]);
+    } else if (activeMenu === '4g-daily') {
+      setSelectedDailyKpiIds([]);
+    } else {
+      setSelectedHourlyKpis([]);
     }
   };
 
@@ -828,7 +881,7 @@ export default function App() {
     return selectedHourlyKpis;
   }, [activeMenu, selected5gKpiIds, selected2gKpiIds, selectedDailyKpiIds, selectedHourlyKpis]);
 
-  const actualBands = data?.available_bands || ALL_BAND_IDS;
+  const actualBands = data?.available_bands || allActiveBandIds;
   const availableSectors = data?.available_sectors || [1, 2, 3];
   const currentSectorData = data?.sectors?.[`sector${selectedSector}`];
   const currentKpis = currentSectorData?.kpis || {};
@@ -1453,6 +1506,7 @@ export default function App() {
                     selectedKpiIds={activeSelectedKpiIds}
                     onToggleKpi={handleToggleKpi}
                     onSelectAll={handleSelectAllKpis}
+                    onDeselectAll={handleDeselectAllKpis}
                     onSelectDefault={handleSelectDefaultKpis}
                     darkMode={darkMode}
                   />
@@ -1535,7 +1589,7 @@ export default function App() {
                       darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
                     }`}
                   >
-                    <span>{selectedBands.length === ALL_BAND_IDS.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
+                    <span>{selectedBands.length === allActiveBandIds.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
                     <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
                   </button>
 
@@ -1543,7 +1597,7 @@ export default function App() {
                     <div className={`absolute top-full left-0 mt-1 w-56 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
                       darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
                     }`}>
-                      {BAND_OPTIONS.map(b => (
+                      {activeBandOptions.map(b => (
                         <div
                           key={b.id}
                           onClick={() => handleToggleBand(b.id)}
@@ -1584,6 +1638,7 @@ export default function App() {
                     selectedKpiIds={activeSelectedKpiIds}
                     onToggleKpi={handleToggleKpi}
                     onSelectAll={handleSelectAllKpis}
+                    onDeselectAll={handleDeselectAllKpis}
                     onSelectDefault={handleSelectDefaultKpis}
                     darkMode={darkMode}
                   />
@@ -1652,7 +1707,7 @@ export default function App() {
                       darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
                     }`}
                   >
-                    <span>{selectedBands.length === ALL_BAND_IDS.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
+                    <span>{selectedBands.length === allActiveBandIds.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
                     <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
                   </button>
 
@@ -1660,7 +1715,7 @@ export default function App() {
                     <div className={`absolute top-full left-0 mt-1 w-56 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
                       darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
                     }`}>
-                      {BAND_OPTIONS.map(b => (
+                      {activeBandOptions.map(b => (
                         <div
                           key={b.id}
                           onClick={() => handleToggleBand(b.id)}
@@ -1701,6 +1756,7 @@ export default function App() {
                     selectedKpiIds={activeSelectedKpiIds}
                     onToggleKpi={handleToggleKpi}
                     onSelectAll={handleSelectAllKpis}
+                    onDeselectAll={handleDeselectAllKpis}
                     onSelectDefault={handleSelectDefaultKpis}
                     darkMode={darkMode}
                   />
@@ -1794,7 +1850,7 @@ export default function App() {
                       darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
                     }`}
                   >
-                    <span>{selectedBands.length === ALL_BAND_IDS.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
+                    <span>{selectedBands.length === allActiveBandIds.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
                     <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
                   </button>
 
@@ -1802,7 +1858,7 @@ export default function App() {
                     <div className={`absolute top-full left-0 mt-1 w-56 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
                       darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
                     }`}>
-                      {BAND_OPTIONS.map(b => (
+                      {activeBandOptions.map(b => (
                         <div
                           key={b.id}
                           onClick={() => handleToggleBand(b.id)}
@@ -1843,6 +1899,7 @@ export default function App() {
                     selectedKpiIds={activeSelectedKpiIds}
                     onToggleKpi={handleToggleKpi}
                     onSelectAll={handleSelectAllKpis}
+                    onDeselectAll={handleDeselectAllKpis}
                     onSelectDefault={handleSelectDefaultKpis}
                     darkMode={darkMode}
                   />
@@ -1965,7 +2022,7 @@ export default function App() {
                       darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
                     }`}
                   >
-                    <span>{selectedBands.length === ALL_BAND_IDS.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
+                    <span>{selectedBands.length === allActiveBandIds.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
                     <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
                   </button>
 
@@ -1973,7 +2030,7 @@ export default function App() {
                     <div className={`absolute top-full left-0 mt-1 w-56 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
                       darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
                     }`}>
-                      {BAND_OPTIONS.map(b => (
+                      {activeBandOptions.map(b => (
                         <div
                           key={b.id}
                           onClick={() => handleToggleBand(b.id)}
@@ -2014,6 +2071,7 @@ export default function App() {
                     selectedKpiIds={activeSelectedKpiIds}
                     onToggleKpi={handleToggleKpi}
                     onSelectAll={handleSelectAllKpis}
+                    onDeselectAll={handleDeselectAllKpis}
                     onSelectDefault={handleSelectDefaultKpis}
                     darkMode={darkMode}
                   />
@@ -2085,7 +2143,7 @@ export default function App() {
                       darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
                     }`}
                   >
-                    <span>{selectedBands.length === ALL_BAND_IDS.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
+                    <span>{selectedBands.length === allActiveBandIds.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
                     <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
                   </button>
 
@@ -2093,7 +2151,7 @@ export default function App() {
                     <div className={`absolute top-full left-0 mt-1 w-56 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
                       darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
                     }`}>
-                      {BAND_OPTIONS.map(b => (
+                      {activeBandOptions.map(b => (
                         <div
                           key={b.id}
                           onClick={() => handleToggleBand(b.id)}
@@ -2134,6 +2192,7 @@ export default function App() {
                     selectedKpiIds={activeSelectedKpiIds}
                     onToggleKpi={handleToggleKpi}
                     onSelectAll={handleSelectAllKpis}
+                    onDeselectAll={handleDeselectAllKpis}
                     onSelectDefault={handleSelectDefaultKpis}
                     darkMode={darkMode}
                   />
@@ -2240,6 +2299,16 @@ export default function App() {
                   ? "grid-cols-1 md:grid-cols-2" 
                   : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
             }`}>
+              {/* Empty state when 0 KPIs are selected */}
+              {activeSelectedKpiIds.length === 0 && (
+                <div className={`col-span-full py-16 text-center border-2 border-dashed rounded-2xl ${
+                  darkMode ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'
+                }`}>
+                  <SlidersHorizontal className="w-8 h-8 mx-auto mb-2 opacity-40 text-blue-500" />
+                  <p className="font-semibold text-sm">Tidak ada KPI yang dipilih</p>
+                  <p className="text-xs opacity-75 mt-1">Buka menu Filter KPI di atas untuk memilih metrik yang ingin ditampilkan.</p>
+                </div>
+              )}
               
               {/* Sector Level Charts (4G Hourly, 4G Daily, 5G, or 2G Sector) */}
               {aggregationScope === 'sector' && currentSectorData && activeSelectedKpiIds.map(k_id => {
@@ -2273,14 +2342,14 @@ export default function App() {
 
                 return (
                   <SectorPayloadChart
-                    key={`${aggregationScope}_${aggregationMode}_${k_id}`}
+                    key={`${activeMenu}_${aggregationScope}_${aggregationMode}_${k_id}`}
                     title={kpiData.title}
                     unit={kpiData.unit}
                     timestamps={aggregationData.timestamps}
                     carrierSeries={kpiData.carrier_series}
                     totalSeries={kpiData.total_series}
                     carrierBands={kpiData.carrier_bands || {}}
-                    hasTotal={kpiData.has_total}
+                    hasTotal={kpiData.has_total || kpiData.has_tot}
                     bandFilter={aggregationMode === 'band' ? selectedBands : 'all'}
                     timeMode="daily"
                     minY={kpiData.min_y}

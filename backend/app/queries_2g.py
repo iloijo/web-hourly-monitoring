@@ -614,3 +614,250 @@ def get_site_payload_2g_data(
         "sectors": sectors_output,
         "query_duration_sec": round(time.time() - t0, 3)
     }
+
+
+def get_scope_aggregation_2g_data(
+    scope: str = "regional",
+    mode: str = "full",
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    nops: Optional[List[str]] = None,
+    cities: Optional[List[str]] = None,
+    kecamatans: Optional[List[str]] = None,
+    sites: Optional[List[str]] = None,
+    bands: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """
+    Returns time-series KPI charts aggregated across Regional, NOP, City/Kabupaten,
+    Kecamatan, or Site levels for 2G (measDy2g) in OneDb.
+    Supports Full Aggregation (entity curves) and Mode Band (GSM, DCS curves).
+    """
+    t0 = time.time()
+    conn = get_onedb_connection(timeout=15)
+    if not conn:
+        raise RuntimeError("OneDb is not reachable for 2G scope aggregation.")
+
+    cur = conn.cursor()
+
+    max_known_db_date = datetime(2026, 11, 3)
+    try:
+        dt_end = datetime.strptime(end_date.strip(), "%Y-%m-%d") if end_date else max_known_db_date
+    except Exception:
+        dt_end = max_known_db_date
+
+    try:
+        dt_start = datetime.strptime(start_date.strip(), "%Y-%m-%d") if start_date else (dt_end - timedelta(days=9))
+    except Exception:
+        dt_start = dt_end - timedelta(days=9)
+
+    start_str = dt_start.strftime("%Y-%m-%d 00:00:00")
+    end_str = dt_end.strftime("%Y-%m-%d 23:59:59")
+
+    # Generate expected date strings
+    expected_ts = []
+    cur_t = dt_start
+    while cur_t <= dt_end:
+        expected_ts.append(cur_t.strftime("%Y-%m-%d"))
+        cur_t += timedelta(days=1)
+    sorted_ts = sorted(list(set(expected_ts)))
+
+    scope_clean = (scope or "regional").lower()
+    mode_clean = (mode or "full").lower()
+
+    active_entities: List[str] = []
+    kec_join = ""
+    where_entity = ""
+    params: List[Any] = [start_str, end_str]
+
+    if mode_clean == "band":
+        # Mode Band: only 1 entity is selected, and curves are the bands: GSM, DCS
+        carrier_keys = ["GSM", "DCS"]
+        if bands and len(bands) > 0 and len(bands) < len(carrier_keys):
+            carrier_keys = [b for b in bands if b in carrier_keys]
+        carrier_bands = {b: b for b in carrier_keys}
+        series_key_sql = "CASE WHEN m.\"BTS Name\" LIKE '%%MG%%' THEN 'DCS' ELSE 'GSM' END"
+
+        if scope_clean == "regional":
+            active_entities = ["Region Sulawesi"]
+        elif scope_clean == "nop":
+            ent = nops[0] if (nops and len(nops) > 0) else "MAKASSAR"
+            active_entities = [ent]
+            where_entity = "AND c.\"NOP\" = %s"
+            params.append(ent)
+        elif scope_clean == "city":
+            ent = cities[0] if (cities and len(cities) > 0) else "KOTA MAKASSAR"
+            active_entities = [ent]
+            where_entity = "AND c.\"KABUPATEN\" = %s"
+            params.append(ent)
+        elif scope_clean == "kecamatan":
+            ent = kecamatans[0] if (kecamatans and len(kecamatans) > 0) else "TAMALATE"
+            active_entities = [ent]
+            kec_join = "LEFT JOIN \"CellListRCI\" r ON c.\"Site ID\" = r.site_id"
+            where_entity = "AND r.kecamatan = %s"
+            params.append(ent)
+        elif scope_clean == "site":
+            ent = sites[0].strip().upper() if (sites and len(sites) > 0) else "COI350"
+            active_entities = [ent]
+            where_entity = "AND c.\"Site ID\" = %s"
+            params.append(ent)
+
+    else:
+        # Mode Full: curves are entities (Regional, NOPs, Cities, Kecamatans, Sites)
+        if scope_clean == "regional":
+            active_entities = ["Region Sulawesi"]
+            series_key_sql = "'Region Sulawesi'"
+        elif scope_clean == "nop":
+            active_entities = nops if (nops and len(nops) > 0) else ["MAKASSAR", "MANADO", "BONE"]
+            series_key_sql = "c.\"NOP\""
+            where_entity = "AND c.\"NOP\" = ANY(%s)"
+            params.append(active_entities)
+        elif scope_clean == "city":
+            active_entities = cities if (cities and len(cities) > 0) else ["KOTA MAKASSAR", "MINAHASA"]
+            series_key_sql = "c.\"KABUPATEN\""
+            where_entity = "AND c.\"KABUPATEN\" = ANY(%s)"
+            params.append(active_entities)
+        elif scope_clean == "kecamatan":
+            active_entities = kecamatans if (kecamatans and len(kecamatans) > 0) else ["TAMALATE"]
+            kec_join = "LEFT JOIN \"CellListRCI\" r ON c.\"Site ID\" = r.site_id"
+            series_key_sql = "COALESCE(r.kecamatan, 'OTHER')"
+            where_entity = "AND r.kecamatan = ANY(%s)"
+            params.append(active_entities)
+        elif scope_clean == "site":
+            active_entities = [s.strip().upper() for s in sites] if (sites and len(sites) > 0) else ["COI350", "TMH018"]
+            series_key_sql = "c.\"Site ID\""
+            where_entity = "AND c.\"Site ID\" = ANY(%s)"
+            params.append(active_entities)
+
+        carrier_keys = active_entities
+        carrier_bands = {e: "GSM" for e in carrier_keys}
+
+    # Optional band filtering in full mode
+    where_band = ""
+    if mode_clean == "full" and bands and len(bands) == 1:
+        if bands[0] == "DCS":
+            where_band = "AND m.\"BTS Name\" LIKE '%%MG%%'"
+        elif bands[0] == "GSM":
+            where_band = "AND m.\"BTS Name\" NOT LIKE '%%MG%%'"
+
+    sql = f"""
+        SELECT 
+            m."Begin Time"::date as dt,
+            {series_key_sql} as series_key,
+            -- 1. Traffic & Payload
+            ROUND((SUM(m."GPRS Payload (Mbyte)_ono" + m."EDGE Payload (Mbyte)_ono") / 1024.0)::numeric, 3) as payload_total,
+            ROUND((SUM(m."GPRS Payload (Mbyte)_ono") / 1024.0)::numeric, 3) as payload_gprs,
+            ROUND((SUM(m."EDGE Payload (Mbyte)_ono") / 1024.0)::numeric, 3) as payload_edge,
+            ROUND(SUM(m."TCH Traffic (Erl)_ono")::numeric, 2) as tch_traffic,
+            ROUND(AVG(m."SDCCH Traffic (Erl)_ono")::numeric, 2) as sdcch_traffic,
+            ROUND(AVG(m."TCH HR Traffic (Erl)_ono")::numeric, 2) as tch_hr_traffic,
+            ROUND(AVG(m."TCH FR Traffic (Erl)_ono")::numeric, 2) as tch_fr_traffic,
+            -- 2. Accessibility
+            ROUND(AVG(m."TCH Availability (%%)_Ono" * 100)::numeric, 2) as availability,
+            ROUND(AVG(m."SDSR (%%)_ono" * 100)::numeric, 2) as sdsr,
+            ROUND(AVG(m."SD to TCH Success Rate (%%)" * 100)::numeric, 2) as sd_to_tch_sr,
+            ROUND(AVG(m."TCH Blocking Rate (%%)_ono" * 100)::numeric, 2) as tch_block_rate,
+            ROUND(AVG(m."SDCCH Blocking Rate (%%)_ono" * 100)::numeric, 2) as sdcch_block_rate,
+            ROUND(AVG(m."TBF_DL Est_SR (%%)_ono" * 100)::numeric, 2) as tbf_dl_est_sr,
+            ROUND(AVG(m."TBF_UL Est_SR (%%)_ono" * 100)::numeric, 2) as tbf_ul_est_sr,
+            -- 3. Retainability
+            ROUND(AVG(m."TCH Drop Rate (%%)_ono" * 100)::numeric, 4) as tch_drop_rate,
+            ROUND(AVG(m."TBF Completion_SR (%%)_ono" * 100)::numeric, 2) as tbf_comp_sr,
+            -- 4. Mobility
+            ROUND(AVG(m."HOSR (%%)_ono" * 100)::numeric, 2) as hosr,
+            ROUND(SUM(m."Number of fastreturn to LTE")::numeric, 0) as fastreturn_lte,
+            ROUND(SUM(m."Number of fastreturn to UTRAN")::numeric, 0) as fastreturn_utran,
+            -- 5. Throughput
+            ROUND(AVG(m."EDGE DL_Throughput (kbps)_ono")::numeric, 2) as edge_dl_thp,
+            ROUND(AVG(m."GPRS DL_Throughput (kbps)_ono")::numeric, 2) as gprs_dl_thp,
+            -- 6. Quality & Interference
+            ROUND(AVG(m."DL Qual 0-5 (%%)_Ono" * 100)::numeric, 2) as dl_qual,
+            ROUND(AVG(m."UL Qual 0-5 (%%)_Ono" * 100)::numeric, 2) as ul_qual,
+            ROUND(AVG(m."ICM_INTERFERENCE (%%)_Ono" * 100)::numeric, 2) as icm_interference,
+            ROUND(AVG(m."DL_EMI_Ono")::numeric, 2) as dl_emi,
+            ROUND(AVG(m."UL_EMI_Ono")::numeric, 2) as ul_emi,
+            -- 7. Capacity
+            ROUND(AVG(m."Number of TRX")::numeric, 0) as trx_count,
+            ROUND(AVG(m."Number of TCH")::numeric, 0) as tch_count,
+            ROUND(AVG(m."Number of SDCCH")::numeric, 0) as sdcch_count,
+            ROUND(AVG(m."Number of dynamic PDTCH")::numeric, 0) as pdtch_dynamic
+        FROM "measDy2g" m
+        JOIN "CellList2G" c ON m."SITE Name" = c."SITE Name"
+        {kec_join}
+        WHERE m."Begin Time" >= %s AND m."Begin Time" <= %s
+        {where_entity}
+        {where_band}
+        GROUP BY dt, series_key
+        ORDER BY dt, series_key;
+    """
+
+    cur.execute(sql, tuple(params))
+    rows = cur.fetchall()
+    col_names = [d[0] for d in cur.description]
+    cur.close()
+    conn.close()
+
+    # Organize data into data_map[kpi_id][entity_key][date_str] = float
+    data_map = defaultdict(lambda: defaultdict(dict))
+
+    for r_tuple in rows:
+        row = dict(zip(col_names, r_tuple))
+        d_str = row['dt'].strftime("%Y-%m-%d") if hasattr(row['dt'], 'strftime') else str(row['dt'])
+        series_k = str(row['series_key']).strip() if row.get('series_key') is not None else "Other"
+
+        for k_id in KPIS_2G_CONFIG.keys():
+            val = row.get(k_id)
+            if val is not None:
+                try:
+                    data_map[k_id][series_k][d_str] = float(val)
+                except (ValueError, TypeError):
+                    pass
+
+    # Construct result kpis dictionary
+    result_kpis = {}
+    for k_id, cfg in KPIS_2G_CONFIG.items():
+        carrier_series = {}
+        for c_key in carrier_keys:
+            series_vals = [data_map[k_id][c_key].get(t, None) for t in sorted_ts]
+            carrier_series[c_key] = series_vals
+
+        tot_list = None
+        if cfg.get("has_tot", False) and carrier_series:
+            tot_list = []
+            for i in range(len(sorted_ts)):
+                valid = [carrier_series[c][i] for c in carrier_keys if i < len(carrier_series[c]) and carrier_series[c][i] is not None]
+                if valid:
+                    tot_list.append(round(sum(valid), 3))
+                else:
+                    tot_list.append(None)
+
+        result_kpis[k_id] = {
+            "id": k_id,
+            "title": cfg["title"],
+            "unit": cfg["unit"],
+            "category": cfg["category"],
+            "carriers": carrier_keys,
+            "carrier_bands": carrier_bands,
+            "carrier_series": carrier_series,
+            "total_series": tot_list,
+            "has_total": cfg.get("has_tot", False),
+            "is_avg": cfg.get("is_avg", True),
+            "min_y": cfg.get("min_y"),
+            "max_y": cfg.get("max_y")
+        }
+
+    t1 = time.time()
+    return {
+        "scope": scope_clean,
+        "mode": mode_clean,
+        "tech": "2G",
+        "start_date": dt_start.strftime("%Y-%m-%d"),
+        "end_date": dt_end.strftime("%Y-%m-%d"),
+        "timestamps": sorted_ts,
+        "active_entities": active_entities,
+        "available_bands": ["GSM", "DCS"],
+        "carrier_bands": carrier_bands,
+        "carriers": carrier_keys,
+        "kpis": result_kpis,
+        "execution_time_sec": round(t1 - t0, 3),
+        "source": "OneDb Live (measDy2g)"
+    }

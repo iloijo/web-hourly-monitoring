@@ -23,6 +23,7 @@ export default function KpiDropdownPopover({
   selectedKpiIds = [],
   onToggleKpi,
   onSelectAll,
+  onDeselectAll,
   onSelectDefault,
   darkMode = false
 }) {
@@ -101,6 +102,14 @@ export default function KpiDropdownPopover({
             className="text-blue-500 hover:text-blue-600 font-bold cursor-pointer hover:underline"
           >
             All
+          </button>
+          <span className="opacity-40">|</span>
+          <button
+            type="button"
+            onClick={onDeselectAll}
+            className="text-rose-500 hover:text-rose-600 font-bold cursor-pointer hover:underline"
+          >
+            Deselect All
           </button>
           <span className="opacity-40">|</span>
           <button

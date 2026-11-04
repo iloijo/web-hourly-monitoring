@@ -13,8 +13,8 @@ from .queries_daily import (
     get_scope_aggregation_data,
     DAILY_KPIS_CONFIG
 )
-from .queries_5g import get_5g_sites, get_site_payload_5g_data, KPIS_5G_CONFIG
-from .queries_2g import get_2g_sites, get_site_payload_2g_data, KPIS_2G_CONFIG
+from .queries_5g import get_5g_sites, get_site_payload_5g_data, get_scope_aggregation_5g_data, KPIS_5G_CONFIG
+from .queries_2g import get_2g_sites, get_site_payload_2g_data, get_scope_aggregation_2g_data, KPIS_2G_CONFIG
 from .site_names import load_site_names, get_site_display_name, get_site_name
 
 app = FastAPI(title="Monitoring KPI Dashboard", version="2.5.0")
@@ -264,6 +264,49 @@ def get_5g_payload_sectors_endpoint(
     except Exception as e:
         return {"error": str(e), "site_id": site_id, "sectors": {}}
 
+@app.get("/api/5g/aggregation")
+def get_5g_aggregation_endpoint(
+    scope: str = Query("regional"),
+    mode: str = Query("full"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    nops: Optional[List[str]] = Query(None),
+    cities: Optional[List[str]] = Query(None),
+    kecamatans: Optional[List[str]] = Query(None),
+    sites: Optional[List[str]] = Query(None),
+    bands: Optional[List[str]] = Query(None)
+):
+    """
+    Returns 5G time-series KPI charts across all 25 KPIs for higher-level scopes:
+    - Regional (Region Sulawesi)
+    - NOP
+    - City/Kabupaten
+    - Kecamatan
+    - Site
+    Supports full mode (multi-entity) or band mode (NR2300, NR2600, NR2100).
+    """
+    try:
+        data = get_scope_aggregation_5g_data(
+            scope=scope,
+            mode=mode,
+            start_date=start_date,
+            end_date=end_date,
+            nops=nops,
+            cities=cities,
+            kecamatans=kecamatans,
+            sites=sites,
+            bands=bands
+        )
+        return data
+    except Exception as e:
+        return {
+            "error": str(e),
+            "scope": scope,
+            "mode": mode,
+            "kpis": {},
+            "timestamps": []
+        }
+
 # =============================================================================
 # 2G Monitoring Endpoints
 # =============================================================================
@@ -321,6 +364,49 @@ def get_2g_payload_sectors_endpoint(
         )
     except Exception as e:
         return {"error": str(e), "site_id": site_id, "sectors": {}}
+
+@app.get("/api/2g/aggregation")
+def get_2g_aggregation_endpoint(
+    scope: str = Query("regional"),
+    mode: str = Query("full"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    nops: Optional[List[str]] = Query(None),
+    cities: Optional[List[str]] = Query(None),
+    kecamatans: Optional[List[str]] = Query(None),
+    sites: Optional[List[str]] = Query(None),
+    bands: Optional[List[str]] = Query(None)
+):
+    """
+    Returns 2G time-series KPI charts across all 30 KPIs for higher-level scopes:
+    - Regional (Region Sulawesi)
+    - NOP
+    - City/Kabupaten
+    - Kecamatan
+    - Site
+    Supports full mode (multi-entity) or band mode (GSM, DCS).
+    """
+    try:
+        data = get_scope_aggregation_2g_data(
+            scope=scope,
+            mode=mode,
+            start_date=start_date,
+            end_date=end_date,
+            nops=nops,
+            cities=cities,
+            kecamatans=kecamatans,
+            sites=sites,
+            bands=bands
+        )
+        return data
+    except Exception as e:
+        return {
+            "error": str(e),
+            "scope": scope,
+            "mode": mode,
+            "kpis": {},
+            "timestamps": []
+        }
 
 # Static file serving for React frontend production build
 DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"

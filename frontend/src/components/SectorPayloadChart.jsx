@@ -17,8 +17,9 @@ export const BAND_COLORS = {
   'L2600_4': '#9d174d',
   // 5G Bands & Carriers
   'NR2300': '#06b6d4',  // Cyan
+  'NR2600': '#8b5cf6',  // Violet
   'NR2100': '#c084fc',  // Purple
-  'NR3500': '#8b5cf6',  // Violet
+  'NR3500': '#ec4899',  // Pink
   'VP1': '#06b6d4',     // Cyan
   'VQ1': '#3b82f6',     // Blue
   'MK1': '#10b981',     // Emerald
