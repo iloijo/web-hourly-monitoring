@@ -6,6 +6,7 @@ from collections import defaultdict
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from .db import get_twodb_connection
+from .site_names import get_site_display_name, get_site_name
 
 def get_band_from_ci(ci, cell_name: str = "") -> str:
     """
@@ -476,7 +477,8 @@ def get_site_payload_data(
     t1 = time.time()
     return {
         "site_id": site_clean,
-        "enodeb_name": ", ".join(sorted(list(enodebs))),
+        "site_name": get_site_name(site_clean),
+        "enodeb_name": get_site_display_name(site_clean),
         "enodeb_names": sorted(list(enodebs)),
         "time_mode": time_mode,
         "start_date": dt_start.strftime("%Y-%m-%d"),

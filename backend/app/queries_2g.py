@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
 from .db import get_onedb_connection
+from .site_names import get_site_display_name, get_site_name
 
 # =============================================================================
 # 2G KPI Dictionary (measDy2g in OneDb)
@@ -602,7 +603,8 @@ def get_site_payload_2g_data(
 
     return {
         "site_id": site_clean,
-        "enodeb_name": f"2G_{site_clean}",
+        "site_name": get_site_name(site_clean),
+        "enodeb_name": get_site_display_name(site_clean),
         "time_mode": "daily",
         "tech": "2G",
         "timestamps": sorted_ts,

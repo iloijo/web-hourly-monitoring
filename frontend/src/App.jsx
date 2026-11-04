@@ -358,8 +358,9 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [expanded4G, setExpanded4G] = useState(true);
 
-  // Sites list for dropdown
+  // Sites list and names map for dropdown
   const [allSites, setAllSites] = useState([]);
+  const [siteNamesMap, setSiteNamesMap] = useState({});
   const [siteSearch, setSiteSearch] = useState("");
   const [siteDropdownOpen, setSiteDropdownOpen] = useState(false);
 
@@ -426,8 +427,20 @@ export default function App() {
         if (json.sites && Array.isArray(json.sites)) {
           setAllSites(json.sites);
         }
+        if (json.site_names && typeof json.site_names === 'object') {
+          setSiteNamesMap(prev => ({ ...prev, ...json.site_names }));
+        }
       })
       .catch(err => console.error("Could not fetch sites:", err));
+
+    fetch('/api/site_names')
+      .then(res => res.json())
+      .then(json => {
+        if (json && typeof json === 'object') {
+          setSiteNamesMap(prev => ({ ...prev, ...json }));
+        }
+      })
+      .catch(() => {});
 
     fetch('/api/hierarchy')
       .then(res => res.json())
@@ -454,6 +467,9 @@ export default function App() {
         if (json.sites && Array.isArray(json.sites)) {
           setSites5g(json.sites);
         }
+        if (json.site_names && typeof json.site_names === 'object') {
+          setSiteNamesMap(prev => ({ ...prev, ...json.site_names }));
+        }
       })
       .catch(err => console.error("Could not fetch 5G sites:", err));
 
@@ -473,6 +489,9 @@ export default function App() {
       .then(json => {
         if (json.sites && Array.isArray(json.sites)) {
           setSites2g(json.sites);
+        }
+        if (json.site_names && typeof json.site_names === 'object') {
+          setSiteNamesMap(prev => ({ ...prev, ...json.site_names }));
         }
       })
       .catch(err => console.error("Could not fetch 2G sites:", err));
@@ -504,13 +523,18 @@ export default function App() {
     return allSites;
   }, [activeMenu, sites5g, sites2g, allSites]);
 
-  // Filter sites for autocomplete search
+  // Filter sites for autocomplete search (matches Site ID or Site Name)
   const filteredSites = useMemo(() => {
     if (!siteSearch) return activeSitesList.slice(0, 50);
+    const q = siteSearch.toLowerCase().trim();
     return activeSitesList
-      .filter(s => s.toLowerCase().includes(siteSearch.toLowerCase()))
+      .filter(s => {
+        const idMatch = s.toLowerCase().includes(q);
+        const nameMatch = siteNamesMap[s] && siteNamesMap[s].toLowerCase().includes(q);
+        return idMatch || nameMatch;
+      })
       .slice(0, 50);
-  }, [activeSitesList, siteSearch]);
+  }, [activeSitesList, siteSearch, siteNamesMap]);
 
   const isDailyMode = activeMenu === "4g-daily";
 
@@ -690,7 +714,7 @@ export default function App() {
   // Master Get Data button submit
   const handleGetData = (e) => {
     if (e) e.preventDefault();
-    if (!isDailyMode || aggregationScope === 'sector') {
+    if (aggregationScope === 'sector') {
       fetchSectorData(siteId, startDate, endDate, activeMenu, filterType);
     } else {
       fetchScopeAggregationData(aggregationScope, aggregationMode, startDate, endDate, selectedNops, selectedCities, selectedKecamatans, selectedSites, selectedBands);
@@ -817,7 +841,12 @@ export default function App() {
     kecamatan: "UNKNOWN"
   };
 
-  const resolvedNeName = data?.enodeb_name || currentSiteMeta?.enodeb_name || `E_${siteId}M41`;
+  const cleanNeName = siteNamesMap[siteId.toUpperCase()]
+    ? `${siteId.toUpperCase()} - ${siteNamesMap[siteId.toUpperCase()]}`
+    : (data?.enodeb_name || currentSiteMeta?.enodeb_name || siteId);
+  const resolvedNeName = data?.enodeb_name && data.enodeb_name.includes(" - ")
+    ? data.enodeb_name
+    : cleanNeName;
 
   // Cascading options
   const nopOptions = useMemo(() => {
@@ -1214,8 +1243,8 @@ export default function App() {
             darkMode ? 'bg-slate-800/80 border-slate-700/80' : 'bg-white border-slate-200/90'
           }`}>
             
-            {/* Header: Filters & KPI Selection + Scope Aggregation Bar (ONLY in Daily Mode!) */}
-            <div className={`space-y-2.5 ${isDailyMode ? 'pb-2 border-b border-slate-100 dark:border-slate-700/60' : ''}`}>
+            {/* Header: Filters & KPI Selection + Scope Aggregation Bar */}
+            <div className="space-y-2.5 pb-2 border-b border-slate-100 dark:border-slate-700/60">
               <div className="flex items-center gap-2">
                 <SlidersHorizontal className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 <h3 className={`font-bold text-xs uppercase tracking-wider ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>
@@ -1223,18 +1252,16 @@ export default function App() {
                 </h3>
               </div>
 
-              {/* Aggregation Scope Bar: ONLY displayed in 4G Daily Mode */}
-              {isDailyMode && (
-                <AggregationScopeBar
-                  currentScope={aggregationScope}
-                  onSelectScope={handleSelectScope}
-                  darkMode={darkMode}
-                />
-              )}
+              {/* Aggregation Scope Bar: displayed across 4G, 5G, and 2G (Gambar 2) */}
+              <AggregationScopeBar
+                currentScope={aggregationScope}
+                onSelectScope={handleSelectScope}
+                darkMode={darkMode}
+              />
             </div>
 
             {/* Dynamic Filter Controls based on Scope */}
-            {(!isDailyMode || aggregationScope === 'sector') && (
+            {aggregationScope === 'sector' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3.5">
                 
                 {/* 1. TARGET SITE */}
@@ -1250,18 +1277,23 @@ export default function App() {
                   >
                     <div className="flex items-center gap-2 truncate">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-                      <span className="truncate">{siteId}</span>
+                      <span className="font-bold truncate">{siteId}</span>
+                      {siteNamesMap[siteId] && (
+                        <span className={`text-[11px] truncate font-normal ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                          • {siteNamesMap[siteId]}
+                        </span>
+                      )}
                     </div>
                     <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   </div>
 
                   {siteDropdownOpen && (
-                    <div className={`absolute top-full left-0 mt-1 w-64 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
+                    <div className={`absolute top-full left-0 mt-1 w-80 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
                       darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
                     }`}>
                       <input
                         type="text"
-                        placeholder="Cari Site ID..."
+                        placeholder="Cari Site ID atau Nama Site..."
                         value={siteSearch}
                         onChange={(e) => setSiteSearch(e.target.value)}
                         autoFocus
@@ -1285,8 +1317,15 @@ export default function App() {
                                 : darkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-blue-50 text-slate-700'
                             }`}
                           >
-                            <span>{s}</span>
-                            {s === siteId && <Check className="w-3.5 h-3.5 text-white" />}
+                            <div className="flex flex-col min-w-0 pr-2">
+                              <span className="font-bold">{s}</span>
+                              {siteNamesMap[s] && (
+                                <span className={`text-[11px] truncate ${s === siteId ? 'text-blue-100' : darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                                  {siteNamesMap[s]}
+                                </span>
+                              )}
+                            </div>
+                            {s === siteId && <Check className="w-3.5 h-3.5 shrink-0 text-white" />}
                           </div>
                         ))}
                       </div>
@@ -1447,8 +1486,8 @@ export default function App() {
               </div>
             )}
 
-            {/* Scope == Regional Filter Controls (Daily Mode Only) */}
-            {isDailyMode && aggregationScope === 'regional' && (
+            {/* Scope == Regional Filter Controls */}
+            {aggregationScope === 'regional' && (
               <div className="flex flex-wrap items-center gap-4">
                 
                 {/* 1. Aggregation / Band Mode Toggle */}
@@ -1553,8 +1592,8 @@ export default function App() {
               </div>
             )}
 
-            {/* Scope == NOP Filter Controls: Dropdown Multi-Select (Gambar 2 Fix) */}
-            {isDailyMode && aggregationScope === 'nop' && (
+            {/* Scope == NOP Filter Controls: Dropdown Multi-Select */}
+            {aggregationScope === 'nop' && (
               <div className="flex flex-wrap items-center gap-4">
                 
                 {/* Level NOP: Dropdown Multi-Select */}
@@ -1671,7 +1710,7 @@ export default function App() {
             )}
 
             {/* Scope == City Filter Controls: Dropdown Multi-Select */}
-            {isDailyMode && aggregationScope === 'city' && (
+            {aggregationScope === 'city' && (
               <div className="flex flex-wrap items-center gap-4">
                 
                 {/* NOP Selector */}
@@ -1812,8 +1851,8 @@ export default function App() {
               </div>
             )}
 
-            {/* Scope == Kecamatan Filter Controls: Cascading identical to City mode */}
-            {isDailyMode && aggregationScope === 'kecamatan' && (
+            {/* Scope == Kecamatan Filter Controls */}
+            {aggregationScope === 'kecamatan' && (
               <div className="flex flex-wrap items-center gap-4">
                 
                 {/* 1. NOP Selector */}
@@ -1984,13 +2023,16 @@ export default function App() {
             )}
 
             {/* Scope == Site Filter Controls: SiteID dropdown with all sites inside */}
-            {isDailyMode && aggregationScope === 'site' && (
+            {aggregationScope === 'site' && (
               <div className="flex flex-wrap items-center gap-4">
                 
-                {/* Site Selection: Dropdown with all sites */}
+                {/* Site Selection: Dropdown with all sites based on Site ID and Site Name */}
                 <MultiSelectDropdown
                   label="SITE ID"
-                  options={allSites.length > 0 ? allSites : ['MRW002', 'UPD919', 'UPD183', 'COI350']}
+                  options={activeSitesList.map(s => ({
+                    value: s,
+                    label: siteNamesMap[s] ? `${s} - ${siteNamesMap[s]}` : s
+                  }))}
                   selectedValues={selectedSites}
                   onChange={(newList) => {
                     setSelectedSites(newList);
@@ -1999,7 +2041,7 @@ export default function App() {
                   isMulti={aggregationMode === 'full'}
                   placeholder="Pilih Site..."
                   darkMode={darkMode}
-                  minWidth="min-w-52"
+                  minWidth="min-w-64"
                 />
 
                 {/* Aggregation / Band Mode Toggle */}
@@ -2117,7 +2159,7 @@ export default function App() {
                 <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold shrink-0 ${
                   darkMode ? 'bg-blue-900/40 text-blue-400' : 'bg-blue-50 text-blue-600'
                 }`}>
-                  {(!isDailyMode || aggregationScope === 'sector') ? <Radio className="w-6 h-6" /> :
+                  {aggregationScope === 'sector' ? <Radio className="w-6 h-6" /> :
                    aggregationScope === 'regional' ? <Globe className="w-6 h-6" /> :
                    aggregationScope === 'nop' ? <Network className="w-6 h-6" /> :
                    aggregationScope === 'city' ? <Building2 className="w-6 h-6" /> :
@@ -2130,7 +2172,7 @@ export default function App() {
                     darkMode ? 'text-blue-400' : 'text-blue-600'
                   }`}>
                     <span>
-                      {(!isDailyMode || aggregationScope === 'sector') ? 'TARGET NETWORK ELEMENT (NE)' :
+                      {aggregationScope === 'sector' ? 'TARGET NETWORK ELEMENT (NE)' :
                        aggregationScope === 'regional' ? 'REGIONAL ANALYSIS' :
                        aggregationScope === 'nop' ? 'NOP CLUSTER ANALYSIS' :
                        aggregationScope === 'city' ? 'CITY / KABUPATEN ANALYSIS' :
@@ -2140,11 +2182,11 @@ export default function App() {
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                   </div>
 
-                  {/* BOLD Title: Strictly "Region Sulawesi" for Regional, BOLD NE Name for Sector without small siteId badge */}
-                  <div className={`text-xl sm:text-2xl font-black tracking-tight flex items-center gap-2 ${
+                  {/* Clean, Sleek Title: Based on Site ID and Site Name, not excessively bold (Gambar 1 Fix) */}
+                  <div className={`text-lg sm:text-xl font-semibold tracking-tight flex items-center gap-2 ${
                     darkMode ? 'text-white' : 'text-slate-900'
                   }`}>
-                    {(!isDailyMode || aggregationScope === 'sector') ? (
+                    {aggregationScope === 'sector' ? (
                       <span>{resolvedNeName}</span>
                     ) : aggregationScope === 'regional' ? (
                       <span>Region Sulawesi</span>
@@ -2155,7 +2197,7 @@ export default function App() {
                     ) : aggregationScope === 'kecamatan' ? (
                       <span>Kecamatan {selectedKecamatans.join(', ')}</span>
                     ) : (
-                      <span>Site {selectedSites.join(', ')}</span>
+                      <span>Site {selectedSites.map(s => siteNamesMap[s] ? `${s} - ${siteNamesMap[s]}` : s).join(', ')}</span>
                     )}
                   </div>
                 </div>
@@ -2166,26 +2208,26 @@ export default function App() {
                 <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${
                   darkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'
                 }`}>
-                  {(!isDailyMode || aggregationScope === 'sector') ? `Sector ${selectedSector}` :
+                  {aggregationScope === 'sector' ? `Sector ${selectedSector}` :
                    aggregationMode === 'full' ? 'Mode: Aggregation' : 'Mode: Band'}
                 </span>
                 <span className={`px-3 py-1 rounded-lg text-xs font-semibold border ${
                   darkMode ? 'bg-blue-950/60 text-blue-300 border-blue-900' : 'bg-blue-50 text-blue-700 border-blue-200'
                 }`}>
-                  {isDailyMode && aggregationScope === 'regional' ? 'Sulawesi Region' : `${currentSiteMeta.nop} • ${currentSiteMeta.kabupaten}`}
+                  {aggregationScope === 'regional' ? 'Sulawesi Region' : `${currentSiteMeta.nop} • ${currentSiteMeta.kabupaten}`}
                 </span>
               </div>
             </div>
 
             {/* Error Banner */}
-            {((!isDailyMode || aggregationScope === 'sector') ? data?.error : aggregationData?.error) && (
+            {(aggregationScope === 'sector' ? data?.error : aggregationData?.error) && (
               <div className={`p-5 rounded-2xl border flex items-center gap-4 ${
                 darkMode ? 'bg-rose-950/40 border-rose-800/80 text-rose-200' : 'bg-rose-50 border-rose-200 text-rose-800'
               }`}>
                 <AlertTriangle className="w-6 h-6 text-rose-500 shrink-0" />
                 <div className="text-xs">
                   <div className="font-bold text-sm">Gagal memuat data grafik</div>
-                  <p>{(!isDailyMode || aggregationScope === 'sector') ? data?.error : aggregationData?.error}</p>
+                  <p>{aggregationScope === 'sector' ? data?.error : aggregationData?.error}</p>
                 </div>
               </div>
             )}
@@ -2200,7 +2242,7 @@ export default function App() {
             }`}>
               
               {/* Sector Level Charts (4G Hourly, 4G Daily, 5G, or 2G Sector) */}
-              {(!isDailyMode || aggregationScope === 'sector') && currentSectorData && activeSelectedKpiIds.map(k_id => {
+              {aggregationScope === 'sector' && currentSectorData && activeSelectedKpiIds.map(k_id => {
                 const kpiData = currentKpis[k_id];
                 if (!kpiData) return null;
 
@@ -2224,8 +2266,8 @@ export default function App() {
                 );
               })}
 
-              {/* Higher Scopes Charts (Regional, NOP, City, Kecamatan, Site in Daily Mode) */}
-              {isDailyMode && aggregationScope !== 'sector' && aggregationData && aggregationData.kpis && activeSelectedKpiIds.map(k_id => {
+              {/* Higher Scopes Charts (Regional, NOP, City, Kecamatan, Site) */}
+              {aggregationScope !== 'sector' && aggregationData && aggregationData.kpis && activeSelectedKpiIds.map(k_id => {
                 const kpiData = aggregationData.kpis[k_id];
                 if (!kpiData) return null;
 
@@ -2268,18 +2310,18 @@ export default function App() {
                  isDailyMode ? 'OneDb Live (measDy4g & measBdbh4g)' : 'TwoDb Live (measHy4g)'}
               </span>
             </div>
-            {data?.enodeb_name && (!isDailyMode || aggregationScope === 'sector') && (
+            {data?.enodeb_name && aggregationScope === 'sector' && (
               <div className={`hidden sm:inline px-2 py-0.5 rounded border font-mono text-[11px] ${
                 darkMode ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-600'
               }`}>
-                eNodeB: {data.enodeb_name}
+                Target NE: {data.enodeb_name}
               </div>
             )}
           </div>
           <div>
             <span className="font-semibold">Scope: </span>
             <span className="font-bold uppercase tracking-wider text-blue-500">
-              {!isDailyMode ? `Sector ${selectedSector}` : `${aggregationScope} (${aggregationScope === 'sector' ? `Sector ${selectedSector}` : aggregationMode})`}
+              {aggregationScope === 'sector' ? `Sector ${selectedSector}` : `${aggregationScope} (${aggregationMode})`}
             </span>
           </div>
         </footer>

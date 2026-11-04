@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
 from .db import get_onedb_connection
+from .site_names import get_site_display_name, get_site_name
 
 # =============================================================================
 # 5G KPI Dictionary (measDy5g in OneDb)
@@ -555,7 +556,8 @@ def get_site_payload_5g_data(
 
     return {
         "site_id": site_clean,
-        "enodeb_name": f"5G_{site_clean}",
+        "site_name": get_site_name(site_clean),
+        "enodeb_name": get_site_display_name(site_clean),
         "time_mode": "daily",
         "tech": "5G",
         "timestamps": sorted_ts,

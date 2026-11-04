@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from .db import get_onedb_connection
 from .queries import get_band_from_ci, normalize_cell_key, get_clean_carrier_label
+from .site_names import get_site_display_name, get_site_name
 
 # =============================================================================
 # Comprehensive KPI Dictionary for 4G Daily
@@ -1311,7 +1312,8 @@ def get_site_payload_daily_data(
     return {
         "site_id": site_clean,
         "site_info": site_meta,
-        "enodeb_name": ", ".join(sorted(list(enodeb_names))),
+        "site_name": get_site_name(site_clean),
+        "enodeb_name": get_site_display_name(site_clean),
         "enodeb_names": sorted(list(enodeb_names)),
         "time_mode": "daily",
         "start_date": dt_start.strftime("%Y-%m-%d"),

@@ -15,6 +15,7 @@ from .queries_daily import (
 )
 from .queries_5g import get_5g_sites, get_site_payload_5g_data, KPIS_5G_CONFIG
 from .queries_2g import get_2g_sites, get_site_payload_2g_data, KPIS_2G_CONFIG
+from .site_names import load_site_names, get_site_display_name, get_site_name
 
 app = FastAPI(title="Monitoring KPI Dashboard", version="2.5.0")
 
@@ -37,15 +38,17 @@ def get_status():
 
 @app.get("/api/sites")
 def get_sites():
-    """Returns all unique site IDs from CellListRCI for autocomplete/dropdown."""
+    """Returns all unique site IDs and site names from CellListRCI for autocomplete/dropdown."""
     global CACHED_SITES
+    site_names = load_site_names()
     if CACHED_SITES:
-        return {"sites": CACHED_SITES, "total": len(CACHED_SITES)}
+        return {"sites": CACHED_SITES, "site_names": site_names, "total": len(CACHED_SITES)}
     
     try:
         conn = get_twodb_connection(timeout=5)
         if not conn:
-            return {"sites": ["MRW002", "UPD919", "UPD183", "COI350"], "total": 4}
+            CACHED_SITES = list(site_names.keys()) if site_names else ["MRW002", "UPD919", "UPD183", "COI350"]
+            return {"sites": CACHED_SITES, "site_names": site_names, "total": len(CACHED_SITES)}
         cur = conn.cursor()
         cur.execute("""
             SELECT DISTINCT site_id 
@@ -57,9 +60,15 @@ def get_sites():
         cur.close()
         conn.close()
         CACHED_SITES = [r[0].strip() for r in rows if r[0]]
-        return {"sites": CACHED_SITES, "total": len(CACHED_SITES)}
+        return {"sites": CACHED_SITES, "site_names": site_names, "total": len(CACHED_SITES)}
     except Exception as e:
-        return {"sites": ["MRW002", "UPD919", "UPD183", "COI350"], "error": str(e), "total": 4}
+        CACHED_SITES = list(site_names.keys()) if site_names else ["MRW002", "UPD919", "UPD183", "COI350"]
+        return {"sites": CACHED_SITES, "site_names": site_names, "error": str(e), "total": len(CACHED_SITES)}
+
+@app.get("/api/site_names")
+def get_site_names():
+    """Returns complete site_id -> site_name dictionary."""
+    return load_site_names()
 
 @app.get("/api/payload_sectors")
 def get_payload_sectors(
@@ -202,9 +211,10 @@ def get_daily_aggregation_endpoint(
 # =============================================================================
 @app.get("/api/5g/sites")
 def get_5g_sites_endpoint():
-    """Returns all unique 5G sites for autocomplete/dropdown."""
+    """Returns all unique 5G sites for autocomplete/dropdown with site names."""
     sites = get_5g_sites()
-    return {"sites": sites, "total": len(sites)}
+    names_map = load_site_names()
+    return {"sites": sites, "site_names": {s: names_map.get(s, "") for s in sites}, "total": len(sites)}
 
 @app.get("/api/5g/kpi_list")
 def get_5g_kpi_list_endpoint():
@@ -259,9 +269,10 @@ def get_5g_payload_sectors_endpoint(
 # =============================================================================
 @app.get("/api/2g/sites")
 def get_2g_sites_endpoint():
-    """Returns all unique 2G sites for autocomplete/dropdown."""
+    """Returns all unique 2G sites for autocomplete/dropdown with site names."""
     sites = get_2g_sites()
-    return {"sites": sites, "total": len(sites)}
+    names_map = load_site_names()
+    return {"sites": sites, "site_names": {s: names_map.get(s, "") for s in sites}, "total": len(sites)}
 
 @app.get("/api/2g/kpi_list")
 def get_2g_kpi_list_endpoint():
