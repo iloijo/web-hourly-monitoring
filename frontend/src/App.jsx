@@ -90,6 +90,9 @@ const HOURLY_KPIS = [
   { id: 'inter_freq_ho_sr', label: 'Inter-Freq HO SR (%)', unit: '%', category: 'Mobility' }
 ];
 
+// Main KPIs for the Sectoral view (one column per sector); ids missing from a menu's catalog are skipped
+const SECTORAL_KPIS = ['payload', 'payload_total', 'dl_prb', 'user_dl_thp', 'user_ul_thp', 'availability', 'spectrum_efficiency', 'cqi', 'max_rrc', 'max_rrc_users'];
+
 const DEFAULT_HOURLY_KPIS = ['payload', 'max_rrc', 'availability', 'dl_prb', 'user_dl_thp', 'cqi'];
 
 // Fallback list of Daily KPIs from measDy4g and measBdbh4g
@@ -328,6 +331,8 @@ export default function App() {
   const [selectedBands, setSelectedBands] = useState(ALL_BAND_IDS);
   const [bandDropdownOpen, setBandDropdownOpen] = useState(false);
   const [filterType, setFilterType] = useState("macro"); // 'macro', 'indoor', 'all'
+  const [sectorViewMode, setSectorViewMode] = useState("all"); // 'all' (all KPI, one sector) | 'sectoral' (sectors side by side)
+  const [sectoralSectors, setSectoralSectors] = useState(['1', '2', '3']); // sectors shown in Sectoral view
 
   // KPI selections
   const [selectedHourlyKpis, setSelectedHourlyKpis] = useState(DEFAULT_HOURLY_KPIS);
@@ -897,6 +902,21 @@ export default function App() {
     }
   };
 
+  // Switch Mode View; Sectoral preselects its main KPIs, All KPI goes back to the menu defaults
+  const handleSwitchSectorViewMode = (mode) => {
+    if (mode === sectorViewMode) return;
+    setSectorViewMode(mode);
+    if (mode === 'all') {
+      handleSelectDefaultKpis();
+      return;
+    }
+    const ids = SECTORAL_KPIS.filter(id => activeKpiCatalog.some(k => k.id === id));
+    if (activeMenu === '5g') setSelected5gKpiIds(ids);
+    else if (activeMenu === '2g') setSelected2gKpiIds(ids);
+    else if (activeMenu === '4g-daily') setSelectedDailyKpiIds(ids);
+    else setSelectedHourlyKpis(ids);
+  };
+
   // Current active KPI list and active IDs
   const activeKpiCatalog = useMemo(() => {
     if (activeMenu === '5g') return kpis5gList;
@@ -916,6 +936,19 @@ export default function App() {
   const availableSectors = data?.available_sectors || [1, 2, 3];
   const currentSectorData = data?.sectors?.[`sector${selectedSector}`];
   const currentKpis = currentSectorData?.kpis || {};
+  const isSectoralView = aggregationScope === 'sector' && sectorViewMode === 'sectoral';
+  const availableSectorsKey = availableSectors.join(',');
+
+  // When the site's sector list changes, keep the chosen sectors that still exist, else default to the first 3
+  useEffect(() => {
+    const avail = availableSectorsKey.split(',');
+    setSectoralSectors(prev => {
+      const kept = prev.filter(s => avail.includes(s));
+      return kept.length ? kept : avail.slice(0, 3);
+    });
+  }, [availableSectorsKey]);
+
+  const shownSectoralSectors = availableSectors.filter(s => sectoralSectors.includes(String(s)));
 
   // Site metadata & resolved NE Name
   const currentSiteMeta = hierarchyData?.site_map?.[siteId.toUpperCase()] || data?.site_info || {
@@ -1374,7 +1407,7 @@ export default function App() {
 
             {/* Dynamic Filter Controls based on Scope */}
             {aggregationScope === 'sector' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3.5">
                 
                 {/* 1. TARGET SITE */}
                 <div className="relative" ref={siteDropdownRef}>
@@ -1445,7 +1478,19 @@ export default function App() {
                   )}
                 </div>
 
-                {/* 2. FILTER SECTOR */}
+                {/* 2. FILTER SECTOR (multi-select in Sectoral view) */}
+                {sectorViewMode === 'sectoral' ? (
+                  <MultiSelectDropdown
+                    label="FILTER SECTOR"
+                    options={availableSectors.map(s => ({ value: String(s), label: `Sector ${s}` }))}
+                    selectedValues={sectoralSectors}
+                    onChange={setSectoralSectors}
+                    isMulti={true}
+                    searchable={false}
+                    darkMode={darkMode}
+                    minWidth="min-w-0"
+                  />
+                ) : (
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
                     FILTER SECTOR
@@ -1465,6 +1510,7 @@ export default function App() {
                     <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
                   </div>
                 </div>
+                )}
 
                 {/* 3. FILTER BAND (Default: All Bands) */}
                 <div className="relative" ref={bandDropdownRef}>
@@ -1594,6 +1640,31 @@ export default function App() {
                       <option value="all">All</option>
                     </select>
                     <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
+                  </div>
+                </div>
+
+                {/* 6. MODE VIEW (All KPI / Sectoral) */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    MODE VIEW
+                  </label>
+                  <div className={`flex items-center p-0.5 rounded-lg border ${
+                    darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'
+                  }`}>
+                    {[['all', 'All KPI'], ['sectoral', 'Sectoral']].map(([mode, text]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => handleSwitchSectorViewMode(mode)}
+                        className={`flex-1 px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                          sectorViewMode === mode
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {text}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -2345,7 +2416,7 @@ export default function App() {
                 <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${
                   darkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'
                 }`}>
-                  {aggregationScope === 'sector' ? `Sector ${selectedSector}` :
+                  {aggregationScope === 'sector' ? (sectorViewMode === 'sectoral' ? 'Sectoral View' : `Sector ${selectedSector}`) :
                    aggregationMode === 'full' ? 'Mode: Aggregation' : 'Mode: Band'}
                 </span>
                 <span className={`px-3 py-1 rounded-lg text-xs font-semibold border ${
@@ -2374,7 +2445,7 @@ export default function App() {
               </div>
             )}
 
-            {/* Render Multi-KPI Charts Grid */}
+            {/* Render Multi-KPI Charts Grid (Sectoral: one column per sector) */}
             <div className={`grid gap-4 transition-all duration-300 ${
               chartsPerRow === 1 
                 ? "grid-cols-1" 
@@ -2394,7 +2465,43 @@ export default function App() {
               )}
               
               {/* Sector Level Charts (4G Hourly, 4G Daily, 5G, or 2G Sector) */}
-              {aggregationScope === 'sector' && currentSectorData && activeSelectedKpiIds.map(k_id => {
+              {isSectoralView && data?.sectors && activeSelectedKpiIds.flatMap(k_id => {
+                const kpiLabel = activeKpiCatalog.find(k => k.id === k_id)?.label || k_id;
+                // KPI heading spans the full row so wrapped sector charts stay grouped under their KPI
+                const heading = shownSectoralSectors.length > chartsPerRow && (
+                  <div key={`sectoral_head_${k_id}`} className={`col-span-full text-xs font-bold uppercase tracking-wider pt-1 ${
+                    darkMode ? 'text-blue-400' : 'text-blue-600'
+                  }`}>
+                    {kpiLabel}
+                  </div>
+                );
+                return [heading, ...shownSectoralSectors.map(s => {
+                  const secData = data.sectors[`sector${s}`];
+                  const kpiData = secData?.kpis?.[k_id];
+                  if (!kpiData) return <div key={`sectoral_${s}_${k_id}`} />;
+
+                  return (
+                    <SectorPayloadChart
+                      key={`${activeMenu}_sectoral_${s}_${k_id}`}
+                      title={`${kpiData.title} - ${siteId} Sector ${s}`}
+                      unit={kpiData.unit}
+                      timestamps={secData.timestamps || data?.timestamps || []}
+                      carrierSeries={kpiData.carrier_series}
+                      totalSeries={kpiData.total_series}
+                      carrierBands={kpiData.carrier_bands || {}}
+                      hasTotal={kpiData.has_total || kpiData.has_tot}
+                      bandFilter={selectedBands}
+                      timeMode={timeMode}
+                      minY={kpiData.min_y}
+                      maxY={kpiData.max_y}
+                      darkMode={darkMode}
+                      chartsPerRow={chartsPerRow}
+                    />
+                  );
+                })];
+              })}
+
+              {aggregationScope === 'sector' && !isSectoralView && currentSectorData && activeSelectedKpiIds.map(k_id => {
                 const kpiData = currentKpis[k_id];
                 if (!kpiData) return null;
 

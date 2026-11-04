@@ -14,13 +14,29 @@ export default function MultiSelectDropdown({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  // Multi-select edits a draft; onChange (which reloads data) fires only on Terapkan or closing
+  const [draft, setDraft] = useState(selectedValues);
   const dropdownRef = useRef(null);
 
-  // Close when clicking outside
+  const isDirty = isMulti && (
+    draft.length !== selectedValues.length || draft.some(v => !selectedValues.includes(v))
+  );
+
+  const openDropdown = () => {
+    setDraft(selectedValues);
+    setIsOpen(true);
+  };
+
+  const closeDropdown = (apply) => {
+    setIsOpen(false);
+    if (apply && isDirty) onChange(draft);
+  };
+
+  // Close (and apply pending changes) when clicking outside
   useEffect(() => {
     function handleClickOutside(event) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setIsOpen(false);
+        closeDropdown(true);
       }
     }
     if (isOpen) {
@@ -29,7 +45,7 @@ export default function MultiSelectDropdown({
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isOpen]);
+  });
 
   // Normalize options to { value, label }
   const normalizedOptions = useMemo(() => {
@@ -74,21 +90,21 @@ export default function MultiSelectDropdown({
       return;
     }
 
-    if (selectedValues.includes(val)) {
-      if (selectedValues.length <= 1) return; // Keep at least 1
-      onChange(selectedValues.filter(v => v !== val));
+    if (draft.includes(val)) {
+      if (draft.length <= 1) return; // Keep at least 1
+      setDraft(draft.filter(v => v !== val));
     } else {
-      onChange([...selectedValues, val]);
+      setDraft([...draft, val]);
     }
   };
 
   const handleSelectAll = () => {
-    onChange(normalizedOptions.map(o => o.value));
+    setDraft(normalizedOptions.map(o => o.value));
   };
 
   const handleClear = () => {
     if (normalizedOptions.length > 0) {
-      onChange([normalizedOptions[0].value]);
+      setDraft([normalizedOptions[0].value]);
     }
   };
 
@@ -104,7 +120,7 @@ export default function MultiSelectDropdown({
       {/* Button */}
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => (isOpen ? closeDropdown(true) : openDropdown())}
         className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer shadow-2xs ${
           darkMode 
             ? 'bg-slate-800 border-slate-700 text-white hover:border-slate-600' 
@@ -127,7 +143,7 @@ export default function MultiSelectDropdown({
           {isMulti && (
             <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800 text-[11px]">
               <span className="font-bold text-slate-400">
-                {selectedValues.length} of {normalizedOptions.length}
+                {draft.length} of {normalizedOptions.length}
               </span>
               <div className="flex items-center gap-2">
                 <button
@@ -184,7 +200,7 @@ export default function MultiSelectDropdown({
             ) : (
               <>
                 {filteredOptions.slice(0, 100).map(opt => {
-                  const isSelected = selectedValues.includes(opt.value);
+                  const isSelected = isMulti ? draft.includes(opt.value) : selectedValues.includes(opt.value);
 
                   return (
                     <div
@@ -227,6 +243,29 @@ export default function MultiSelectDropdown({
               </>
             )}
           </div>
+
+          {/* Apply / cancel for multi-select */}
+          {isMulti && (
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => closeDropdown(false)}
+                className={`px-3 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition ${
+                  darkMode ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => closeDropdown(true)}
+                disabled={!isDirty}
+                className="px-3 py-1 rounded-lg text-[11px] font-bold transition bg-blue-600 text-white hover:bg-blue-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Terapkan ({draft.length})
+              </button>
+            </div>
+          )}
 
         </div>
       )}
