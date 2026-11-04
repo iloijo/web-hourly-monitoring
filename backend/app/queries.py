@@ -202,16 +202,18 @@ def get_site_payload_data(
         enodebs.add(f"E_{site_clean}M41")
 
     # 2. Date ranges: Default end_date is today - 1 per Gambar 3 instruction
+    # If today is past the known latest data in TwoDb (2026-10-27), cap default to 2026-10-27
     now = datetime.now()
     yesterday = now - timedelta(days=1)
+    max_known_db_date = datetime(2026, 10, 27)
     
     try:
         if end_date:
             dt_end = datetime.strptime(end_date.strip(), "%Y-%m-%d")
         else:
-            dt_end = yesterday
+            dt_end = max_known_db_date if yesterday > max_known_db_date else yesterday
     except Exception:
-        dt_end = yesterday
+        dt_end = max_known_db_date if yesterday > max_known_db_date else yesterday
 
     try:
         if start_date:
@@ -435,7 +437,7 @@ def get_site_payload_data(
             "ifho_sr": ("IFHO SR (%)", "%", True, False, 0, 100),
             "inter_freq_ho_sr": ("Inter-Freq HO SR (%)", "%", True, False, 0, 100),
             "avg_ni_dbm": ("Average NI (dBm)", "dBm", True, False, None, None),
-            "spectrum_efficiency": ("Spectrum Efficiency (bps/Hz)", "bps/Hz", True, False, 0, None),
+            "spectrum_efficiency": ("Spectrum Efficiency", "", True, False, 0, None),
         }
 
         kpis_out = {}
@@ -486,5 +488,6 @@ def get_site_payload_data(
         "sectors": result_sectors,
         "total_records": len(all_meas_rows),
         "execution_time_sec": round(t1 - t0, 3),
-        "source": "TwoDb Live (127.0.0.1:5434)"
+        "source": "TwoDb Live (127.0.0.1:5434)",
+        "latest_db_date": "2026-10-27"
     }

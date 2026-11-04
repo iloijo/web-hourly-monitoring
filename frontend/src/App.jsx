@@ -1,6 +1,9 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import SectorPayloadChart from './components/SectorPayloadChart';
 import DataLoadingOverlay from './components/DataLoadingOverlay';
+import KpiDropdownPopover from './components/KpiDropdownPopover';
+import AggregationScopeBar from './components/AggregationScopeBar';
+import MultiSelectDropdown from './components/MultiSelectDropdown';
 import { 
   Menu, 
   Calendar, 
@@ -11,50 +14,32 @@ import {
   BarChart3, 
   Sliders, 
   ChevronLeft, 
-  ChevronDown,
-  ChevronUp,
+  ChevronDown, 
+  ChevronUp, 
+  ChevronRight, 
+  Clock, 
   Layers, 
   Search, 
-  HardDrive,
-  FileSpreadsheet,
-  Filter,
-  Check,
-  Moon,
-  Sun,
-  X,
-  LayoutGrid
+  HardDrive, 
+  FileSpreadsheet, 
+  Filter, 
+  Check, 
+  Moon, 
+  Sun, 
+  X, 
+  LayoutGrid, 
+  AlertTriangle, 
+  Info, 
+  SlidersHorizontal, 
+  Sparkles, 
+  Database,
+  Antenna,
+  Network,
+  Building2,
+  MapPin,
+  Globe
 } from 'lucide-react';
 
-// Comprehensive list of all 18 radio network KPIs mapped from measHy4g
-const ALL_KPIS = [
-  // Core Traffic
-  { id: 'payload', label: 'Payload (GB)', category: 'Traffic' },
-  { id: 'max_rrc', label: 'Max RRC User (Users)', category: 'Traffic' },
-  { id: 'active_users', label: 'Active Users', category: 'Traffic' },
-  // Accessibility & Retainability
-  { id: 'availability', label: 'Availability (%)', category: 'Accessibility' },
-  { id: 'rrc_setup_sr', label: 'RRC Setup SR (%)', category: 'Accessibility' },
-  { id: 'erab_setup_sr', label: 'E-RAB Setup SR (%)', category: 'Accessibility' },
-  { id: 'cssr', label: 'CSSR (%)', category: 'Accessibility' },
-  { id: 'erab_drop_rate', label: 'E-RAB Drop Rate (%)', category: 'Retainability' },
-  { id: 'service_drop_rate', label: 'Service Drop Rate (%)', category: 'Retainability' },
-  // Capacity & Utilization
-  { id: 'dl_prb', label: 'DL PRB (%)', category: 'Capacity' },
-  { id: 'ul_prb', label: 'UL PRB (%)', category: 'Capacity' },
-  { id: 'user_dl_thp', label: 'User DL Thp (Mbps)', category: 'Throughput' },
-  { id: 'user_ul_thp', label: 'User UL Thp (Mbps)', category: 'Throughput' },
-  { id: 'spectrum_efficiency', label: 'Spectrum Efficiency (bps/Hz)', category: 'Throughput' },
-  // Quality & Mobility
-  { id: 'cqi', label: 'CQI', category: 'Quality' },
-  { id: 'avg_ni_dbm', label: 'Average NI (dBm)', category: 'Quality' },
-  { id: 'ifho_sr', label: 'IFHO SR (%)', category: 'Mobility' },
-  { id: 'inter_freq_ho_sr', label: 'Inter-Freq HO SR (%)', category: 'Mobility' }
-];
-
-// Default Core 6 KPIs matching Image 7 reference
-const DEFAULT_SELECTED_KPIS = ['payload', 'max_rrc', 'availability', 'dl_prb', 'user_dl_thp', 'cqi'];
-
-// Standard LTE Band list matching Image 5 reference
 const BAND_OPTIONS = [
   { id: 'L1800', label: 'L1800 (1.8 GHz)' },
   { id: 'L2100', label: 'L2100 (2.1 GHz)' },
@@ -66,61 +51,236 @@ const BAND_OPTIONS = [
   { id: 'L2600', label: 'L2600' }
 ];
 
-// Default End Date: Today - 1 per Gambar 3 & Image 2 instruction
-const getYesterdayStr = () => {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().split('T')[0];
-};
+const ALL_BAND_IDS = BAND_OPTIONS.map(b => b.id);
 
-const getSixDaysBeforeStr = (endDateStr) => {
-  const d = new Date(endDateStr);
-  d.setDate(d.getDate() - 5);
-  return d.toISOString().split('T')[0];
+// Comprehensive list of Hourly KPIs for TwoDb measHy4g
+const HOURLY_KPIS = [
+  { id: 'payload', label: 'Payload (GB)', unit: 'GB', category: 'Productivity' },
+  { id: 'max_rrc', label: 'Max RRC User (Users)', unit: 'Users', category: 'User Concurrency' },
+  { id: 'active_users', label: 'Active Users', unit: 'Users', category: 'User Concurrency' },
+  { id: 'availability', label: 'Availability (%)', unit: '%', category: 'Accessibility' },
+  { id: 'rrc_setup_sr', label: 'RRC Setup SR (%)', unit: '%', category: 'Accessibility' },
+  { id: 'erab_setup_sr', label: 'E-RAB Setup SR (%)', unit: '%', category: 'Accessibility' },
+  { id: 'cssr', label: 'CSSR (%)', unit: '%', category: 'Accessibility' },
+  { id: 'erab_drop_rate', label: 'E-RAB Drop Rate (%)', unit: '%', category: 'Retainability' },
+  { id: 'service_drop_rate', label: 'Service Drop Rate (%)', unit: '%', category: 'Retainability' },
+  { id: 'dl_prb', label: 'DL PRB (%)', unit: '%', category: 'Capacity & Utilization' },
+  { id: 'ul_prb', label: 'UL PRB (%)', unit: '%', category: 'Capacity & Utilization' },
+  { id: 'user_dl_thp', label: 'User DL Thp (Mbps)', unit: 'Mbps', category: 'Throughput & Speed' },
+  { id: 'user_ul_thp', label: 'User UL Thp (Mbps)', unit: 'Mbps', category: 'Throughput & Speed' },
+  { id: 'spectrum_efficiency', label: 'Spectrum Efficiency', unit: '', category: 'Throughput & Speed' },
+  { id: 'cqi', label: 'CQI', unit: '', category: 'Quality & Latency' },
+  { id: 'avg_ni_dbm', label: 'Average NI (dBm)', unit: 'dBm', category: 'Quality & Latency' },
+  { id: 'ifho_sr', label: 'IFHO SR (%)', unit: '%', category: 'Mobility' },
+  { id: 'inter_freq_ho_sr', label: 'Inter-Freq HO SR (%)', unit: '%', category: 'Mobility' }
+];
+
+const DEFAULT_HOURLY_KPIS = ['payload', 'max_rrc', 'availability', 'dl_prb', 'user_dl_thp', 'cqi'];
+
+// Fallback list of Daily KPIs from measDy4g and measBdbh4g
+const FALLBACK_DAILY_KPIS = [
+  // Productivity
+  { id: 'payload', label: 'Payload (GB)', unit: 'GB', category: 'Productivity', source: 'measDy4g', is_bdbh: false },
+  { id: 'dl_traffic', label: 'DL Traffic Volume (GB)', unit: 'GB', category: 'Productivity', source: 'measDy4g', is_bdbh: false },
+  { id: 'ul_traffic', label: 'UL Traffic Volume (GB)', unit: 'GB', category: 'Productivity', source: 'measDy4g', is_bdbh: false },
+  { id: 'ca_payload_total', label: 'Total CA Payload (GB)', unit: 'GB', category: 'Productivity', source: 'measDy4g', is_bdbh: false },
+  { id: 'ca_payload_dl', label: 'DL CA Payload (GB)', unit: 'GB', category: 'Productivity', source: 'measDy4g', is_bdbh: false },
+  { id: 'ca_payload_ul', label: 'UL CA Payload (GB)', unit: 'GB', category: 'Productivity', source: 'measDy4g', is_bdbh: false },
+  { id: 'volte_payload_dl', label: 'VoLTE DL Volume (MB)', unit: 'MB', category: 'Productivity', source: 'measDy4g', is_bdbh: false },
+  { id: 'volte_payload_ul', label: 'VoLTE UL Volume (MB)', unit: 'MB', category: 'Productivity', source: 'measDy4g', is_bdbh: false },
+  { id: 'volte_traffic', label: 'VoLTE Traffic (Erlang)', unit: 'Erl', category: 'Productivity', source: 'measDy4g', is_bdbh: false },
+
+  // Accessibility
+  { id: 'availability', label: 'Availability (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
+  { id: 'rrc_setup_sr', label: 'RRC Setup SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
+  { id: 'erab_setup_sr', label: 'E-RAB Setup SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
+  { id: 'cssr', label: 'CSSR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
+  { id: 's1_conn_sr', label: 'S1 Connection SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
+  { id: 'volte_rrc_sr', label: 'VoLTE RRC SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
+  { id: 'volte_erab_qci1_sr', label: 'VoLTE E-RAB QCI1 SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
+  { id: 'volte_erab_qci5_sr', label: 'VoLTE E-RAB QCI5 SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
+  { id: 'volte_call_setup_sr', label: 'VoLTE Call Setup SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
+  { id: 'csfb_sr', label: 'CSFB SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
+
+  // Retainability
+  { id: 'erab_drop_rate', label: 'E-RAB Drop Rate (%)', unit: '%', category: 'Retainability', source: 'measDy4g', is_bdbh: false },
+  { id: 'service_drop_rate', label: 'Service Drop Rate (%)', unit: '%', category: 'Retainability', source: 'measDy4g', is_bdbh: false },
+  { id: 'volte_call_drop_rate', label: 'VoLTE Call Drop Rate (%)', unit: '%', category: 'Retainability', source: 'measDy4g', is_bdbh: false },
+
+  // Capacity & Utilization (measBdbh4g)
+  { id: 'dl_prb', label: 'DL PRB (%) [BDBH]', unit: '%', category: 'Capacity & Utilization', source: 'measBdbh4g', is_bdbh: true },
+  { id: 'ul_prb', label: 'UL PRB (%) [BDBH]', unit: '%', category: 'Capacity & Utilization', source: 'measBdbh4g', is_bdbh: true },
+
+  // Throughput & Speed (measBdbh4g + measDy4g)
+  { id: 'user_dl_thp', label: 'User DL Thp (Mbps) [BDBH]', unit: 'Mbps', category: 'Throughput & Speed', source: 'measBdbh4g', is_bdbh: true },
+  { id: 'user_ul_thp', label: 'User UL Thp (Mbps) [BDBH]', unit: 'Mbps', category: 'Throughput & Speed', source: 'measBdbh4g', is_bdbh: true },
+  { id: 'spectrum_efficiency', label: 'Spectrum Efficiency [BDBH]', unit: '', category: 'Throughput & Speed', source: 'measBdbh4g', is_bdbh: true },
+  { id: 'cell_dl_thp', label: 'Cell DL Thp (Mbps)', unit: 'Mbps', category: 'Throughput & Speed', source: 'measDy4g', is_bdbh: false },
+  { id: 'cell_ul_thp', label: 'Cell UL Thp (Mbps)', unit: 'Mbps', category: 'Throughput & Speed', source: 'measDy4g', is_bdbh: false },
+  { id: 'ca_dl_thp', label: 'CA DL Thp (Mbps)', unit: 'Mbps', category: 'Throughput & Speed', source: 'measDy4g', is_bdbh: false },
+  { id: 'ca_ul_thp', label: 'CA UL Thp (Mbps)', unit: 'Mbps', category: 'Throughput & Speed', source: 'measDy4g', is_bdbh: false },
+  { id: 'max_cell_dl_rlc_thp', label: 'Max Cell DL RLC Thp (Mbps)', unit: 'Mbps', category: 'Throughput & Speed', source: 'measDy4g', is_bdbh: false },
+  { id: 'max_cell_ul_rlc_thp', label: 'Max Cell UL RLC Thp (Mbps)', unit: 'Mbps', category: 'Throughput & Speed', source: 'measDy4g', is_bdbh: false },
+  { id: 'max_cell_dl_pdcp_thp', label: 'Max Cell DL PDCP Thp (Mbps)', unit: 'Mbps', category: 'Throughput & Speed', source: 'measDy4g', is_bdbh: false },
+  { id: 'max_cell_ul_pdcp_thp', label: 'Max Cell UL PDCP Thp (Mbps)', unit: 'Mbps', category: 'Throughput & Speed', source: 'measDy4g', is_bdbh: false },
+
+  // User Concurrency
+  { id: 'max_rrc', label: 'Max RRC User (Users)', unit: 'Users', category: 'User Concurrency', source: 'measDy4g', is_bdbh: false },
+  { id: 'active_users', label: 'Active Users', unit: 'Users', category: 'User Concurrency', source: 'measDy4g', is_bdbh: false },
+  { id: 'avg_dl_active_users', label: 'Avg DL Active Users', unit: 'Users', category: 'User Concurrency', source: 'measDy4g', is_bdbh: false },
+  { id: 'max_dl_active_users_qci1', label: 'Max DL Active Users QCI1', unit: 'Users', category: 'User Concurrency', source: 'measDy4g', is_bdbh: false },
+  { id: 'max_ul_active_users_qci1', label: 'Max UL Active Users QCI1', unit: 'Users', category: 'User Concurrency', source: 'measDy4g', is_bdbh: false },
+  { id: 'max_user_volte', label: 'Max VoLTE Users', unit: 'Users', category: 'User Concurrency', source: 'measDy4g', is_bdbh: false },
+  { id: 'simultaneous_ue_avg', label: 'Avg Simultaneous UE', unit: 'Users', category: 'User Concurrency', source: 'measDy4g', is_bdbh: false },
+  { id: 'rrc_connected_mean', label: 'Mean RRC Connected Users', unit: 'Users', category: 'User Concurrency', source: 'measDy4g', is_bdbh: false },
+
+  // Quality & Latency
+  { id: 'cqi', label: 'CQI', unit: '', category: 'Quality & Latency', source: 'measDy4g', is_bdbh: false },
+  { id: 'cqi_rev', label: 'CQI Rev', unit: '', category: 'Quality & Latency', source: 'measDy4g', is_bdbh: false },
+  { id: 'cqi_ge_7', label: 'CQI >= 7 (%)', unit: '%', category: 'Quality & Latency', source: 'measDy4g', is_bdbh: false },
+  { id: 'avg_ni_dbm', label: 'Average NI (dBm)', unit: 'dBm', category: 'Quality & Latency', source: 'measDy4g', is_bdbh: false },
+  { id: 'max_ni_dbm', label: 'Maximum NI (dBm)', unit: 'dBm', category: 'Quality & Latency', source: 'measDy4g', is_bdbh: false },
+  { id: 'avg_cell_rssi', label: 'Average Cell RSSI (dBm)', unit: 'dBm', category: 'Quality & Latency', source: 'measDy4g', is_bdbh: false },
+  { id: 'dl_init_bler', label: 'DL Init BLER (%)', unit: '%', category: 'Quality & Latency', source: 'measDy4g', is_bdbh: false },
+  { id: 'ul_init_bler', label: 'UL Init BLER (%)', unit: '%', category: 'Quality & Latency', source: 'measDy4g', is_bdbh: false },
+  { id: 'dl_ip_packet_delay', label: 'DL IP Packet Delay (ms)', unit: 'ms', category: 'Quality & Latency', source: 'measDy4g', is_bdbh: false },
+  { id: 'ip_latency', label: 'IP Latency (ms)', unit: 'ms', category: 'Quality & Latency', source: 'measDy4g', is_bdbh: false },
+  { id: 'pdcp_sdu_delay', label: 'Avg DL PDCP SDU Delay (ms)', unit: 'ms', category: 'Quality & Latency', source: 'measDy4g', is_bdbh: false },
+
+  // Mobility
+  { id: 'ifho_sr', label: 'IFHO SR (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false },
+  { id: 'inter_freq_ho_sr', label: 'Inter-Freq LTE HO SR (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false },
+  { id: 'x2_ho_out_sr', label: 'X2 HO Out (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false },
+  { id: 's1_ho_out_sr', label: 'S1 HO Out (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false },
+  { id: 'inter_freq_x2_ho_sr', label: 'Inter-Freq X2 HO SR (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false },
+  { id: 'inter_freq_s1_ho_sr', label: 'Inter-Freq S1 HO SR (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false },
+  { id: 'lte_gsm_ho_sr', label: 'LTE-GSM HO SR (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false },
+  { id: 'volte_intra_freq_hosr', label: 'VoLTE Intra-Freq HO SR (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false },
+  { id: 'volte_inter_freq_hosr', label: 'VoLTE Inter-Freq HO SR (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false },
+  { id: 'srvcc_gsm_hosr', label: 'SRVCC LTE-GSM HO SR (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false },
+
+  // Equipment & System
+  { id: 'avg_cpu_util', label: 'Avg CPU Util (%)', unit: '%', category: 'Equipment & System', source: 'measDy4g', is_bdbh: false },
+  { id: 'peak_cpu_util', label: 'Peak CPU Util (%)', unit: '%', category: 'Equipment & System', source: 'measDy4g', is_bdbh: false },
+  { id: 'paging_congestion_rate', label: 'Paging Congestion Rate (%)', unit: '%', category: 'Equipment & System', source: 'measDy4g', is_bdbh: false },
+  { id: 'paging_sr', label: 'Paging Success Rate (%)', unit: '%', category: 'Equipment & System', source: 'measDy4g', is_bdbh: false },
+  { id: 'rrc_reestablishment_ratio', label: 'RRC Re-establishment Ratio (%)', unit: '%', category: 'Equipment & System', source: 'measDy4g', is_bdbh: false }
+];
+
+const DEFAULT_DAILY_KPIS = [
+  'payload',
+  'max_rrc',
+  'availability',
+  'dl_prb',
+  'ul_prb',
+  'user_dl_thp',
+  'user_ul_thp',
+  'spectrum_efficiency',
+  'cqi',
+  'cssr',
+  'erab_drop_rate',
+  'service_drop_rate'
+];
+
+// Default Regional KPIs matching user prompt
+const REGIONAL_DEFAULT_KPIS = [
+  'payload',
+  'dl_traffic',
+  'ul_traffic',
+  'volte_payload_dl',
+  'max_rrc',
+  'active_users',
+  'availability',
+  'rrc_setup_sr',
+  'erab_setup_sr',
+  'cssr',
+  'ifho_sr',
+  'inter_freq_ho_sr',
+  'spectrum_efficiency',
+  'cqi',
+  'csfb_sr',
+  'ip_delay'
+];
+
+const LATEST_TWODB_DATE = '2026-10-27';
+const LATEST_ONEDB_DATE = '2026-11-02';
+
+const getInitialDateRange = (mode = 'hourly') => {
+  const latestDateStr = mode === 'daily' ? LATEST_ONEDB_DATE : LATEST_TWODB_DATE;
+  const dEnd = new Date(latestDateStr);
+  const dStart = new Date(latestDateStr);
+  dStart.setDate(dStart.getDate() - (mode === 'daily' ? 14 : 6));
+  return {
+    start: dStart.toISOString().split('T')[0],
+    end: dEnd.toISOString().split('T')[0]
+  };
 };
 
 export default function App() {
-  // Theme state
-  const [darkMode, setDarkMode] = useState(() => {
-    return localStorage.getItem('theme') === 'dark';
-  });
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
 
-  // Filter & data states
-  const [siteId, setSiteId] = useState("MRW002");
-  const [selectedSector, setSelectedSector] = useState("1");
-  const [selectedBands, setSelectedBands] = useState(['L1800', 'L2100', 'L900', 'L2300_1']);
-  const [bandDropdownOpen, setBandDropdownOpen] = useState(false);
-  const [selectedKpis, setSelectedKpis] = useState(DEFAULT_SELECTED_KPIS);
-  const [kpiDropdownOpen, setKpiDropdownOpen] = useState(false);
-  const [kpiSearchTerm, setKpiSearchTerm] = useState("");
-  const [filterType, setFilterType] = useState("macro"); // 'macro', 'indoor', 'all'
-  
-  // Date states (Default: today - 1)
-  const initialEnd = getYesterdayStr();
-  const initialStart = getSixDaysBeforeStr(initialEnd);
-  const [startDate, setStartDate] = useState(initialStart);
-  const [endDate, setEndDate] = useState(initialEnd);
+  // Navigation mode: '4g-hourly' or '4g-daily'
+  const [activeMenu, setActiveMenu] = useState("4g-hourly");
   const [timeMode, setTimeMode] = useState("hourly");
 
-  // UI interaction states
+  // Aggregation Scope: Regional, NOP, City/Kabupaten, Kecamatan, Site, Sector (DEFAULT!)
+  const [aggregationScope, setAggregationScope] = useState("sector");
+  // Aggregation Mode: 'full' (Aggregation) vs 'band' (Band)
+  const [aggregationMode, setAggregationMode] = useState("full");
+
+  // Scope Entity Selections
+  const [selectedNops, setSelectedNops] = useState(['MAKASSAR']);
+  const [selectedCities, setSelectedCities] = useState(['KOTA MAKASSAR']);
+  const [selectedKecamatans, setSelectedKecamatans] = useState(['UJUNG PANDANG']);
+  const [selectedSites, setSelectedSites] = useState(['MRW002']);
+
+  // Cascading helpers for City & Kecamatan
+  const [cityFilterNop, setCityFilterNop] = useState('MAKASSAR');
+  const [kecFilterNop, setKecFilterNop] = useState('MAKASSAR');
+  const [kecFilterKab, setKecFilterKab] = useState('KOTA MAKASSAR');
+
+  // Site & Hierarchy states
+  const [siteId, setSiteId] = useState("MRW002");
+  const [hierarchyData, setHierarchyData] = useState({ nops: [], tree: {}, site_map: {}, sites: [] });
+
+  // Sector Level Filters (DEFAULT)
+  const [selectedSector, setSelectedSector] = useState("1");
+  const [selectedBands, setSelectedBands] = useState(ALL_BAND_IDS);
+  const [bandDropdownOpen, setBandDropdownOpen] = useState(false);
+  const [filterType, setFilterType] = useState("macro"); // 'macro', 'indoor', 'all'
+
+  // KPI selections
+  const [selectedHourlyKpis, setSelectedHourlyKpis] = useState(DEFAULT_HOURLY_KPIS);
+  const [selectedDailyKpiIds, setSelectedDailyKpiIds] = useState(DEFAULT_DAILY_KPIS);
+  const [dailyKpisList, setDailyKpisList] = useState(FALLBACK_DAILY_KPIS);
+  const [kpiDropdownOpen, setKpiDropdownOpen] = useState(false);
+
+  // Date range
+  const initialDates = getInitialDateRange('hourly');
+  const [startDate, setStartDate] = useState(initialDates.start);
+  const [endDate, setEndDate] = useState(initialDates.end);
+
+  // Layout UI
   const [chartsPerRow, setChartsPerRow] = useState(3);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  
-  // Site list & dropdown search
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [expanded4G, setExpanded4G] = useState(true);
+
+  // Sites list for dropdown
   const [allSites, setAllSites] = useState([]);
   const [siteSearch, setSiteSearch] = useState("");
   const [siteDropdownOpen, setSiteDropdownOpen] = useState(false);
 
-  // Data fetching states
+  // Data fetching
   const [data, setData] = useState(null);
+  const [aggregationData, setAggregationData] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [dbStatus, setDbStatus] = useState("Connecting to TwoDb...");
+  const [dbStatus, setDbStatus] = useState("Checking connections...");
 
-  const kpiDropdownRef = useRef(null);
   const siteDropdownRef = useRef(null);
   const bandDropdownRef = useRef(null);
+  const kpiDropdownRef = useRef(null);
 
-  // Toggle theme
+  // Toggle Theme
   const toggleTheme = () => {
     setDarkMode(prev => {
       const next = !prev;
@@ -129,7 +289,6 @@ export default function App() {
     });
   };
 
-  // Sync dark mode class to html element
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add('dark');
@@ -140,106 +299,230 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Cycle charts per row: 3 -> 2 -> 1 -> 3
-  const cycleGrid = () => {
-    setChartsPerRow(prev => (prev === 3 ? 2 : prev === 2 ? 1 : 3));
-  };
-
-  // Close dropdowns on click outside
+  // Click outside to close dropdowns
   useEffect(() => {
     function handleClickOutside(event) {
-      if (kpiDropdownRef.current && !kpiDropdownRef.current.contains(event.target)) {
-        setKpiDropdownOpen(false);
-      }
       if (siteDropdownRef.current && !siteDropdownRef.current.contains(event.target)) {
         setSiteDropdownOpen(false);
       }
       if (bandDropdownRef.current && !bandDropdownRef.current.contains(event.target)) {
         setBandDropdownOpen(false);
       }
+      if (kpiDropdownRef.current && !kpiDropdownRef.current.contains(event.target)) {
+        setKpiDropdownOpen(false);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
   }, []);
 
-  // Fetch all site IDs from CellListRCI on mount (Image 8 requirement)
+  // Fetch status, sites list, hierarchy, and daily KPI catalog on mount
   useEffect(() => {
+    fetch('/api/status')
+      .then(res => res.json())
+      .then(json => {
+        setDbStatus(json.status || "Connected");
+      })
+      .catch(() => setDbStatus("Connection Error"));
+
     fetch('/api/sites')
       .then(res => res.json())
       .then(json => {
-        if (json.sites && json.sites.length > 0) {
+        if (json.sites && Array.isArray(json.sites)) {
           setAllSites(json.sites);
         }
       })
-      .catch(() => {});
-  }, []);
+      .catch(err => console.error("Could not fetch sites:", err));
 
-  // Filtered sites for dropdown
-  const filteredSites = useMemo(() => {
-    const term = siteSearch.trim().toUpperCase();
-    if (!term) return allSites.slice(0, 80);
-    return allSites.filter(s => s.toUpperCase().includes(term)).slice(0, 100);
-  }, [allSites, siteSearch]);
-
-  // Fetch payload & multi-KPI data from backend
-  const fetchData = (
-    targetSite = siteId, 
-    start = startDate, 
-    end = endDate, 
-    mode = timeMode,
-    cType = filterType
-  ) => {
-    setLoading(true);
-    const startReqTime = Date.now();
-    const params = new URLSearchParams({
-      site_id: targetSite,
-      start_date: start,
-      end_date: end,
-      time_mode: mode,
-      cell_type: cType,
-      days_back: "6"
-    });
-
-    fetch(`/api/payload_sectors?${params.toString()}`)
+    fetch('/api/hierarchy')
       .then(res => res.json())
       .then(json => {
-        const elapsed = Date.now() - startReqTime;
-        const delay = Math.max(0, 600 - elapsed);
+        if (json && json.tree) {
+          setHierarchyData(json);
+        }
+      })
+      .catch(err => console.error("Could not fetch hierarchy:", err));
+
+    fetch('/api/daily/kpi_list')
+      .then(res => res.json())
+      .then(json => {
+        if (json && Array.isArray(json.kpis)) {
+          setDailyKpisList(json.kpis);
+        }
+      })
+      .catch(err => console.error("Could not fetch daily KPI catalog:", err));
+  }, []);
+
+  // Filter sites for autocomplete search
+  const filteredSites = useMemo(() => {
+    if (!siteSearch) return allSites.slice(0, 50);
+    return allSites
+      .filter(s => s.toLowerCase().includes(siteSearch.toLowerCase()))
+      .slice(0, 50);
+  }, [allSites, siteSearch]);
+
+  const isDailyMode = activeMenu === "4g-daily";
+
+  // Fetch Sector-Level Payload Data
+  const fetchSectorData = (targetSite, start, end, menuMode, cellType) => {
+    setLoading(true);
+    const startTime = Date.now();
+    const endpoint = menuMode === "4g-daily" ? "/api/daily/payload_sectors" : "/api/payload_sectors";
+
+    const params = new URLSearchParams();
+    params.append('site_id', targetSite);
+    if (start) params.append('start_date', start);
+    if (end) params.append('end_date', end);
+    if (cellType) params.append('cell_type', cellType);
+    params.append('days_back', menuMode === "4g-daily" ? '14' : '6');
+
+    fetch(`${endpoint}?${params.toString()}`)
+      .then(res => res.json())
+      .then(json => {
+        const elapsed = Date.now() - startTime;
+        const delay = Math.max(0, 400 - elapsed);
         setTimeout(() => {
           setData(json);
           setLoading(false);
-          if (json.source) {
-            setDbStatus(json.source);
-          }
-          // Requirement: Default sector automatically displays Sector 1 after get data
-          setSelectedSector("1");
-          
-          // Populate site's actual bands into selectedBands if currently empty or mismatched
-          if (json.available_bands && json.available_bands.length > 0) {
-            setSelectedBands(prev => {
-              const valid = prev.filter(b => json.available_bands.includes(b));
-              return valid.length > 0 ? valid : json.available_bands;
-            });
-          }
+          // Keep all bands default if not restricted
         }, delay);
       })
       .catch(err => {
-        console.error("Failed to fetch payload sectors:", err);
+        console.error("Failed to fetch sector data:", err);
         setLoading(false);
         setDbStatus("Connection Error");
+        setData({ error: "Gagal terhubung ke server backend API." });
       });
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  // Fetch Higher-Scope Aggregation Data (Regional, NOP, City, Kecamatan, Site)
+  const fetchScopeAggregationData = (scope, mode, start, end, nopsList, citiesList, kecList, sitesList, bandsList) => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    params.append('scope', scope);
+    params.append('mode', mode);
+    if (start) params.append('start_date', start);
+    if (end) params.append('end_date', end);
 
-  const handleGetData = (e) => {
-    if (e) e.preventDefault();
-    fetchData(siteId, startDate, endDate, timeMode, filterType);
+    if (scope === 'nop') {
+      const activeList = mode === 'band' 
+        ? (nopsList && nopsList.length > 0 ? [nopsList[0]] : ['MAKASSAR'])
+        : (nopsList && nopsList.length > 0 ? nopsList : ['MAKASSAR']);
+      activeList.forEach(n => params.append('nops', n));
+    } else if (scope === 'city') {
+      const activeList = mode === 'band'
+        ? (citiesList && citiesList.length > 0 ? [citiesList[0]] : ['KOTA MAKASSAR'])
+        : (citiesList && citiesList.length > 0 ? citiesList : ['KOTA MAKASSAR']);
+      activeList.forEach(c => params.append('cities', c));
+    } else if (scope === 'kecamatan') {
+      const activeList = mode === 'band'
+        ? (kecList && kecList.length > 0 ? [kecList[0]] : ['UJUNG PANDANG'])
+        : (kecList && kecList.length > 0 ? kecList : ['UJUNG PANDANG']);
+      activeList.forEach(k => params.append('kecamatans', k));
+    } else if (scope === 'site') {
+      const activeList = mode === 'band'
+        ? (sitesList && sitesList.length > 0 ? [sitesList[0]] : [siteId])
+        : (sitesList && sitesList.length > 0 ? sitesList : [siteId]);
+      activeList.forEach(s => params.append('sites', s));
+    }
+
+    if (bandsList && bandsList.length > 0 && bandsList.length < BAND_OPTIONS.length) {
+      bandsList.forEach(b => params.append('bands', b));
+    }
+
+    fetch(`/api/daily/aggregation?${params.toString()}`)
+      .then(res => res.json())
+      .then(json => {
+        setAggregationData(json);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("Aggregation fetch error:", err);
+        setAggregationData({ error: String(err) });
+        setLoading(false);
+      });
   };
 
-  // Toggle single band selection
+  // Initial load on mount
+  useEffect(() => {
+    fetchSectorData("MRW002", startDate, endDate, "4g-hourly", "macro");
+  }, []);
+
+  // When scope changes, load appropriate data
+  const handleSelectScope = (newScope) => {
+    setAggregationScope(newScope);
+    if (newScope === 'sector') {
+      fetchSectorData(siteId, startDate, endDate, activeMenu, filterType);
+    } else {
+      fetchScopeAggregationData(newScope, aggregationMode, startDate, endDate, selectedNops, selectedCities, selectedKecamatans, selectedSites, selectedBands);
+    }
+  };
+
+  // Switch between Aggregation vs Band mode
+  const handleSwitchAggregationMode = (newMode) => {
+    setAggregationMode(newMode);
+    let nops = selectedNops;
+    let cities = selectedCities;
+    let kecs = selectedKecamatans;
+    let sites = selectedSites;
+
+    if (newMode === 'band') {
+      if (nops.length > 1) {
+        nops = [nops[0]];
+        setSelectedNops(nops);
+      }
+      if (cities.length > 1) {
+        cities = [cities[0]];
+        setSelectedCities(cities);
+      }
+      if (kecs.length > 1) {
+        kecs = [kecs[0]];
+        setSelectedKecamatans(kecs);
+      }
+      if (sites.length > 1) {
+        sites = [sites[0]];
+        setSelectedSites(sites);
+      }
+    }
+
+    fetchScopeAggregationData(aggregationScope, newMode, startDate, endDate, nops, cities, kecs, sites, selectedBands);
+  };
+
+  // Switch Menu Mode (4G Hourly <-> 4G Daily)
+  const handleSwitchMenu = (targetMenu) => {
+    if (targetMenu === activeMenu) return;
+    setActiveMenu(targetMenu);
+    const isDaily = targetMenu === "4g-daily";
+    setTimeMode(isDaily ? "daily" : "hourly");
+
+    const newDates = getInitialDateRange(isDaily ? 'daily' : 'hourly');
+    setStartDate(newDates.start);
+    setEndDate(newDates.end);
+
+    // If switching to Hourly, force scope to 'sector'
+    const targetScope = isDaily ? aggregationScope : 'sector';
+    if (!isDaily) setAggregationScope('sector');
+
+    if (targetScope === 'sector') {
+      fetchSectorData(siteId, newDates.start, newDates.end, targetMenu, filterType);
+    } else {
+      fetchScopeAggregationData(targetScope, aggregationMode, newDates.start, newDates.end, selectedNops, selectedCities, selectedKecamatans, selectedSites, selectedBands);
+    }
+  };
+
+  // Master Get Data button submit
+  const handleGetData = (e) => {
+    if (e) e.preventDefault();
+    if (!isDailyMode || aggregationScope === 'sector') {
+      fetchSectorData(siteId, startDate, endDate, activeMenu, filterType);
+    } else {
+      fetchScopeAggregationData(aggregationScope, aggregationMode, startDate, endDate, selectedNops, selectedCities, selectedKecamatans, selectedSites, selectedBands);
+    }
+  };
+
+  // Band toggles
   const handleToggleBand = (bandId) => {
     if (selectedBands.includes(bandId)) {
       if (selectedBands.length > 1) {
@@ -250,58 +533,122 @@ export default function App() {
     }
   };
 
-  // Toggle All Bands
   const handleToggleAllBands = () => {
-    const siteBands = data?.available_bands || BAND_OPTIONS.map(b => b.id);
-    if (selectedBands.length === siteBands.length) {
-      setSelectedBands([siteBands[0]]);
+    if (selectedBands.length === ALL_BAND_IDS.length) {
+      setSelectedBands([ALL_BAND_IDS[0]]);
     } else {
-      setSelectedBands([...siteBands]);
+      setSelectedBands([...ALL_BAND_IDS]);
     }
   };
 
-  // Toggle KPI selection
+  // Toggle single KPI
   const handleToggleKpi = (kpiId) => {
-    if (selectedKpis.includes(kpiId)) {
-      if (selectedKpis.length > 1) {
-        setSelectedKpis(selectedKpis.filter(id => id !== kpiId));
+    if (isDailyMode) {
+      setSelectedDailyKpiIds(prev => {
+        if (prev.includes(kpiId)) {
+          if (prev.length <= 1) return prev;
+          return prev.filter(id => id !== kpiId);
+        } else {
+          return [...prev, kpiId];
+        }
+      });
+    } else {
+      setSelectedHourlyKpis(prev => {
+        if (prev.includes(kpiId)) {
+          if (prev.length <= 1) return prev;
+          return prev.filter(id => id !== kpiId);
+        } else {
+          return [...prev, kpiId];
+        }
+      });
+    }
+  };
+
+  // Select all KPIs
+  const handleSelectAllKpis = () => {
+    if (isDailyMode) {
+      setSelectedDailyKpiIds(dailyKpisList.map(k => k.id));
+    } else {
+      setSelectedHourlyKpis(HOURLY_KPIS.map(k => k.id));
+    }
+  };
+
+  // Select default KPIs
+  const handleSelectDefaultKpis = () => {
+    if (isDailyMode) {
+      if (aggregationScope !== 'sector') {
+        setSelectedDailyKpiIds(REGIONAL_DEFAULT_KPIS);
+      } else {
+        setSelectedDailyKpiIds(DEFAULT_DAILY_KPIS);
       }
     } else {
-      setSelectedKpis([...selectedKpis, kpiId]);
+      setSelectedHourlyKpis(DEFAULT_HOURLY_KPIS);
     }
   };
 
-  const actualBands = data?.available_bands || ["L1800", "L2100", "L900", "L2300_1"];
+  // Current active KPI list and active IDs
+  const activeKpiCatalog = isDailyMode ? dailyKpisList : HOURLY_KPIS;
+  const activeSelectedKpiIds = isDailyMode ? selectedDailyKpiIds : selectedHourlyKpis;
+
+  const actualBands = data?.available_bands || ALL_BAND_IDS;
   const availableSectors = data?.available_sectors || [1, 2, 3];
-  const currentSectorData = data?.sectors?.[`sector${selectedSector}`] || data?.sectors?.[`sector1`] || null;
+  const currentSectorData = data?.sectors?.[`sector${selectedSector}`];
   const currentKpis = currentSectorData?.kpis || {};
 
-  // Filtered KPI list for search in popover
-  const displayedKpiOptions = useMemo(() => {
-    if (!kpiSearchTerm) return ALL_KPIS;
-    return ALL_KPIS.filter(k => k.label.toLowerCase().includes(kpiSearchTerm.toLowerCase()) || k.category.toLowerCase().includes(kpiSearchTerm.toLowerCase()));
-  }, [kpiSearchTerm]);
+  // Site metadata & resolved NE Name
+  const currentSiteMeta = hierarchyData?.site_map?.[siteId.toUpperCase()] || data?.site_info || {
+    site_id: siteId,
+    nop: "UNKNOWN",
+    kabupaten: "UNKNOWN",
+    kecamatan: "UNKNOWN"
+  };
+
+  const resolvedNeName = data?.enodeb_name || currentSiteMeta?.enodeb_name || `E_${siteId}M41`;
+
+  // Cascading options
+  const nopOptions = useMemo(() => {
+    return hierarchyData?.nops || ['BONE', 'KENDARI', 'MAKASSAR', 'MANADO', 'PALU', 'PARE-PARE', 'TERNATE'];
+  }, [hierarchyData]);
+
+  const cityOptions = useMemo(() => {
+    if (cityFilterNop && hierarchyData?.kabupaten_by_nop?.[cityFilterNop]) {
+      return Array.from(hierarchyData.kabupaten_by_nop[cityFilterNop]).sort();
+    }
+    return ['KOTA MAKASSAR', 'GOWA', 'MAROS', 'MOROWALI', 'KENDARI', 'PALU', 'MANADO'];
+  }, [cityFilterNop, hierarchyData]);
+
+  const kecCityOptions = useMemo(() => {
+    if (kecFilterNop && hierarchyData?.kabupaten_by_nop?.[kecFilterNop]) {
+      return Array.from(hierarchyData.kabupaten_by_nop[kecFilterNop]).sort();
+    }
+    return cityOptions;
+  }, [kecFilterNop, hierarchyData, cityOptions]);
+
+  const kecOptions = useMemo(() => {
+    if (kecFilterKab && hierarchyData?.kecamatan_by_kab?.[kecFilterKab]) {
+      return Array.from(hierarchyData.kecamatan_by_kab[kecFilterKab]).sort();
+    }
+    return ['UJUNG PANDANG', 'MAMAJANG', 'PANAKKUKANG', 'TAMALATE', 'BUNGKU TENGAH'];
+  }, [kecFilterKab, hierarchyData]);
 
   return (
     <div className={`min-h-screen flex flex-row font-sans select-none transition-colors duration-300 overflow-x-hidden ${
       darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'
     }`}>
       
-      {/* ========================================================================= */}
-      {/* 1. Smooth Sliding Left Sidebar (Gambar 4 requirement)                      */}
-      {/* ========================================================================= */}
+      {/* 1. Sidebar Navigation */}
       <aside 
         className={`fixed inset-y-0 left-0 z-40 w-64 transition-transform duration-300 ease-in-out flex flex-col shadow-2xl border-r ${
           darkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
         } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
-        {/* Sidebar Brand Header */}
+        {/* Brand Header */}
         <div className={`h-14 border-b px-5 flex items-center justify-between ${
           darkMode ? 'border-slate-800' : 'border-slate-200'
         }`}>
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm font-bold text-sm">
-              <Activity className="w-4 h-4" />
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/30">
+              <Activity className="w-5 h-5 stroke-[2.5]" />
             </div>
             <div>
               <span className={`font-extrabold text-sm tracking-tight block leading-tight ${
@@ -312,11 +659,12 @@ export default function App() {
               <span className={`text-[10px] font-medium tracking-wide ${
                 darkMode ? 'text-slate-400' : 'text-slate-500'
               }`}>
-                4G Hourly v4.0
+                {isDailyMode ? '4G Daily (oneDB)' : '4G Hourly (twoDB)'}
               </span>
             </div>
           </div>
           <button 
+            type="button"
             onClick={() => setSidebarOpen(false)}
             className={`p-1 rounded transition cursor-pointer ${
               darkMode ? 'text-slate-400 hover:text-white hover:bg-slate-800' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
@@ -327,145 +675,162 @@ export default function App() {
           </button>
         </div>
 
-        {/* Sidebar Navigation Items */}
-        <div className="p-3 grow overflow-y-auto space-y-6 text-xs">
+        {/* Navigation Menus */}
+        <div className="p-3 space-y-1 grow overflow-y-auto">
+          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Main Navigation
+          </div>
+
+          {/* 4G Monitoring Group */}
           <div>
-            <span className={`px-3 text-[10px] font-bold uppercase tracking-wider ${
-              darkMode ? 'text-slate-500' : 'text-slate-400'
-            }`}>
-              Network Monitoring
-            </span>
-            <div className="mt-2 space-y-1">
-              <button className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md font-semibold text-white bg-blue-600 shadow-xs cursor-pointer">
-                <Radio className="w-4 h-4 text-white" />
+            <button
+              type="button"
+              onClick={() => setExpanded4G(!expanded4G)}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-bold text-xs transition cursor-pointer ${
+                darkMode ? 'text-slate-200 hover:bg-slate-800/80' : 'text-slate-800 hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <BarChart3 className="w-4 h-4 text-blue-500" />
                 <span>4G Monitoring</span>
-                <span className="ml-auto w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              </button>
-              <button className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md font-medium transition cursor-pointer ${
-                darkMode ? 'text-slate-400 hover:text-white hover:bg-slate-800/60' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}>
-                <Radio className={`w-4 h-4 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} />
-                <span>2G Monitoring</span>
-              </button>
-              <button className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md font-medium transition cursor-pointer ${
-                darkMode ? 'text-slate-400 hover:text-white hover:bg-slate-800/60' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}>
-                <Radio className={`w-4 h-4 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} />
-                <span>5G Monitoring</span>
-              </button>
-            </div>
-          </div>
+              </div>
+              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${expanded4G ? 'rotate-180' : ''}`} />
+            </button>
 
-          <div>
-            <span className={`px-3 text-[10px] font-bold uppercase tracking-wider ${
-              darkMode ? 'text-slate-500' : 'text-slate-400'
-            }`}>
-              Analytics & KPIs
-            </span>
-            <div className="mt-2 space-y-1">
-              <button className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md font-medium transition cursor-pointer ${
-                darkMode ? 'text-slate-400 hover:text-white hover:bg-slate-800/60' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            {expanded4G && (
+              <div className={`mt-1 ml-3.5 pl-3 border-l space-y-1 ${
+                darkMode ? 'border-slate-800' : 'border-slate-200'
               }`}>
-                <BarChart3 className={`w-4 h-4 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} />
-                <span>PRB & Capacity</span>
-              </button>
-              <button className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md font-medium transition cursor-pointer ${
-                darkMode ? 'text-slate-400 hover:text-white hover:bg-slate-800/60' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}>
-                <Layers className={`w-4 h-4 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} />
-                <span>Carrier Distribution</span>
-              </button>
-              <button className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md font-medium transition cursor-pointer ${
-                darkMode ? 'text-slate-400 hover:text-white hover:bg-slate-800/60' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}>
-                <Sliders className={`w-4 h-4 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} />
-                <span>CQI & Throughput</span>
-              </button>
-            </div>
-          </div>
+                {/* 1. 4G Hourly */}
+                <button 
+                  type="button"
+                  onClick={() => handleSwitchMenu("4g-hourly")}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-md font-semibold text-xs transition cursor-pointer ${
+                    activeMenu === "4g-hourly"
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : darkMode 
+                        ? 'text-slate-400 hover:text-white hover:bg-slate-800/60' 
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>4G Hourly</span>
+                  </div>
+                  {activeMenu === "4g-hourly" ? (
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  ) : (
+                    <span className="text-[10px] opacity-60">TwoDb</span>
+                  )}
+                </button>
 
-          <div>
-            <span className={`px-3 text-[10px] font-bold uppercase tracking-wider ${
-              darkMode ? 'text-slate-500' : 'text-slate-400'
-            }`}>
-              Data & Topology
-            </span>
-            <div className="mt-2 space-y-1">
-              <button className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md font-medium transition cursor-pointer ${
-                darkMode ? 'text-slate-400 hover:text-white hover:bg-slate-800/60' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}>
-                <HardDrive className={`w-4 h-4 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} />
-                <span>CellListRCI Topology</span>
-              </button>
-              <button className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md font-medium transition cursor-pointer ${
-                darkMode ? 'text-slate-400 hover:text-white hover:bg-slate-800/60' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}>
-                <FileSpreadsheet className={`w-4 h-4 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`} />
-                <span>Export CSV Report</span>
-              </button>
-            </div>
+                {/* 2. 4G Daily (oneDB) */}
+                <button 
+                  type="button"
+                  onClick={() => handleSwitchMenu("4g-daily")}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-md font-semibold text-xs transition cursor-pointer ${
+                    activeMenu === "4g-daily"
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : darkMode 
+                        ? 'text-slate-400 hover:text-white hover:bg-slate-800/60' 
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>4G Daily</span>
+                  </div>
+                  {activeMenu === "4g-daily" ? (
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                  ) : (
+                    <span className="text-[10px] opacity-60">OneDb</span>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Sidebar Footer */}
-        <div className={`p-3 border-t text-[11px] transition-colors ${
-          darkMode ? 'border-slate-800 text-slate-400 bg-slate-950/40' : 'border-slate-200 text-slate-600 bg-slate-50'
-        }`}>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span className={`font-semibold ${darkMode ? 'text-white' : 'text-slate-800'}`}>TwoDb Live</span>
+        {/* Database Status in Sidebar */}
+        <div className={`p-3 border-t text-xs ${darkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'}`}>
+          <div className="flex items-center gap-2 mb-1.5 font-bold">
+            <Database className="w-3.5 h-3.5 text-blue-500" />
+            <span className="text-[11px] text-slate-500 uppercase tracking-wider">Database Status</span>
           </div>
-          <span className={`text-[10px] block truncate ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>127.0.0.1:5434 / 192.168.1.231</span>
+          <div className="text-[11px] font-mono leading-tight space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="opacity-70">TwoDb (Hourly):</span>
+              <span className="font-bold text-emerald-500 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                5434
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="opacity-70">OneDb (Daily):</span>
+              <span className="font-bold text-emerald-500 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                5432
+              </span>
+            </div>
+          </div>
         </div>
       </aside>
 
-      {/* ========================================================================= */}
-      {/* 2. Main Content Area (Sidebar remains open without blocking backdrop)      */}
-      {/* ========================================================================= */}
-      <div className={`flex-1 flex flex-col min-w-0 min-h-screen transition-all duration-300 ease-in-out ${
-        sidebarOpen ? "md:ml-64" : "ml-0"
-      }`}>
+      {/* Main Content Area */}
+      <div className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ${sidebarOpen ? "ml-64" : "ml-0"}`}>
         
-        {/* ========================================================================= */}
-        {/* Top Header Bar matching Image 2, 3, 6, 8                                  */}
-        {/* ========================================================================= */}
-        <header className={`border-b px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-xs transition-colors duration-300 ${
-          darkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+        {/* Top Header */}
+        <header className={`h-14 border-b px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 transition-colors duration-300 ${
+          darkMode ? 'bg-slate-900/95 border-slate-800 backdrop-blur' : 'bg-white/95 border-slate-200 backdrop-blur'
         }`}>
           
-          {/* Left: Hamburger menu toggle + Title "Monitoring KPI" + TwoDb Live badge */}
           <div className="flex items-center gap-3">
-            <button 
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              title="Toggle Sidebar"
-              className="w-9 h-9 rounded-lg flex items-center justify-center transition cursor-pointer active:scale-95 bg-slate-800 text-white hover:bg-slate-700"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
+            {!sidebarOpen && (
+              <button 
+                type="button"
+                onClick={() => setSidebarOpen(true)}
+                className={`p-1.5 rounded-lg border transition cursor-pointer shadow-2xs ${
+                  darkMode ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}
+                title="Open Sidebar"
+              >
+                <Menu className="w-4 h-4" />
+              </button>
+            )}
 
-            <h1 className={`text-xl sm:text-2xl font-black tracking-tight ${
-              darkMode ? 'text-white' : 'text-slate-900'
-            }`}>
-              Monitoring KPI
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className={`text-sm sm:text-base font-black tracking-tight ${darkMode ? 'text-white' : 'text-slate-900'}`}>
+                {isDailyMode ? '4G Daily Monitoring' : '4G Hourly Monitoring'}
+              </h1>
+              <div className={`hidden md:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                isDailyMode
+                  ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                  : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+              }`}>
+                <span className="opacity-70 font-medium">4G Monitoring</span>
+                <span className="opacity-40">/</span>
+                <span className="font-bold">{isDailyMode ? '4G Daily' : '4G Hourly'}</span>
+              </div>
+            </div>
 
+            {/* Live Connection Badge */}
             <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
-              darkMode 
-                ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800' 
-                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              isDailyMode
+                ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
             }`}>
-              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-              <span>TwoDb Live</span>
+              <CheckCircle2 className={`w-3 h-3 ${isDailyMode ? 'text-amber-500' : 'text-emerald-500'}`} />
+              <span>{isDailyMode ? 'OneDb Live' : 'TwoDb Live'}</span>
             </div>
           </div>
 
-          {/* Right side: Start Date, End Date, Daily/Hourly, Get Data, Grid Icon, Theme */}
+          {/* Right side controls: Dates, Toggle Hourly/Daily, Get Data, Charts/Row, Theme */}
           <form onSubmit={handleGetData} className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
             
-            {/* Start Date Picker (Image 2 & 8) */}
+            {/* Start Date */}
             <div className="flex items-center gap-1.5">
               <span className={`text-[11px] font-semibold ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
-                Start Date:
+                Start:
               </span>
               <input
                 type="date"
@@ -477,10 +842,10 @@ export default function App() {
               />
             </div>
 
-            {/* End Date Picker (Image 2 & 8 - Default: Today - 1) */}
+            {/* End Date */}
             <div className="flex items-center gap-1.5">
               <span className={`text-[11px] font-semibold ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
-                End Date:
+                End:
               </span>
               <input
                 type="date"
@@ -492,80 +857,69 @@ export default function App() {
               />
             </div>
 
-            {/* Daily / Hourly Toggle Switch (Image 8) */}
+            {/* Top Hourly / Daily Switcher Toggle (matching user request) */}
             <div className={`flex items-center p-0.5 rounded-lg border ${
               darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'
             }`}>
               <button
                 type="button"
-                onClick={() => { setTimeMode("daily"); fetchData(siteId, startDate, endDate, "daily", filterType); }}
-                className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
-                  timeMode === "daily" 
-                    ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white" 
-                    : darkMode ? "text-slate-400 hover:text-white" : "text-slate-500 hover:text-slate-900"
-                }`}
-              >
-                Daily
-              </button>
-              <button
-                type="button"
-                onClick={() => { setTimeMode("hourly"); fetchData(siteId, startDate, endDate, "hourly", filterType); }}
-                className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
-                  timeMode === "hourly" 
-                    ? "bg-white text-blue-600 shadow-xs dark:bg-blue-600 dark:text-white" 
-                    : darkMode ? "text-slate-400 hover:text-white" : "text-slate-500 hover:text-slate-900"
+                onClick={() => handleSwitchMenu("4g-hourly")}
+                className={`px-2.5 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                  !isDailyMode
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 Hourly
               </button>
+              <button
+                type="button"
+                onClick={() => handleSwitchMenu("4g-daily")}
+                className={`px-2.5 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                  isDailyMode
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Daily
+              </button>
             </div>
 
-            {/* Primary 'Get Data' Action Button (Image 2 requirement: "Tulisan action ubah jadi get data") */}
+            {/* Get Data Button */}
             <button
               type="submit"
               disabled={loading}
-              className="bg-slate-800 hover:bg-slate-700 dark:bg-blue-600 dark:hover:bg-blue-700 text-white font-bold px-4 py-1.5 rounded-lg transition-all duration-200 shadow-xs cursor-pointer flex items-center gap-1.5 text-xs active:scale-95"
+              className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold transition flex items-center gap-1.5 shadow-md shadow-blue-500/20 cursor-pointer"
             >
-              {loading ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Search className="w-3.5 h-3.5" />
-              )}
-              <span>Get Data</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+              <span>{loading ? "Loading..." : "Get Data"}</span>
             </button>
 
-            {/* Charts / Row Segmented Control strictly matching Gambar 3 */}
-            <div className="flex items-center gap-1.5 pl-1">
-              <span className={`text-[11px] font-semibold whitespace-nowrap ${
-                darkMode ? 'text-slate-400' : 'text-slate-600'
-              }`}>
-                Charts / Row:
-              </span>
-              <div className={`flex items-center p-0.5 rounded-lg border shadow-2xs ${
-                darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'
-              }`}>
-                {[1, 2, 3].map(num => (
-                  <button
-                    key={num}
-                    type="button"
-                    onClick={() => setChartsPerRow(num)}
-                    className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all duration-200 cursor-pointer ${
-                      chartsPerRow === num
-                        ? darkMode
-                          ? 'bg-blue-600 text-white shadow-xs'
-                          : 'bg-white text-blue-700 shadow-xs ring-1 ring-slate-200/50'
-                        : darkMode
-                          ? 'text-slate-400 hover:text-white'
-                          : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    {num}
-                  </button>
-                ))}
-              </div>
+            {/* Charts Per Row */}
+            <div className={`hidden lg:flex items-center p-0.5 rounded-lg border ${
+              darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'
+            }`}>
+              {[1, 2, 3].map(num => (
+                <button
+                  key={num}
+                  type="button"
+                  onClick={() => setChartsPerRow(num)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all duration-200 cursor-pointer ${
+                    chartsPerRow === num
+                      ? darkMode
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white text-blue-700 shadow-xs ring-1 ring-slate-200/50'
+                      : darkMode
+                        ? 'text-slate-400 hover:text-white'
+                        : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {num}
+                </button>
+              ))}
             </div>
 
-            {/* Dark Mode / Light Mode Toggle Button */}
+            {/* Dark / Light Mode Toggle */}
             <button
               type="button"
               onClick={toggleTheme}
@@ -578,7 +932,6 @@ export default function App() {
             >
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
-
           </form>
 
         </header>
@@ -587,293 +940,165 @@ export default function App() {
         <main className="p-4 sm:p-5 grow overflow-y-auto space-y-4">
           
           {/* ========================================================================= */}
-          {/* 3. Filter Bar Card strictly matching Image 4 & 7                          */}
-          {/* SELECT SITES | FILTER SECTOR | FILTER BAND | FILTER KPI | FILTER TYPE     */}
+          {/* Filters & KPI Selection Card                                              */}
           {/* ========================================================================= */}
-          <div className={`rounded-xl border p-3.5 shadow-2xs transition-colors duration-300 ${
+          <div className={`rounded-xl border p-4 shadow-2xs transition-colors duration-300 space-y-3.5 ${
             darkMode ? 'bg-slate-800/80 border-slate-700/80' : 'bg-white border-slate-200/90'
           }`}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3.5">
-              
-              {/* 1. SELECT SITES (Image 4 & Image 8) */}
-              <div className="relative" ref={siteDropdownRef}>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
-                  SELECT SITES
-                </label>
-                <div 
-                  onClick={() => setSiteDropdownOpen(!siteDropdownOpen)}
-                  className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-bold cursor-pointer transition ${
-                    darkMode 
-                      ? 'bg-slate-800 border-slate-700 text-white hover:border-slate-600' 
-                      : 'bg-white border-slate-200 text-slate-800 hover:border-slate-300'
-                  }`}
-                >
-                  <span>{siteId}</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                </div>
-
-                {/* Searchable Dropdown Popover with all 8,014 sites */}
-                {siteDropdownOpen && (
-                  <div className={`absolute top-full left-0 mt-1 w-72 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-2 ${
-                    darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-                  }`}>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        autoFocus
-                        value={siteSearch}
-                        onChange={(e) => setSiteSearch(e.target.value.toUpperCase())}
-                        placeholder="Search site ID (e.g. MRW, UPD, SON)..."
-                        className={`w-full border rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                          darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                        }`}
-                      />
-                      {siteSearch && (
-                        <button
-                          type="button"
-                          onClick={() => setSiteSearch("")}
-                          className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="max-h-56 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-                      {filteredSites.map(s => (
-                        <div
-                          key={s}
-                          onClick={() => {
-                            setSiteId(s);
-                            setSiteDropdownOpen(false);
-                            setSiteSearch("");
-                            fetchData(s, startDate, endDate, timeMode, filterType);
-                          }}
-                          className={`px-3 py-1.5 rounded-md cursor-pointer font-bold flex items-center justify-between transition ${
-                            s === siteId 
-                              ? 'bg-blue-600 text-white' 
-                              : darkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-blue-50 text-slate-700'
-                          }`}
-                        >
-                          <span>{s}</span>
-                          {s === siteId && <Check className="w-3.5 h-3.5 text-white" />}
-                        </div>
-                      ))}
-                      {filteredSites.length === 0 && (
-                        <div className="p-3 text-center text-slate-400 text-xs">
-                          No site matches "{siteSearch}"
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="px-2 pt-1 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 flex justify-between">
-                      <span>{allSites.length.toLocaleString()} total sites</span>
-                      <span className="font-semibold text-blue-500">CellListRCI</span>
-                    </div>
-                  </div>
-                )}
+            
+            {/* Header: Filters & KPI Selection + Scope Aggregation Bar (ONLY in Daily Mode!) */}
+            <div className={`space-y-2.5 ${isDailyMode ? 'pb-2 border-b border-slate-100 dark:border-slate-700/60' : ''}`}>
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <h3 className={`font-bold text-xs uppercase tracking-wider ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+                  Filters & KPI Selection
+                </h3>
               </div>
 
-              {/* 2. FILTER SECTOR (Image 4 & Image 7) */}
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
-                  FILTER SECTOR
-                </label>
-                <div className="relative">
-                  <select
-                    value={selectedSector}
-                    onChange={(e) => setSelectedSector(e.target.value)}
-                    className={`w-full appearance-none border rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer ${
+              {/* Aggregation Scope Bar: ONLY displayed in 4G Daily Mode */}
+              {isDailyMode && (
+                <AggregationScopeBar
+                  currentScope={aggregationScope}
+                  onSelectScope={handleSelectScope}
+                  darkMode={darkMode}
+                />
+              )}
+            </div>
+
+            {/* Dynamic Filter Controls based on Scope */}
+            {(!isDailyMode || aggregationScope === 'sector') && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3.5">
+                
+                {/* 1. TARGET SITE */}
+                <div className="relative" ref={siteDropdownRef}>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    TARGET SITE
+                  </label>
+                  <div 
+                    onClick={() => setSiteDropdownOpen(!siteDropdownOpen)}
+                    className={`border rounded-lg px-3 py-1.5 flex items-center justify-between text-xs font-bold cursor-pointer ${
                       darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
                     }`}
                   >
-                    {availableSectors.map(s => (
-                      <option key={s} value={String(s)}>{s}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
+                    <div className="flex items-center gap-2 truncate">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                      <span className="truncate">{siteId}</span>
+                    </div>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  </div>
+
+                  {siteDropdownOpen && (
+                    <div className={`absolute top-full left-0 mt-1 w-64 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
+                      darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                    }`}>
+                      <input
+                        type="text"
+                        placeholder="Cari Site ID..."
+                        value={siteSearch}
+                        onChange={(e) => setSiteSearch(e.target.value)}
+                        autoFocus
+                        className={`w-full border rounded-lg px-2.5 py-1 text-xs mb-1 font-medium ${
+                          darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                        }`}
+                      />
+                      <div className="max-h-56 overflow-y-auto space-y-0.5">
+                        {filteredSites.map(s => (
+                          <div
+                            key={s}
+                            onClick={() => {
+                              setSiteId(s);
+                              setSiteDropdownOpen(false);
+                              setSiteSearch("");
+                              fetchSectorData(s, startDate, endDate, activeMenu, filterType);
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg cursor-pointer flex items-center justify-between ${
+                              s === siteId 
+                                ? 'bg-blue-600 text-white font-bold' 
+                                : darkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-blue-50 text-slate-700'
+                            }`}
+                          >
+                            <span>{s}</span>
+                            {s === siteId && <Check className="w-3.5 h-3.5 text-white" />}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
 
-              {/* 3. FILTER BAND: Multi-select matching Image 4, 5, 7 */}
-              <div className="relative" ref={bandDropdownRef}>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
-                  FILTER BAND
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setBandDropdownOpen(!bandDropdownOpen)}
-                  className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer ${
-                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
-                  }`}
-                >
-                  <span>
-                    {selectedBands.length === actualBands.length 
-                      ? `${selectedBands.length} selected`
-                      : `${selectedBands.length} selected`}
-                  </span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                </button>
-
-                {/* Popover options matching Image 5 */}
-                {bandDropdownOpen && (
-                  <div className={`absolute top-full left-0 mt-1 w-64 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
-                    darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-                  }`}>
-                    {/* All Bands / Select All option */}
-                    <div
-                      onClick={handleToggleAllBands}
-                      className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer font-bold transition ${
-                        selectedBands.length === actualBands.length
-                          ? darkMode ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white'
-                          : darkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-100 text-slate-800'
+                {/* 2. FILTER SECTOR */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    FILTER SECTOR
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={selectedSector}
+                      onChange={(e) => setSelectedSector(e.target.value)}
+                      className={`w-full appearance-none border rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer ${
+                        darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
                       }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={selectedBands.length === actualBands.length}
-                          onChange={() => {}}
-                          className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer pointer-events-none"
-                        />
-                        <span>Select All Bands</span>
-                      </div>
-                      {selectedBands.length === actualBands.length && <Check className="w-3.5 h-3.5" />}
-                    </div>
-
-                    <div className="border-t border-slate-100 dark:border-slate-800 my-1"></div>
-
-                    {/* Individual band options matching Image 5 list */}
-                    {BAND_OPTIONS.map(b => {
-                      const isActual = actualBands.includes(b.id);
-                      const isChecked = selectedBands.includes(b.id);
-                      return (
-                        <div
-                          key={b.id}
-                          onClick={() => handleToggleBand(b.id)}
-                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer transition select-none ${
-                            isChecked 
-                              ? darkMode ? 'bg-blue-900/30 text-blue-300 font-bold' : 'bg-blue-50 text-blue-900 font-bold'
-                              : darkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-50 text-slate-700'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => {}}
-                              className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer pointer-events-none"
-                            />
-                            <span>{b.label}</span>
-                          </div>
-                          {isActual && (
-                            <span className="text-[9px] px-1.5 py-0.2 rounded font-mono bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                              Active
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
+                      {availableSectors.map(s => (
+                        <option key={s} value={String(s)}>{s}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
                   </div>
-                )}
-              </div>
+                </div>
 
-              {/* 4. FILTER KPI: Multi-select matching Image 4, 7 & Gambar 2 */}
-              <div className="relative" ref={kpiDropdownRef}>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
-                  FILTER KPI
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setKpiDropdownOpen(!kpiDropdownOpen)}
-                  className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer ${
-                    darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
-                  }`}
-                >
-                  <span>
-                    {selectedKpis.length === ALL_KPIS.length 
-                      ? `Select All (${ALL_KPIS.length})` 
-                      : `${selectedKpis.length} selected`}
-                  </span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                </button>
+                {/* 3. FILTER BAND (Default: All Bands) */}
+                <div className="relative" ref={bandDropdownRef}>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    FILTER BAND
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setBandDropdownOpen(!bandDropdownOpen)}
+                    className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    <span>{selectedBands.length === ALL_BAND_IDS.length ? 'Semua Band' : `${selectedBands.length} selected`}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
 
-                {/* Popover checkbox list with category grouping & search (Gambar 2 requirement) */}
-                {kpiDropdownOpen && (
-                  <div className={`absolute top-full right-0 mt-1 w-80 border rounded-xl shadow-2xl z-50 p-2.5 text-xs space-y-2 ${
-                    darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-                  }`}>
-                    <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800">
-                      <span className="font-bold text-[11px] text-slate-400 uppercase">
-                        Select KPIs ({ALL_KPIS.length} available)
-                      </span>
-                      <div className="flex items-center gap-2 text-[11px]">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedKpis(ALL_KPIS.map(k => k.id))}
-                          className="text-blue-500 hover:underline cursor-pointer font-bold"
-                        >
-                          Select All
-                        </button>
-                        <span>|</span>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedKpis(DEFAULT_SELECTED_KPIS)}
-                          className="text-blue-500 hover:underline cursor-pointer font-bold"
-                        >
-                          Core 6
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Search input for KPIs */}
-                    <input
-                      type="text"
-                      value={kpiSearchTerm}
-                      onChange={(e) => setKpiSearchTerm(e.target.value)}
-                      placeholder="Search KPIs..."
-                      className={`w-full border rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                        darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    />
-
-                    {/* Scrollable list */}
-                    <div className="max-h-64 overflow-y-auto space-y-1">
-                      {/* Gambar 2 Requirement: dedicated "Select All" option at the top of the list */}
-                      <label
-                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer transition select-none font-bold border-b mb-1 ${
-                          selectedKpis.length === ALL_KPIS.length
-                            ? darkMode ? 'bg-blue-900/40 text-blue-300 border-slate-700' : 'bg-blue-50 text-blue-900 border-blue-100'
-                            : darkMode ? 'hover:bg-slate-800 text-slate-300 border-slate-800' : 'hover:bg-slate-50 text-slate-700 border-slate-100'
+                  {bandDropdownOpen && (
+                    <div className={`absolute top-full left-0 mt-1 w-64 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
+                      darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                    }`}>
+                      <div
+                        onClick={handleToggleAllBands}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer font-bold transition ${
+                          selectedBands.length === ALL_BAND_IDS.length
+                            ? 'bg-blue-600 text-white'
+                            : darkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-100 text-slate-800'
                         }`}
                       >
                         <div className="flex items-center gap-2">
                           <input
                             type="checkbox"
-                            checked={selectedKpis.length === ALL_KPIS.length}
-                            onChange={() => {
-                              if (selectedKpis.length === ALL_KPIS.length) {
-                                setSelectedKpis(DEFAULT_SELECTED_KPIS);
-                              } else {
-                                setSelectedKpis(ALL_KPIS.map(k => k.id));
-                              }
-                            }}
-                            className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            checked={selectedBands.length === ALL_BAND_IDS.length}
+                            onChange={() => {}}
+                            className="w-3.5 h-3.5 rounded text-blue-600 pointer-events-none"
                           />
-                          <span>Select All</span>
+                          <span>Pilih Semua Band</span>
                         </div>
-                        <span className="text-[10px] font-semibold text-blue-500">
-                          {selectedKpis.length === ALL_KPIS.length ? '18/18' : `${selectedKpis.length}/${ALL_KPIS.length}`}
-                        </span>
-                      </label>
-                      {displayedKpiOptions.map(k => {
-                        const isChecked = selectedKpis.includes(k.id);
+                        {selectedBands.length === ALL_BAND_IDS.length && <Check className="w-3.5 h-3.5" />}
+                      </div>
+
+                      <div className="border-t border-slate-100 dark:border-slate-800 my-1"></div>
+
+                      {BAND_OPTIONS.map(b => {
+                        const isActual = actualBands.includes(b.id);
+                        const isChecked = selectedBands.includes(b.id);
                         return (
-                          <label
-                            key={k.id}
-                            className={`flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer transition select-none ${
+                          <div
+                            key={b.id}
+                            onClick={() => handleToggleBand(b.id)}
+                            className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer transition select-none ${
                               isChecked 
-                                ? darkMode ? 'bg-blue-900/30 text-blue-300' : 'bg-blue-50 text-blue-900 font-semibold' 
+                                ? darkMode ? 'bg-blue-900/30 text-blue-300 font-bold' : 'bg-blue-50 text-blue-900 font-bold'
                                 : darkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-50 text-slate-700'
                             }`}
                           >
@@ -881,66 +1106,823 @@ export default function App() {
                               <input
                                 type="checkbox"
                                 checked={isChecked}
-                                onChange={() => handleToggleKpi(k.id)}
-                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                onChange={() => {}}
+                                className="w-3.5 h-3.5 rounded text-blue-600 pointer-events-none"
                               />
-                              <span>{k.label}</span>
+                              <span>{b.label}</span>
                             </div>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                              darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'
-                            }`}>
-                              {k.category}
-                            </span>
-                          </label>
+                            {isActual && (
+                              <span className="text-[9px] px-1.5 py-0.2 rounded font-mono bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                                Active
+                              </span>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
 
-              {/* 5. FILTER TYPE: Macro / Indoor / All matching Image 4 & 7 */}
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
-                  FILTER TYPE
-                </label>
-                <div className="relative">
-                  <select
-                    value={filterType}
-                    onChange={(e) => {
-                      const nextType = e.target.value;
-                      setFilterType(nextType);
-                      fetchData(siteId, startDate, endDate, timeMode, nextType);
-                    }}
-                    className={`w-full appearance-none border rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer ${
+                {/* 4. FILTER KPI: Attached Popover Dropdown (Versi Awal) */}
+                <div className="relative" ref={kpiDropdownRef}>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    FILTER KPI
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setKpiDropdownOpen(!kpiDropdownOpen)}
+                    className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer ${
                       darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
                     }`}
                   >
-                    <option value="macro">Macro</option>
-                    <option value="indoor">Indoor</option>
-                    <option value="all">All Types</option>
-                  </select>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
-                </div>
-              </div>
+                    <span className="truncate">{activeSelectedKpiIds.length} KPI Terpilih</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  </button>
 
-            </div>
+                  <KpiDropdownPopover
+                    isOpen={kpiDropdownOpen}
+                    onClose={() => setKpiDropdownOpen(false)}
+                    allKpis={activeKpiCatalog}
+                    selectedKpiIds={activeSelectedKpiIds}
+                    onToggleKpi={handleToggleKpi}
+                    onSelectAll={handleSelectAllKpis}
+                    onSelectDefault={handleSelectDefaultKpis}
+                    darkMode={darkMode}
+                  />
+                </div>
+
+                {/* 5. FILTER TYPE */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    FILTER TYPE
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={filterType}
+                      onChange={(e) => {
+                        const nextType = e.target.value;
+                        setFilterType(nextType);
+                        fetchSectorData(siteId, startDate, endDate, activeMenu, nextType);
+                      }}
+                      className={`w-full appearance-none border rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer ${
+                        darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                      }`}
+                    >
+                      <option value="macro">Macro</option>
+                      <option value="indoor">Indoor</option>
+                      <option value="all">All</option>
+                    </select>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* Scope == Regional Filter Controls (Daily Mode Only) */}
+            {isDailyMode && aggregationScope === 'regional' && (
+              <div className="flex flex-wrap items-center gap-4">
+                
+                {/* 1. Aggregation / Band Mode Toggle */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    AGGREGATION / BAND
+                  </label>
+                  <div className={`flex items-center p-0.5 rounded-lg border ${
+                    darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'
+                  }`}>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchAggregationMode("full")}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                        aggregationMode === "full"
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Aggregation
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchAggregationMode("band")}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                        aggregationMode === "band"
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Band
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. FILTER BAND */}
+                <div className="relative min-w-44" ref={bandDropdownRef}>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    FILTER BAND
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setBandDropdownOpen(!bandDropdownOpen)}
+                    className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    <span>{selectedBands.length === ALL_BAND_IDS.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+
+                  {bandDropdownOpen && (
+                    <div className={`absolute top-full left-0 mt-1 w-56 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
+                      darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                    }`}>
+                      {BAND_OPTIONS.map(b => (
+                        <div
+                          key={b.id}
+                          onClick={() => handleToggleBand(b.id)}
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer ${
+                            selectedBands.includes(b.id)
+                              ? darkMode ? 'bg-blue-900/30 text-blue-300 font-bold' : 'bg-blue-50 text-blue-900 font-bold'
+                              : darkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-50 text-slate-700'
+                          }`}
+                        >
+                          <span>{b.label}</span>
+                          {selectedBands.includes(b.id) && <Check className="w-3.5 h-3.5" />}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. FILTER KPI */}
+                <div className="relative min-w-48" ref={kpiDropdownRef}>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    FILTER KPI
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setKpiDropdownOpen(!kpiDropdownOpen)}
+                    className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    <span>{activeSelectedKpiIds.length} KPI Terpilih</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  </button>
+
+                  <KpiDropdownPopover
+                    isOpen={kpiDropdownOpen}
+                    onClose={() => setKpiDropdownOpen(false)}
+                    allKpis={activeKpiCatalog}
+                    selectedKpiIds={activeSelectedKpiIds}
+                    onToggleKpi={handleToggleKpi}
+                    onSelectAll={handleSelectAllKpis}
+                    onSelectDefault={handleSelectDefaultKpis}
+                    darkMode={darkMode}
+                  />
+                </div>
+
+              </div>
+            )}
+
+            {/* Scope == NOP Filter Controls: Dropdown Multi-Select (Gambar 2 Fix) */}
+            {isDailyMode && aggregationScope === 'nop' && (
+              <div className="flex flex-wrap items-center gap-4">
+                
+                {/* Level NOP: Dropdown Multi-Select */}
+                <MultiSelectDropdown
+                  label="LEVEL NOP"
+                  options={nopOptions}
+                  selectedValues={selectedNops}
+                  onChange={(newList) => {
+                    setSelectedNops(newList);
+                    fetchScopeAggregationData('nop', aggregationMode, startDate, endDate, newList, selectedCities, selectedKecamatans, selectedSites, selectedBands);
+                  }}
+                  isMulti={aggregationMode === 'full'}
+                  placeholder="Pilih NOP..."
+                  darkMode={darkMode}
+                  minWidth="min-w-48"
+                />
+
+                {/* Aggregation / Band Mode Toggle */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    AGGREGATION / BAND
+                  </label>
+                  <div className={`flex items-center p-0.5 rounded-lg border ${
+                    darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'
+                  }`}>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchAggregationMode("full")}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                        aggregationMode === "full" ? 'bg-blue-600 text-white shadow-xs' : darkMode ? 'text-slate-400' : 'text-slate-600'
+                      }`}
+                    >
+                      Aggregation
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchAggregationMode("band")}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                        aggregationMode === "band" ? 'bg-blue-600 text-white shadow-xs' : darkMode ? 'text-slate-400' : 'text-slate-600'
+                      }`}
+                    >
+                      Band
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filter Band */}
+                <div className="relative min-w-40" ref={bandDropdownRef}>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    FILTER BAND
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setBandDropdownOpen(!bandDropdownOpen)}
+                    className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    <span>{selectedBands.length === ALL_BAND_IDS.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+
+                  {bandDropdownOpen && (
+                    <div className={`absolute top-full left-0 mt-1 w-56 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
+                      darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                    }`}>
+                      {BAND_OPTIONS.map(b => (
+                        <div
+                          key={b.id}
+                          onClick={() => handleToggleBand(b.id)}
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer ${
+                            selectedBands.includes(b.id)
+                              ? darkMode ? 'bg-blue-900/30 text-blue-300 font-bold' : 'bg-blue-50 text-blue-900 font-bold'
+                              : darkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-50 text-slate-700'
+                          }`}
+                        >
+                          <span>{b.label}</span>
+                          {selectedBands.includes(b.id) && <Check className="w-3.5 h-3.5" />}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Filter KPI */}
+                <div className="relative min-w-44" ref={kpiDropdownRef}>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    FILTER KPI
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setKpiDropdownOpen(!kpiDropdownOpen)}
+                    className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    <span>{activeSelectedKpiIds.length} KPI Terpilih</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  </button>
+
+                  <KpiDropdownPopover
+                    isOpen={kpiDropdownOpen}
+                    onClose={() => setKpiDropdownOpen(false)}
+                    allKpis={activeKpiCatalog}
+                    selectedKpiIds={activeSelectedKpiIds}
+                    onToggleKpi={handleToggleKpi}
+                    onSelectAll={handleSelectAllKpis}
+                    onSelectDefault={handleSelectDefaultKpis}
+                    darkMode={darkMode}
+                  />
+                </div>
+
+              </div>
+            )}
+
+            {/* Scope == City Filter Controls: Dropdown Multi-Select */}
+            {isDailyMode && aggregationScope === 'city' && (
+              <div className="flex flex-wrap items-center gap-4">
+                
+                {/* NOP Selector */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    NOP
+                  </label>
+                  <select
+                    value={cityFilterNop}
+                    onChange={(e) => {
+                      setCityFilterNop(e.target.value);
+                      const available = hierarchyData?.kabupaten_by_nop?.[e.target.value] ? Array.from(hierarchyData.kabupaten_by_nop[e.target.value]) : [];
+                      if (available.length > 0) {
+                        setSelectedCities([available[0]]);
+                        fetchScopeAggregationData('city', aggregationMode, startDate, endDate, [e.target.value], [available[0]], selectedKecamatans, selectedSites, selectedBands);
+                      }
+                    }}
+                    className={`border rounded-lg px-3 py-1.5 text-xs font-bold cursor-pointer ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    {nopOptions.map(n => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* City / Kabupaten Dropdown Multi-Select */}
+                <MultiSelectDropdown
+                  label="CITY / KABUPATEN"
+                  options={cityOptions}
+                  selectedValues={selectedCities}
+                  onChange={(newList) => {
+                    setSelectedCities(newList);
+                    fetchScopeAggregationData('city', aggregationMode, startDate, endDate, [cityFilterNop], newList, selectedKecamatans, selectedSites, selectedBands);
+                  }}
+                  isMulti={aggregationMode === 'full'}
+                  placeholder="Pilih City..."
+                  darkMode={darkMode}
+                  minWidth="min-w-48"
+                />
+
+                {/* Aggregation / Band Mode Toggle */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    AGGREGATION / BAND
+                  </label>
+                  <div className={`flex items-center p-0.5 rounded-lg border ${
+                    darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'
+                  }`}>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchAggregationMode("full")}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                        aggregationMode === "full" ? 'bg-blue-600 text-white shadow-xs' : darkMode ? 'text-slate-400' : 'text-slate-600'
+                      }`}
+                    >
+                      Aggregation
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchAggregationMode("band")}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                        aggregationMode === "band" ? 'bg-blue-600 text-white shadow-xs' : darkMode ? 'text-slate-400' : 'text-slate-600'
+                      }`}
+                    >
+                      Band
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filter Band */}
+                <div className="relative min-w-40" ref={bandDropdownRef}>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    FILTER BAND
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setBandDropdownOpen(!bandDropdownOpen)}
+                    className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    <span>{selectedBands.length === ALL_BAND_IDS.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+
+                  {bandDropdownOpen && (
+                    <div className={`absolute top-full left-0 mt-1 w-56 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
+                      darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                    }`}>
+                      {BAND_OPTIONS.map(b => (
+                        <div
+                          key={b.id}
+                          onClick={() => handleToggleBand(b.id)}
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer ${
+                            selectedBands.includes(b.id)
+                              ? darkMode ? 'bg-blue-900/30 text-blue-300 font-bold' : 'bg-blue-50 text-blue-900 font-bold'
+                              : darkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-50 text-slate-700'
+                          }`}
+                        >
+                          <span>{b.label}</span>
+                          {selectedBands.includes(b.id) && <Check className="w-3.5 h-3.5" />}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Filter KPI */}
+                <div className="relative min-w-44" ref={kpiDropdownRef}>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    FILTER KPI
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setKpiDropdownOpen(!kpiDropdownOpen)}
+                    className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    <span>{activeSelectedKpiIds.length} KPI Terpilih</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  </button>
+
+                  <KpiDropdownPopover
+                    isOpen={kpiDropdownOpen}
+                    onClose={() => setKpiDropdownOpen(false)}
+                    allKpis={activeKpiCatalog}
+                    selectedKpiIds={activeSelectedKpiIds}
+                    onToggleKpi={handleToggleKpi}
+                    onSelectAll={handleSelectAllKpis}
+                    onSelectDefault={handleSelectDefaultKpis}
+                    darkMode={darkMode}
+                  />
+                </div>
+
+              </div>
+            )}
+
+            {/* Scope == Kecamatan Filter Controls: Cascading identical to City mode */}
+            {isDailyMode && aggregationScope === 'kecamatan' && (
+              <div className="flex flex-wrap items-center gap-4">
+                
+                {/* 1. NOP Selector */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    NOP
+                  </label>
+                  <select
+                    value={kecFilterNop}
+                    onChange={(e) => {
+                      setKecFilterNop(e.target.value);
+                      const kabs = hierarchyData?.kabupaten_by_nop?.[e.target.value] ? Array.from(hierarchyData.kabupaten_by_nop[e.target.value]) : [];
+                      if (kabs.length > 0) {
+                        setKecFilterKab(kabs[0]);
+                        const kecs = hierarchyData?.kecamatan_by_kab?.[kabs[0]] ? Array.from(hierarchyData.kecamatan_by_kab[kabs[0]]) : [];
+                        if (kecs.length > 0) {
+                          setSelectedKecamatans([kecs[0]]);
+                          fetchScopeAggregationData('kecamatan', aggregationMode, startDate, endDate, [e.target.value], [kabs[0]], [kecs[0]], selectedSites, selectedBands);
+                        }
+                      }
+                    }}
+                    className={`border rounded-lg px-3 py-1.5 text-xs font-bold cursor-pointer ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    {nopOptions.map(n => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 2. City / Kabupaten Selector */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    KABUPATEN
+                  </label>
+                  <select
+                    value={kecFilterKab}
+                    onChange={(e) => {
+                      setKecFilterKab(e.target.value);
+                      const kecs = hierarchyData?.kecamatan_by_kab?.[e.target.value] ? Array.from(hierarchyData.kecamatan_by_kab[e.target.value]) : [];
+                      if (kecs.length > 0) {
+                        setSelectedKecamatans([kecs[0]]);
+                        fetchScopeAggregationData('kecamatan', aggregationMode, startDate, endDate, [kecFilterNop], [e.target.value], [kecs[0]], selectedSites, selectedBands);
+                      }
+                    }}
+                    className={`border rounded-lg px-3 py-1.5 text-xs font-bold cursor-pointer ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    {kecCityOptions.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 3. Kecamatan Dropdown Multi-Select */}
+                <MultiSelectDropdown
+                  label="KECAMATAN"
+                  options={kecOptions}
+                  selectedValues={selectedKecamatans}
+                  onChange={(newList) => {
+                    setSelectedKecamatans(newList);
+                    fetchScopeAggregationData('kecamatan', aggregationMode, startDate, endDate, [kecFilterNop], [kecFilterKab], newList, selectedSites, selectedBands);
+                  }}
+                  isMulti={aggregationMode === 'full'}
+                  placeholder="Pilih Kecamatan..."
+                  darkMode={darkMode}
+                  minWidth="min-w-48"
+                />
+
+                {/* 4. Aggregation / Band Mode Toggle */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    AGGREGATION / BAND
+                  </label>
+                  <div className={`flex items-center p-0.5 rounded-lg border ${
+                    darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'
+                  }`}>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchAggregationMode("full")}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                        aggregationMode === "full" ? 'bg-blue-600 text-white shadow-xs' : darkMode ? 'text-slate-400' : 'text-slate-600'
+                      }`}
+                    >
+                      Aggregation
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchAggregationMode("band")}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                        aggregationMode === "band" ? 'bg-blue-600 text-white shadow-xs' : darkMode ? 'text-slate-400' : 'text-slate-600'
+                      }`}
+                    >
+                      Band
+                    </button>
+                  </div>
+                </div>
+
+                {/* 5. Filter Band */}
+                <div className="relative min-w-40" ref={bandDropdownRef}>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    FILTER BAND
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setBandDropdownOpen(!bandDropdownOpen)}
+                    className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    <span>{selectedBands.length === ALL_BAND_IDS.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+
+                  {bandDropdownOpen && (
+                    <div className={`absolute top-full left-0 mt-1 w-56 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
+                      darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                    }`}>
+                      {BAND_OPTIONS.map(b => (
+                        <div
+                          key={b.id}
+                          onClick={() => handleToggleBand(b.id)}
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer ${
+                            selectedBands.includes(b.id)
+                              ? darkMode ? 'bg-blue-900/30 text-blue-300 font-bold' : 'bg-blue-50 text-blue-900 font-bold'
+                              : darkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-50 text-slate-700'
+                          }`}
+                        >
+                          <span>{b.label}</span>
+                          {selectedBands.includes(b.id) && <Check className="w-3.5 h-3.5" />}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 6. Filter KPI */}
+                <div className="relative min-w-44" ref={kpiDropdownRef}>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    FILTER KPI
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setKpiDropdownOpen(!kpiDropdownOpen)}
+                    className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    <span>{activeSelectedKpiIds.length} KPI Terpilih</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  </button>
+
+                  <KpiDropdownPopover
+                    isOpen={kpiDropdownOpen}
+                    onClose={() => setKpiDropdownOpen(false)}
+                    allKpis={activeKpiCatalog}
+                    selectedKpiIds={activeSelectedKpiIds}
+                    onToggleKpi={handleToggleKpi}
+                    onSelectAll={handleSelectAllKpis}
+                    onSelectDefault={handleSelectDefaultKpis}
+                    darkMode={darkMode}
+                  />
+                </div>
+
+              </div>
+            )}
+
+            {/* Scope == Site Filter Controls: SiteID dropdown with all sites inside */}
+            {isDailyMode && aggregationScope === 'site' && (
+              <div className="flex flex-wrap items-center gap-4">
+                
+                {/* Site Selection: Dropdown with all sites */}
+                <MultiSelectDropdown
+                  label="SITE ID"
+                  options={allSites.length > 0 ? allSites : ['MRW002', 'UPD919', 'UPD183', 'COI350']}
+                  selectedValues={selectedSites}
+                  onChange={(newList) => {
+                    setSelectedSites(newList);
+                    fetchScopeAggregationData('site', aggregationMode, startDate, endDate, selectedNops, selectedCities, selectedKecamatans, newList, selectedBands);
+                  }}
+                  isMulti={aggregationMode === 'full'}
+                  placeholder="Pilih Site..."
+                  darkMode={darkMode}
+                  minWidth="min-w-52"
+                />
+
+                {/* Aggregation / Band Mode Toggle */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    AGGREGATION / BAND
+                  </label>
+                  <div className={`flex items-center p-0.5 rounded-lg border ${
+                    darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'
+                  }`}>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchAggregationMode("full")}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                        aggregationMode === "full" ? 'bg-blue-600 text-white shadow-xs' : darkMode ? 'text-slate-400' : 'text-slate-600'
+                      }`}
+                    >
+                      Aggregation
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchAggregationMode("band")}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+                        aggregationMode === "band" ? 'bg-blue-600 text-white shadow-xs' : darkMode ? 'text-slate-400' : 'text-slate-600'
+                      }`}
+                    >
+                      Band
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filter Band */}
+                <div className="relative min-w-40" ref={bandDropdownRef}>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    FILTER BAND
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setBandDropdownOpen(!bandDropdownOpen)}
+                    className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    <span>{selectedBands.length === ALL_BAND_IDS.length ? 'Semua Band' : `${selectedBands.length} Bands`}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+
+                  {bandDropdownOpen && (
+                    <div className={`absolute top-full left-0 mt-1 w-56 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${
+                      darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                    }`}>
+                      {BAND_OPTIONS.map(b => (
+                        <div
+                          key={b.id}
+                          onClick={() => handleToggleBand(b.id)}
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer ${
+                            selectedBands.includes(b.id)
+                              ? darkMode ? 'bg-blue-900/30 text-blue-300 font-bold' : 'bg-blue-50 text-blue-900 font-bold'
+                              : darkMode ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-50 text-slate-700'
+                          }`}
+                        >
+                          <span>{b.label}</span>
+                          {selectedBands.includes(b.id) && <Check className="w-3.5 h-3.5" />}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Filter KPI */}
+                <div className="relative min-w-44" ref={kpiDropdownRef}>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
+                    FILTER KPI
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setKpiDropdownOpen(!kpiDropdownOpen)}
+                    className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    <span>{activeSelectedKpiIds.length} KPI Terpilih</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  </button>
+
+                  <KpiDropdownPopover
+                    isOpen={kpiDropdownOpen}
+                    onClose={() => setKpiDropdownOpen(false)}
+                    allKpis={activeKpiCatalog}
+                    selectedKpiIds={activeSelectedKpiIds}
+                    onToggleKpi={handleToggleKpi}
+                    onSelectAll={handleSelectAllKpis}
+                    onSelectDefault={handleSelectDefaultKpis}
+                    darkMode={darkMode}
+                  />
+                </div>
+
+              </div>
+            )}
+
           </div>
 
           {/* ========================================================================= */}
-          {/* 4. Multi-KPI Sector Dashboard Grid strictly matching Image 7              */}
-          {/* 6 Cards in 3x2 Grid: Payload, Max RRC, Availability, DL PRB, User DL, CQI */}
+          {/* Main Chart Container                                                      */}
           {/* ========================================================================= */}
-          {!loading && !data && (
-            <div className={`h-80 flex flex-col items-center justify-center gap-3 text-sm rounded-2xl border ${
-              darkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'
-            }`}>
-              <Activity className="w-8 h-8 text-blue-500" />
-              <span className="font-medium">Silakan klik "Get Data" untuk memuat grafik Multi-KPI</span>
-            </div>
-          )}
+          <div className={`p-5 rounded-2xl border transition-all ${
+            darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
+          }`}>
+            
+            {/* Header: Dynamic per Scope */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-4 mb-5 border-b border-slate-100 dark:border-slate-800">
+              
+              {/* Left Title: NE Name or Region Sulawesi (No siteId badge on the right - Gambar 1 Fix) */}
+              <div className="flex items-center gap-3">
+                <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold shrink-0 ${
+                  darkMode ? 'bg-blue-900/40 text-blue-400' : 'bg-blue-50 text-blue-600'
+                }`}>
+                  {(!isDailyMode || aggregationScope === 'sector') ? <Radio className="w-6 h-6" /> :
+                   aggregationScope === 'regional' ? <Globe className="w-6 h-6" /> :
+                   aggregationScope === 'nop' ? <Network className="w-6 h-6" /> :
+                   aggregationScope === 'city' ? <Building2 className="w-6 h-6" /> :
+                   aggregationScope === 'kecamatan' ? <MapPin className="w-6 h-6" /> :
+                   <Radio className="w-6 h-6" />}
+                </div>
 
-          {data && currentSectorData && (
+                <div>
+                  <div className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${
+                    darkMode ? 'text-blue-400' : 'text-blue-600'
+                  }`}>
+                    <span>
+                      {(!isDailyMode || aggregationScope === 'sector') ? 'TARGET NETWORK ELEMENT (NE)' :
+                       aggregationScope === 'regional' ? 'REGIONAL ANALYSIS' :
+                       aggregationScope === 'nop' ? 'NOP CLUSTER ANALYSIS' :
+                       aggregationScope === 'city' ? 'CITY / KABUPATEN ANALYSIS' :
+                       aggregationScope === 'kecamatan' ? 'KECAMATAN ANALYSIS' :
+                       'SITE AGGREGATED ANALYSIS'}
+                    </span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  </div>
+
+                  {/* BOLD Title: Strictly "Region Sulawesi" for Regional, BOLD NE Name for Sector without small siteId badge */}
+                  <div className={`text-xl sm:text-2xl font-black tracking-tight flex items-center gap-2 ${
+                    darkMode ? 'text-white' : 'text-slate-900'
+                  }`}>
+                    {(!isDailyMode || aggregationScope === 'sector') ? (
+                      <span>{resolvedNeName}</span>
+                    ) : aggregationScope === 'regional' ? (
+                      <span>Region Sulawesi</span>
+                    ) : aggregationScope === 'nop' ? (
+                      <span>NOP {selectedNops.join(', ')}</span>
+                    ) : aggregationScope === 'city' ? (
+                      <span>Kabupaten {selectedCities.join(', ')}</span>
+                    ) : aggregationScope === 'kecamatan' ? (
+                      <span>Kecamatan {selectedKecamatans.join(', ')}</span>
+                    ) : (
+                      <span>Site {selectedSites.join(', ')}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Mode Badge */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${
+                  darkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'
+                }`}>
+                  {(!isDailyMode || aggregationScope === 'sector') ? `Sector ${selectedSector}` :
+                   aggregationMode === 'full' ? 'Mode: Aggregation' : 'Mode: Band'}
+                </span>
+                <span className={`px-3 py-1 rounded-lg text-xs font-semibold border ${
+                  darkMode ? 'bg-blue-950/60 text-blue-300 border-blue-900' : 'bg-blue-50 text-blue-700 border-blue-200'
+                }`}>
+                  {isDailyMode && aggregationScope === 'regional' ? 'Sulawesi Region' : `${currentSiteMeta.nop} • ${currentSiteMeta.kabupaten}`}
+                </span>
+              </div>
+            </div>
+
+            {/* Error Banner */}
+            {((!isDailyMode || aggregationScope === 'sector') ? data?.error : aggregationData?.error) && (
+              <div className={`p-5 rounded-2xl border flex items-center gap-4 ${
+                darkMode ? 'bg-rose-950/40 border-rose-800/80 text-rose-200' : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}>
+                <AlertTriangle className="w-6 h-6 text-rose-500 shrink-0" />
+                <div className="text-xs">
+                  <div className="font-bold text-sm">Gagal memuat data grafik</div>
+                  <p>{(!isDailyMode || aggregationScope === 'sector') ? data?.error : aggregationData?.error}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Render Multi-KPI Charts Grid */}
             <div className={`grid gap-4 transition-all duration-300 ${
               chartsPerRow === 1 
                 ? "grid-cols-1" 
@@ -949,20 +1931,20 @@ export default function App() {
                   : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
             }`}>
               
-              {/* Map over selected KPIs strictly preserving order */}
-              {ALL_KPIS.filter(k => selectedKpis.includes(k.id)).map(k => {
-                const kpiData = currentKpis[k.id];
+              {/* Sector Level Charts (4G Hourly OR 4G Daily Sector) */}
+              {(!isDailyMode || aggregationScope === 'sector') && currentSectorData && activeSelectedKpiIds.map(k_id => {
+                const kpiData = currentKpis[k_id];
                 if (!kpiData) return null;
 
                 return (
                   <SectorPayloadChart
-                    key={`${siteId}_${selectedSector}_${filterType}_${k.id}`}
+                    key={`sector_${selectedSector}_${k_id}`}
                     title={kpiData.title}
                     unit={kpiData.unit}
                     timestamps={currentSectorData.timestamps}
                     carrierSeries={kpiData.carrier_series}
                     totalSeries={kpiData.total_series}
-                    carrierBands={kpiData.carrier_bands}
+                    carrierBands={kpiData.carrier_bands || {}}
                     hasTotal={kpiData.has_total}
                     bandFilter={selectedBands}
                     timeMode={timeMode}
@@ -974,30 +1956,49 @@ export default function App() {
                 );
               })}
 
-            </div>
-          )}
+              {/* Higher Scopes Charts (Regional, NOP, City, Kecamatan, Site in Daily Mode) */}
+              {isDailyMode && aggregationScope !== 'sector' && aggregationData && aggregationData.kpis && activeSelectedKpiIds.map(k_id => {
+                const kpiData = aggregationData.kpis[k_id];
+                if (!kpiData) return null;
 
-          {data && (!currentSectorData || selectedKpis.length === 0) && (
-            <div className={`p-8 text-center rounded-2xl border ${
-              darkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'
-            }`}>
-              <span className="font-semibold block mb-1">Tidak ada chart yang dipilih</span>
-              <span className="text-xs">Silakan pilih setidaknya 1 KPI pada menu Filter KPI.</span>
+                return (
+                  <SectorPayloadChart
+                    key={`${aggregationScope}_${aggregationMode}_${k_id}`}
+                    title={kpiData.title}
+                    unit={kpiData.unit}
+                    timestamps={aggregationData.timestamps}
+                    carrierSeries={kpiData.carrier_series}
+                    totalSeries={kpiData.total_series}
+                    carrierBands={kpiData.carrier_bands || {}}
+                    hasTotal={kpiData.has_total}
+                    bandFilter={aggregationMode === 'band' ? selectedBands : 'all'}
+                    timeMode="daily"
+                    minY={kpiData.min_y}
+                    maxY={kpiData.max_y}
+                    darkMode={darkMode}
+                    chartsPerRow={chartsPerRow}
+                  />
+                );
+              })}
+
             </div>
-          )}
+
+          </div>
 
         </main>
 
-        {/* Bottom Status Footer */}
-        <footer className={`border-t px-6 py-2.5 flex flex-wrap items-center justify-between text-xs transition-colors duration-300 ${
+        {/* Footer */}
+        <footer className={`border-t px-6 py-2.5 flex flex-wrap items-center justify-between text-xs ${
           darkMode ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'
         }`}>
           <div className="flex items-center gap-4">
             <div>
               <span className="font-semibold">Database: </span>
-              <span className="font-mono font-medium">{dbStatus}</span>
+              <span className="font-mono font-medium">
+                {isDailyMode ? 'OneDb Live (measDy4g & measBdbh4g)' : 'TwoDb Live (measHy4g)'}
+              </span>
             </div>
-            {data?.enodeb_name && (
+            {data?.enodeb_name && (!isDailyMode || aggregationScope === 'sector') && (
               <div className={`hidden sm:inline px-2 py-0.5 rounded border font-mono text-[11px] ${
                 darkMode ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-600'
               }`}>
@@ -1006,16 +2007,16 @@ export default function App() {
             )}
           </div>
           <div>
-            <span className="font-semibold">Total Records: </span>
-            <span className="font-bold">
-              {data?.total_records ? `${data.total_records.toLocaleString()} baris dari tabel measHy4g` : '0 baris'}
+            <span className="font-semibold">Scope: </span>
+            <span className="font-bold uppercase tracking-wider text-blue-500">
+              {!isDailyMode ? `Sector ${selectedSector}` : `${aggregationScope} (${aggregationScope === 'sector' ? `Sector ${selectedSector}` : aggregationMode})`}
             </span>
           </div>
         </footer>
 
       </div>
 
-      {/* Exact Apache ECharts graphic-loading animation */}
+      {/* Loading animation overlay */}
       {loading && <DataLoadingOverlay />}
 
     </div>

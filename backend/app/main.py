@@ -7,6 +7,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from .db import check_db_health, get_twodb_connection
 from .queries import get_site_payload_data
+from .queries_daily import (
+    get_hierarchy_data, 
+    get_site_payload_daily_data, 
+    get_scope_aggregation_data,
+    DAILY_KPIS_CONFIG
+)
 
 app = FastAPI(title="Monitoring KPI Dashboard", version="2.5.0")
 
@@ -82,6 +88,112 @@ def get_payload_sectors(
         return data
     except Exception as e:
         return {"error": str(e), "site_id": site_id, "sectors": {}}
+
+@app.get("/api/hierarchy")
+def get_hierarchy():
+    """
+    Returns geographical hierarchy: NOP -> Kabupaten -> Kecamatan -> Sites
+    based on CellListRCI joined with LookupSITEID from OneDb.
+    """
+    try:
+        return get_hierarchy_data()
+    except Exception as e:
+        return {"error": str(e), "nops": [], "tree": {}, "sites": []}
+
+@app.get("/api/daily/kpi_list")
+def get_daily_kpis():
+    """Returns all available KPIs for 4G Daily monitoring with category grouping."""
+    kpi_items = []
+    for k_id, cfg in DAILY_KPIS_CONFIG.items():
+        kpi_items.append({
+            "id": k_id,
+            "label": cfg["title"],
+            "unit": cfg["unit"],
+            "category": cfg["category"],
+            "source": cfg["source"],
+            "is_bdbh": cfg["source"] == "measBdbh4g"
+        })
+    return {"kpis": kpi_items, "total": len(kpi_items)}
+
+@app.get("/api/daily/payload_sectors")
+def get_daily_payload_sectors(
+    site_id: str = Query("MRW002", description="Site ID e.g. MRW002, UPD919, UPD183"),
+    start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    sector: Optional[str] = Query(None, description="Filter sector number: all, 1, 2, 3..."),
+    band: Optional[str] = Query(None, description="Filter band: all, L1800, L2100..."),
+    cell_type: Optional[str] = Query("macro", description="macro, indoor, or all"),
+    days_back: int = Query(14, description="Default days back (14 days)")
+):
+    """
+    Returns 4G Daily multi-KPI data from OneDb (measDy4g & measBdbh4g).
+    - Uses measBdbh4g for DL/UL PRB, User DL/UL Throughput, Spectrum Efficiency
+    - Uses measDy4g for all other radio metrics
+    - Modulation schemes, UMTS, and PDCP SDU Loss QCI1 are skipped.
+    """
+    try:
+        s_id = site_id.strip() if isinstance(site_id, str) else "MRW002"
+        s_date = start_date.strip() if isinstance(start_date, str) else None
+        e_date = end_date.strip() if isinstance(end_date, str) else None
+        sec_f = sector.strip() if isinstance(sector, str) else None
+        b_f = band.strip() if isinstance(band, str) else None
+        c_type = cell_type.strip() if isinstance(cell_type, str) else "macro"
+        d_back = days_back if isinstance(days_back, int) else 14
+
+        data = get_site_payload_daily_data(
+            site_id=s_id,
+            start_date=s_date,
+            end_date=e_date,
+            sector_filter=sec_f,
+            band_filter=b_f,
+            cell_type=c_type,
+            days_back=d_back
+        )
+        return data
+    except Exception as e:
+        return {"error": str(e), "site_id": site_id if isinstance(site_id, str) else "MRW002", "sectors": {}}
+
+@app.get("/api/daily/aggregation")
+def get_daily_aggregation_endpoint(
+    scope: str = Query("regional"),
+    mode: str = Query("full"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    nops: Optional[List[str]] = Query(None),
+    cities: Optional[List[str]] = Query(None),
+    kecamatans: Optional[List[str]] = Query(None),
+    sites: Optional[List[str]] = Query(None),
+    bands: Optional[List[str]] = Query(None)
+):
+    """
+    Returns time-series KPI charts for higher-level scopes:
+    - Regional (Region Sulawesi)
+    - NOP (multi-NOP curves or single NOP band curves)
+    - City/Kabupaten (multi-city curves or single city band curves)
+    - Kecamatan (multi-kecamatan curves or single kecamatan band curves)
+    - Site (multi-site curves or single site band curves)
+    """
+    try:
+        data = get_scope_aggregation_data(
+            scope=scope,
+            mode=mode,
+            start_date=start_date,
+            end_date=end_date,
+            nops=nops,
+            cities=cities,
+            kecamatans=kecamatans,
+            sites=sites,
+            bands=bands
+        )
+        return data
+    except Exception as e:
+        return {
+            "error": str(e),
+            "scope": scope,
+            "mode": mode,
+            "kpis": {},
+            "timestamps": []
+        }
 
 # Static file serving for React frontend production build
 DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"

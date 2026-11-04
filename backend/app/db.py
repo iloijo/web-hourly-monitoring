@@ -41,7 +41,7 @@ def get_twodb_connection(timeout: int = 12):
         logger.warning(f"Could not connect to TwoDb via LAN ({settings.TWODB_LAN_HOST}) or Tunnel ({settings.TWODB_TUNNEL_PORT}): {e}")
         return None
 
-def get_onedb_connection(timeout: int = 3):
+def get_onedb_connection(timeout: int = 10):
     """Connect to onedb (187.127.124.130:5432)."""
     try:
         conn = psycopg2.connect(
@@ -68,8 +68,15 @@ def check_db_health() -> Dict[str, Any]:
         connected_target = conn.get_dsn_parameters()
         conn.close()
 
+    onedb_ok = False
+    conn_one = get_onedb_connection(timeout=5)
+    if conn_one:
+        onedb_ok = True
+        conn_one.close()
+
     return {
         "twodb_connected": twodb_ok,
+        "onedb_connected": onedb_ok,
         "target": connected_target,
-        "status": "TwoDb Online" if twodb_ok else "Offline"
+        "status": f"TwoDb: {'Online' if twodb_ok else 'Offline'} | OneDb: {'Online' if onedb_ok else 'Offline'}"
     }

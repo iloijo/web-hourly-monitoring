@@ -53,9 +53,28 @@ export function getBandForCarrier(cName, carrierBands = {}) {
   return 'L1800';
 }
 
-export function getColorForCarrier(cName, carrierBands = {}) {
+export const ENTITY_PALETTE = [
+  '#3b82f6', // Vivid Blue
+  '#10b981', // Emerald
+  '#f59e0b', // Amber
+  '#8b5cf6', // Violet
+  '#ec4899', // Pink
+  '#06b6d4', // Cyan
+  '#f97316', // Orange
+  '#6366f1', // Indigo
+  '#14b8a6', // Teal
+  '#e11d48'  // Rose
+];
+
+export function getColorForCarrier(cName, carrierBands = {}, idx = 0) {
+  if (carrierBands && carrierBands[cName] === 'ENTITY') {
+    return ENTITY_PALETTE[idx % ENTITY_PALETTE.length];
+  }
+  if (BAND_COLORS[cName]) {
+    return BAND_COLORS[cName];
+  }
   const band = getBandForCarrier(cName, carrierBands);
-  return BAND_COLORS[band] || '#3b82f6';
+  return BAND_COLORS[band] || ENTITY_PALETTE[idx % ENTITY_PALETTE.length];
 }
 
 export default function SectorPayloadChart({
@@ -93,12 +112,30 @@ export default function SectorPayloadChart({
   // Filter carriers based on bandFilter (can be string 'all' or array of selected bands)
   const carrierKeys = allCarrierKeys.filter(cName => {
     if (!bandFilter || bandFilter === "all") return true;
-    const b = getBandForCarrier(cName, carrierBands);
+    if (carrierBands && carrierBands[cName] === 'ENTITY') return true;
+    const b = (carrierBands && carrierBands[cName] && carrierBands[cName] !== 'ENTITY')
+      ? carrierBands[cName]
+      : getBandForCarrier(cName, carrierBands);
     if (Array.isArray(bandFilter)) {
       return bandFilter.includes(b);
     }
     return b.toLowerCase() === bandFilter.toLowerCase();
   });
+
+  // Helper to format clean display name for series and legend
+  const getSeriesDisplayName = (cName) => {
+    if (carrierBands && carrierBands[cName]) {
+      if (carrierBands[cName] === 'ENTITY' || carrierBands[cName] === cName) {
+        return cName;
+      }
+      return `${carrierBands[cName]} ${cName}`;
+    }
+    if (cName.startsWith('L') && BAND_COLORS[cName]) {
+      return cName;
+    }
+    const b = getBandForCarrier(cName, carrierBands);
+    return `${b} ${cName}`;
+  };
 
   // Calculate dynamic Total strictly based on filtered bands
   let dynamicTotal = [];
@@ -117,12 +154,12 @@ export default function SectorPayloadChart({
   const series = [];
 
   // 1. Carrier line curves
-  carrierKeys.forEach(cName => {
-    const color = getColorForCarrier(cName, carrierBands);
-    const band = getBandForCarrier(cName, carrierBands);
+  carrierKeys.forEach((cName, idx) => {
+    const color = getColorForCarrier(cName, carrierBands, idx);
+    const displayName = getSeriesDisplayName(cName);
     series.push({
       id: `carrier_${cName}`,
-      name: `${band} ${cName}`,
+      name: displayName,
       rawName: cName,
       type: 'line',
       yAxisIndex: 0,
@@ -165,11 +202,11 @@ export default function SectorPayloadChart({
 
   // Legend data at bottom: hollow colored square matching Image 7 ([ ] L1800 ML-21)
   const legendData = [
-    ...carrierKeys.map(cName => {
-      const band = getBandForCarrier(cName, carrierBands);
-      const color = getColorForCarrier(cName, carrierBands);
+    ...carrierKeys.map((cName, idx) => {
+      const color = getColorForCarrier(cName, carrierBands, idx);
+      const displayName = getSeriesDisplayName(cName);
       return {
-        name: `${band} ${cName}`,
+        name: displayName,
         icon: 'rect',
         itemStyle: {
           color: 'transparent',
@@ -244,6 +281,10 @@ export default function SectorPayloadChart({
   const tsLen = timestamps?.length || 1;
   const labelInterval = Math.max(1, Math.floor((tsLen - 1) / 3));
 
+  // Check for BDBH remark in title
+  const isBdbh = title.includes('[BDBH]') || title.includes('(BDBH)');
+  const cleanTitle = title.replace(/\[BDBH\]|\(BDBH\)/gi, '').trim();
+
   // Identical smooth cubicInOut transition animation in both directions
   const option = {
     backgroundColor: darkMode ? 'transparent' : '#ffffff',
@@ -252,21 +293,34 @@ export default function SectorPayloadChart({
     animationDurationUpdate: 500,
     animationEasing: 'cubicInOut',
     animationEasingUpdate: 'cubicInOut',
-    title: {
-      text: `{bold|${title}}`,
-      left: 14,
-      top: 10,
-      textStyle: {
-        rich: {
-          bold: {
-            fontSize: 13,
-            fontWeight: 700,
-            color: darkMode ? '#ffffff' : '#0f172a',
-            fontFamily: 'Inter, system-ui, sans-serif'
+    title: [
+      {
+        text: `{bold|${cleanTitle}}`,
+        left: 14,
+        top: 10,
+        textStyle: {
+          rich: {
+            bold: {
+              fontSize: 13,
+              fontWeight: 700,
+              color: darkMode ? '#ffffff' : '#0f172a',
+              fontFamily: 'Inter, system-ui, sans-serif'
+            }
           }
         }
-      }
-    },
+      },
+      ...(isBdbh ? [{
+        text: '(BDBH)',
+        right: 14,
+        top: 11,
+        textStyle: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: darkMode ? '#f97316' : '#94a3b8',
+          fontFamily: 'Inter, system-ui, sans-serif'
+        }
+      }] : [])
+    ],
     // Legend positioned at bottom, well below X-axis labels to completely eliminate overlap
     legend: {
       type: 'scroll',
