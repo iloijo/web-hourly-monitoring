@@ -376,10 +376,10 @@ export default function SectorPayloadChart({
         const formattedTime = formatAxisDate(rawTime, timeMode);
         let html = `<div style="font-weight: 700; color: #f8fafc; margin-bottom: 8px; border-bottom: 1px solid #334155; padding-bottom: 4px; font-size: 11px;">${formattedTime}</div>`;
         
-        params.forEach(p => {
+        params.forEach((p, pIdx) => {
           const isTotal = p.seriesName === 'Total Payload';
-          const bandColor = isTotal ? '#f43f5e' : (p.color || getColorForCarrier(p.rawName || p.seriesName, carrierBands));
-          const displayName = p.rawName || p.seriesName;
+          const bandColor = isTotal ? '#f43f5e' : (p.color || getColorForCarrier(p.seriesName, carrierBands, p.seriesIndex ?? pIdx));
+          const displayName = p.seriesName;
           html += `
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 20px; font-size: 11px; padding: 2px 0;">
               <div style="display: flex; align-items: center; gap: 6px;">

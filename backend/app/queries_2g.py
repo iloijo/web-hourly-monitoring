@@ -729,7 +729,7 @@ def get_scope_aggregation_2g_data(
             params.append(active_entities)
 
         carrier_keys = active_entities
-        carrier_bands = {e: "GSM" for e in carrier_keys}
+        carrier_bands = {e: "ENTITY" for e in carrier_keys}
 
     # Optional band filtering in full mode
     where_band = ""

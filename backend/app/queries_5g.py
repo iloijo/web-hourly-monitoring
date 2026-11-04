@@ -721,7 +721,7 @@ def get_scope_aggregation_5g_data(
             params.append(active_entities)
 
         carrier_keys = active_entities
-        carrier_bands = {e: "NR2300" for e in carrier_keys}
+        carrier_bands = {e: "ENTITY" for e in carrier_keys}
 
     # Optional band filter in full mode
     where_band = ""
