@@ -9,11 +9,11 @@ Web dashboard pemantauan KPI 4G per jam (*hourly*) terinspirasi dari antarmuka *
 * **Backend**: FastAPI (Python 3.11) + `psycopg2`
 * **Frontend**: React 19 + Vite + Tailwind CSS v4 + **Apache ECharts** + Lucide Icons
 * **Integrasi Database**:
-  * **Primary**: `twodb` (PostgreSQL 16 via Cloudflare Tunnel `localhost:5434`, database name: `twodb`, user: `userdb`)
+  * **Primary**: `twodb` (PostgreSQL 16 via Cloudflare Tunnel `localhost:5434`, database name: `twodb`)
   * **Reference / Topology**: `onedb` (PostgreSQL 16 direct `187.127.124.130:5432`)
-  * **Fail-safe Simulation**: Fallback dataset dinamis berakurasi tinggi (meniru persis site `SON002` sektor 2 dengan 4 frekuensi band) saat server tunnel asal sedang proses sinkronisasi.
+  * **Kredensial**: disimpan di `backend/.env` (tidak ikut git). Salin dari `backend/.env.example` lalu isi user/password DB dan login dashboard.
 * **Metode Derivasi Frekuensi**:
-  * Menerapkan aturan dari skill **`Band_LTE`** (`L700`, `L900`, `L1800`, `L2100`, `L2300_1`, `L2300_2`, `L2600`).
+  * Menerapkan aturan dari skill **`Band_LTE`** (digit terakhir `cellId`/`ci`: `L700`, `L900`, `L1800`, `L2100`, `L2300_1`, `L2300_2`, `L2300_3`, `L2600`).
 
 ---
 
@@ -47,3 +47,5 @@ Cukup klik ganda file:
 online_tunnel.bat
 ```
 Cloudflare akan memberikan tautan publik gratis berenkripsi HTTPS (misal: `https://xxxx.trycloudflare.com`) yang bisa langsung diakses dari perangkat mobile atau rekan kerja di luar jaringan lokal.
+
+Jika `DASHBOARD_USER` dan `DASHBOARD_PASS` diisi di `backend/.env`, browser akan meminta login sebelum dashboard dan API bisa dibuka (lokal maupun via tunnel).

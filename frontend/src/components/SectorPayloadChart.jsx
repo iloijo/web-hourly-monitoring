@@ -131,9 +131,11 @@ export default function SectorPayloadChart({
   const carrierKeys = allCarrierKeys.filter(cName => {
     if (!bandFilter || bandFilter === "all") return true;
     if (carrierBands && carrierBands[cName] === 'ENTITY') return true;
-    const b = (carrierBands && carrierBands[cName] && carrierBands[cName] !== 'ENTITY')
+    const rawBand = (carrierBands && carrierBands[cName] && carrierBands[cName] !== 'ENTITY')
       ? carrierBands[cName]
       : getBandForCarrier(cName, carrierBands);
+    // Band filter has a single 'L2600' option for carriers L2600_1..L2600_4
+    const b = rawBand.startsWith('L2600') ? 'L2600' : rawBand;
     if (Array.isArray(bandFilter)) {
       return bandFilter.includes(b);
     }

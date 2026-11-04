@@ -1,10 +1,12 @@
 import os
+import base64
+import secrets
 from pathlib import Path
 from typing import Optional, List
-from fastapi import FastAPI, Query
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Query, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
+from .config import settings
 from .db import check_db_health, get_twodb_connection, get_latest_data_date
 from .queries import get_site_payload_data
 from .queries_daily import (
@@ -19,14 +21,20 @@ from .site_names import load_site_names, get_site_display_name, get_site_name
 
 app = FastAPI(title="Monitoring KPI Dashboard", version="2.5.0")
 
-# Enable CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# HTTP Basic login for every request when DASHBOARD_USER and DASHBOARD_PASS are set in backend/.env
+@app.middleware("http")
+async def basic_auth(request: Request, call_next):
+    if not (settings.DASHBOARD_USER and settings.DASHBOARD_PASS):
+        return await call_next(request)
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("basic "):
+        try:
+            user, _, pw = base64.b64decode(header[6:]).decode("utf-8").partition(":")
+        except Exception:
+            user, pw = "", ""
+        if secrets.compare_digest(user, settings.DASHBOARD_USER) and secrets.compare_digest(pw, settings.DASHBOARD_PASS):
+            return await call_next(request)
+    return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="NetKPI Monitor"'})
 
 # In-memory cache for all site IDs from CellListRCI
 CACHED_SITES: List[str] = []

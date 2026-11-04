@@ -1265,12 +1265,14 @@ def get_site_payload_daily_data(
     }
 
 def _band_case_sql(alias: str) -> str:
-    """Band_LTE rule (skill band-lte): last digit + length of cellId. Unmatched -> 'OTHER' (skipped)."""
+    """
+    Band_LTE rule (skill band-lte): last digit of cellId. Unmatched -> 'OTHER' (skipped).
+    L2600 carriers (_1.._4, digits 8/9) are merged into one 'L2600' curve to match the 4G band filter.
+    """
     c = f'{alias}."cellId"::bigint::text'
     return f"""
     CASE
-        WHEN LENGTH({c}) > 2 AND RIGHT({c}, 1) = '8' THEN 'L2600_3'
-        WHEN LENGTH({c}) > 2 AND RIGHT({c}, 1) = '9' THEN 'L2600_4'
+        WHEN RIGHT({c}, 1) IN ('8', '9') THEN 'L2600'
         WHEN RIGHT({c}, 1) = '1' THEN 'L1800'
         WHEN RIGHT({c}, 1) = '2' THEN 'L900'
         WHEN RIGHT({c}, 1) = '3' THEN 'L2100'
@@ -1278,8 +1280,6 @@ def _band_case_sql(alias: str) -> str:
         WHEN RIGHT({c}, 1) = '5' THEN 'L2300_2'
         WHEN RIGHT({c}, 1) = '6' THEN 'L2300_3'
         WHEN RIGHT({c}, 1) = '7' THEN 'L700'
-        WHEN RIGHT({c}, 1) = '8' THEN 'L2600_1'
-        WHEN RIGHT({c}, 1) = '9' THEN 'L2600_2'
         ELSE 'OTHER'
     END
 """
@@ -1409,7 +1409,7 @@ def get_scope_aggregation_data(
 
     # Build SQL queries
     if mode_clean == "band":
-        carrier_keys = ["L700", "L900", "L1800", "L2100", "L2300_1", "L2300_2", "L2300_3"]
+        carrier_keys = ["L700", "L900", "L1800", "L2100", "L2300_1", "L2300_2", "L2300_3", "L2600"]
         carrier_bands = {b: b for b in carrier_keys}
 
         where_enb_dy = "AND d.\"eNodeBId\" = ANY(%s)" if enb_list else ""
@@ -1627,7 +1627,7 @@ def get_scope_aggregation_data(
         "end_date": dt_end.strftime("%Y-%m-%d"),
         "timestamps": sorted_ts,
         "active_entities": active_entities,
-        "available_bands": ["L700", "L900", "L1800", "L2100", "L2300_1", "L2300_2", "L2300_3"],
+        "available_bands": ["L700", "L900", "L1800", "L2100", "L2300_1", "L2300_2", "L2300_3", "L2600"],
         "carrier_bands": carrier_bands,
         "carriers": carrier_keys,
         "kpis": result_kpis,
