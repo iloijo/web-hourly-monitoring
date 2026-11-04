@@ -38,7 +38,8 @@ import {
   Building2,
   MapPin,
   Globe,
-  Zap
+  Zap,
+  Wifi
 } from 'lucide-react';
 
 const BAND_OPTIONS_4G = [
