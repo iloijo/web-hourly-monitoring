@@ -541,7 +541,6 @@ export default function App() {
   // Fetch Sector-Level Payload Data
   const fetchSectorData = (targetSite, start, end, menuMode, cellType) => {
     setLoading(true);
-    const startTime = Date.now();
     let endpoint = "/api/payload_sectors";
     if (menuMode === "4g-daily") endpoint = "/api/daily/payload_sectors";
     else if (menuMode === "5g") endpoint = "/api/5g/payload_sectors";
@@ -557,13 +556,8 @@ export default function App() {
     fetch(`${endpoint}?${params.toString()}`)
       .then(res => res.json())
       .then(json => {
-        const elapsed = Date.now() - startTime;
-        const delay = Math.max(0, 400 - elapsed);
-        setTimeout(() => {
-          setData(json);
-          setLoading(false);
-          // Keep all bands default if not restricted
-        }, delay);
+        setData(json);
+        setLoading(false);
       })
       .catch(err => {
         console.error("Failed to fetch sector data:", err);

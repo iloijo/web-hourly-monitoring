@@ -1,6 +1,9 @@
 import os
 import base64
 import secrets
+import threading
+import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional, List
 from fastapi import FastAPI, Query, Request
@@ -18,6 +21,42 @@ from .queries_daily import (
 from .queries_5g import get_5g_sites, get_site_payload_5g_data, get_scope_aggregation_5g_data, KPIS_5G_CONFIG
 from .queries_2g import get_2g_sites, get_site_payload_2g_data, get_scope_aggregation_2g_data, KPIS_2G_CONFIG
 from .site_names import load_site_names, get_site_display_name, get_site_name
+
+# Short-lived result cache: switching back to a scope/site already viewed returns instantly.
+# Data only changes when the auto import runs (every 2 h), so 10 minutes is safe.
+_RESULT_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()
+_RESULT_CACHE_LOCK = threading.Lock()
+_RESULT_CACHE_TTL_SEC = 600
+_RESULT_CACHE_MAX = 256
+
+def _cached(fn):
+    def wrapper(**kwargs):
+        key = (fn.__name__,) + tuple(
+            (k, tuple(v) if isinstance(v, list) else v) for k, v in sorted(kwargs.items())
+        )
+        now = time.time()
+        with _RESULT_CACHE_LOCK:
+            hit = _RESULT_CACHE.get(key)
+            if hit and now - hit[0] < _RESULT_CACHE_TTL_SEC:
+                _RESULT_CACHE.move_to_end(key)
+                return hit[1]
+        result = fn(**kwargs)
+        if isinstance(result, dict) and not result.get("error"):
+            with _RESULT_CACHE_LOCK:
+                _RESULT_CACHE[key] = (now, result)
+                _RESULT_CACHE.move_to_end(key)
+                while len(_RESULT_CACHE) > _RESULT_CACHE_MAX:
+                    _RESULT_CACHE.popitem(last=False)
+        return result
+    return wrapper
+
+get_site_payload_data = _cached(get_site_payload_data)
+get_site_payload_daily_data = _cached(get_site_payload_daily_data)
+get_scope_aggregation_data = _cached(get_scope_aggregation_data)
+get_site_payload_5g_data = _cached(get_site_payload_5g_data)
+get_scope_aggregation_5g_data = _cached(get_scope_aggregation_5g_data)
+get_site_payload_2g_data = _cached(get_site_payload_2g_data)
+get_scope_aggregation_2g_data = _cached(get_scope_aggregation_2g_data)
 
 app = FastAPI(title="Monitoring KPI Dashboard", version="2.5.0")
 

@@ -3,6 +3,7 @@ import psycopg2.extras
 import time
 import re
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from .db import get_onedb_connection, get_latest_data_date
@@ -1528,14 +1529,28 @@ def get_scope_aggregation_data(
             ORDER BY dt, series_key;
         """
 
-    cur.execute(sql_dy, sql_dy_params)
-    dy_rows = cur.fetchall()
-
-    cur.execute(sql_bdbh, sql_bdbh_params)
-    bdbh_rows = cur.fetchall()
-
     cur.close()
     conn.close()
+
+    # measDy4g and measBdbh4g are independent: run both at once on separate connections
+    def _fetch(sql, params):
+        c = get_onedb_connection(timeout=15)
+        if not c:
+            raise RuntimeError("OneDb is not reachable for scope aggregation.")
+        try:
+            k = c.cursor()
+            k.execute(sql, params)
+            rows = k.fetchall()
+            k.close()
+            return rows
+        finally:
+            c.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        fut_dy = pool.submit(_fetch, sql_dy, sql_dy_params)
+        fut_bdbh = pool.submit(_fetch, sql_bdbh, sql_bdbh_params)
+        dy_rows = fut_dy.result()
+        bdbh_rows = fut_bdbh.result()
 
     # Map rows to structure: data_map[kpi_id][series_key][dt_str] = val
     from collections import defaultdict
