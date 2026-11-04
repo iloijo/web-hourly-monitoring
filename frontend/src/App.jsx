@@ -172,14 +172,7 @@ const FALLBACK_DAILY_KPIS = [
   { id: 'lte_gsm_ho_sr', label: 'LTE-GSM HO SR (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false },
   { id: 'volte_intra_freq_hosr', label: 'VoLTE Intra-Freq HO SR (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false },
   { id: 'volte_inter_freq_hosr', label: 'VoLTE Inter-Freq HO SR (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false },
-  { id: 'srvcc_gsm_hosr', label: 'SRVCC LTE-GSM HO SR (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false },
-
-  // Equipment & System
-  { id: 'avg_cpu_util', label: 'Avg CPU Util (%)', unit: '%', category: 'Equipment & System', source: 'measDy4g', is_bdbh: false },
-  { id: 'peak_cpu_util', label: 'Peak CPU Util (%)', unit: '%', category: 'Equipment & System', source: 'measDy4g', is_bdbh: false },
-  { id: 'paging_congestion_rate', label: 'Paging Congestion Rate (%)', unit: '%', category: 'Equipment & System', source: 'measDy4g', is_bdbh: false },
-  { id: 'paging_sr', label: 'Paging Success Rate (%)', unit: '%', category: 'Equipment & System', source: 'measDy4g', is_bdbh: false },
-  { id: 'rrc_reestablishment_ratio', label: 'RRC Re-establishment Ratio (%)', unit: '%', category: 'Equipment & System', source: 'measDy4g', is_bdbh: false }
+  { id: 'srvcc_gsm_hosr', label: 'SRVCC LTE-GSM HO SR (%)', unit: '%', category: 'Mobility', source: 'measDy4g', is_bdbh: false }
 ];
 
 const DEFAULT_DAILY_KPIS = [
@@ -845,6 +838,29 @@ export default function App() {
       setSelectedDailyKpiIds([]);
     } else {
       setSelectedHourlyKpis([]);
+    }
+  };
+
+  // Toggle all KPIs in a category (Gambar 2 Selection)
+  const handleToggleCategory = (catKpiIds, shouldSelect) => {
+    const updater = (prev) => {
+      if (shouldSelect) {
+        const next = new Set([...prev, ...catKpiIds]);
+        return Array.from(next);
+      } else {
+        const catSet = new Set(catKpiIds);
+        return prev.filter(id => !catSet.has(id));
+      }
+    };
+
+    if (activeMenu === '5g') {
+      setSelected5gKpiIds(updater);
+    } else if (activeMenu === '2g') {
+      setSelected2gKpiIds(updater);
+    } else if (activeMenu === '4g-daily') {
+      setSelectedDailyKpiIds(updater);
+    } else {
+      setSelectedHourlyKpis(updater);
     }
   };
 
@@ -1529,6 +1545,7 @@ export default function App() {
                     allKpis={activeKpiCatalog}
                     selectedKpiIds={activeSelectedKpiIds}
                     onToggleKpi={handleToggleKpi}
+                    onToggleCategory={handleToggleCategory}
                     onSelectAll={handleSelectAllKpis}
                     onDeselectAll={handleDeselectAllKpis}
                     onSelectDefault={handleSelectDefaultKpis}
@@ -1661,6 +1678,7 @@ export default function App() {
                     allKpis={activeKpiCatalog}
                     selectedKpiIds={activeSelectedKpiIds}
                     onToggleKpi={handleToggleKpi}
+                    onToggleCategory={handleToggleCategory}
                     onSelectAll={handleSelectAllKpis}
                     onDeselectAll={handleDeselectAllKpis}
                     onSelectDefault={handleSelectDefaultKpis}
@@ -1779,6 +1797,7 @@ export default function App() {
                     allKpis={activeKpiCatalog}
                     selectedKpiIds={activeSelectedKpiIds}
                     onToggleKpi={handleToggleKpi}
+                    onToggleCategory={handleToggleCategory}
                     onSelectAll={handleSelectAllKpis}
                     onDeselectAll={handleDeselectAllKpis}
                     onSelectDefault={handleSelectDefaultKpis}
@@ -1922,6 +1941,7 @@ export default function App() {
                     allKpis={activeKpiCatalog}
                     selectedKpiIds={activeSelectedKpiIds}
                     onToggleKpi={handleToggleKpi}
+                    onToggleCategory={handleToggleCategory}
                     onSelectAll={handleSelectAllKpis}
                     onDeselectAll={handleDeselectAllKpis}
                     onSelectDefault={handleSelectDefaultKpis}
@@ -2094,6 +2114,7 @@ export default function App() {
                     allKpis={activeKpiCatalog}
                     selectedKpiIds={activeSelectedKpiIds}
                     onToggleKpi={handleToggleKpi}
+                    onToggleCategory={handleToggleCategory}
                     onSelectAll={handleSelectAllKpis}
                     onDeselectAll={handleDeselectAllKpis}
                     onSelectDefault={handleSelectDefaultKpis}
@@ -2215,6 +2236,7 @@ export default function App() {
                     allKpis={activeKpiCatalog}
                     selectedKpiIds={activeSelectedKpiIds}
                     onToggleKpi={handleToggleKpi}
+                    onToggleCategory={handleToggleCategory}
                     onSelectAll={handleSelectAllKpis}
                     onDeselectAll={handleDeselectAllKpis}
                     onSelectDefault={handleSelectDefaultKpis}

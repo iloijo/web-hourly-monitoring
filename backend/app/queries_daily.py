@@ -684,58 +684,6 @@ DAILY_KPIS_CONFIG = {
         "has_tot": False,
         "min_y": 0,
         "max_y": 100
-    },
-
-    # 9. Equipment & System
-    "avg_cpu_util": {
-        "title": "Avg CPU Util (%)",
-        "unit": "%",
-        "category": "Equipment & System",
-        "source": "measDy4g",
-        "is_avg": True,
-        "has_tot": False,
-        "min_y": 0,
-        "max_y": 100
-    },
-    "peak_cpu_util": {
-        "title": "Peak CPU Util (%)",
-        "unit": "%",
-        "category": "Equipment & System",
-        "source": "measDy4g",
-        "is_avg": True,
-        "has_tot": False,
-        "min_y": 0,
-        "max_y": 100
-    },
-    "paging_congestion_rate": {
-        "title": "Paging Congestion Rate (%)",
-        "unit": "%",
-        "category": "Equipment & System",
-        "source": "measDy4g",
-        "is_avg": True,
-        "has_tot": False,
-        "min_y": 0,
-        "max_y": None
-    },
-    "paging_sr": {
-        "title": "Paging Success Rate (%)",
-        "unit": "%",
-        "category": "Equipment & System",
-        "source": "measDy4g",
-        "is_avg": True,
-        "has_tot": False,
-        "min_y": 0,
-        "max_y": 100
-    },
-    "rrc_reestablishment_ratio": {
-        "title": "RRC Re-establishment Ratio (%)",
-        "unit": "%",
-        "category": "Equipment & System",
-        "source": "measDy4g",
-        "is_avg": True,
-        "has_tot": False,
-        "min_y": 0,
-        "max_y": None
     }
 }
 
@@ -1086,14 +1034,7 @@ def get_site_payload_daily_data(
                 ROUND((d."LTE-GSM HO SR_(%%) AMQ" * 100)::numeric, 2) AS lte_gsm_ho_sr,
                 ROUND((d."Intra_Freq_HOSR_VoLTE_SR_(%%) AMQ" * 100)::numeric, 2) AS volte_intra_freq_hosr,
                 ROUND((d."Inter_Freq_HOSR_VoLTE_SR_(%%) AMQ" * 100)::numeric, 2) AS volte_inter_freq_hosr,
-                ROUND((d."SRVCC_LTE-GSM_HOSR_VoLTE_SR_(%%) AMQ" * 100)::numeric, 2) AS srvcc_gsm_hosr,
-
-                -- Equipment & System
-                ROUND(d."Average CPU Utilization Rate of the Baseband Control-Plane(%%)"::numeric, 2) AS avg_cpu_util_pct,
-                ROUND(d."Peak CPU Utilization Rate of the Baseband Control-Plane(%%)"::numeric, 2) AS peak_cpu_util_pct,
-                ROUND(d."Paging Congestion Rate(%%)"::numeric, 2) AS paging_congestion_rate_pct,
-                ROUND(d."KPI Paging Success Rate (%%)"::numeric, 2) AS paging_sr,
-                ROUND(d."U31_Ratio of RRC Re-establishment "::numeric, 2) AS rrc_reestablishment_ratio
+                ROUND((d."SRVCC_LTE-GSM_HOSR_VoLTE_SR_(%%) AMQ" * 100)::numeric, 2) AS srvcc_gsm_hosr
             FROM "measDy4g" d
             LEFT JOIN "measBdbh4g" b 
               ON d."Begin Time" = b."Begin Time" 
@@ -1222,13 +1163,7 @@ def get_site_payload_daily_data(
             "lte_gsm_ho_sr": r.get('lte_gsm_ho_sr'),
             "volte_intra_freq_hosr": r.get('volte_intra_freq_hosr'),
             "volte_inter_freq_hosr": r.get('volte_inter_freq_hosr'),
-            "srvcc_gsm_hosr": r.get('srvcc_gsm_hosr'),
-
-            "avg_cpu_util": r.get('avg_cpu_util_pct'),
-            "peak_cpu_util": r.get('peak_cpu_util_pct'),
-            "paging_congestion_rate": r.get('paging_congestion_rate_pct'),
-            "paging_sr": r.get('paging_sr'),
-            "rrc_reestablishment_ratio": r.get('rrc_reestablishment_ratio')
+            "srvcc_gsm_hosr": r.get('srvcc_gsm_hosr')
         }
 
         for kpi_id, val in mapping.items():

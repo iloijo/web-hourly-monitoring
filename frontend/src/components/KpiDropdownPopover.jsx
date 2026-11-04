@@ -22,6 +22,7 @@ export default function KpiDropdownPopover({
   allKpis = [],
   selectedKpiIds = [],
   onToggleKpi,
+  onToggleCategory,
   onSelectAll,
   onDeselectAll,
   onSelectDefault,
@@ -158,15 +159,52 @@ export default function KpiDropdownPopover({
       <div className="max-h-72 overflow-y-auto space-y-3 pr-1 divide-y divide-slate-100 dark:divide-slate-800/60">
         {Object.entries(groupedKpis).map(([category, kpis]) => {
           if (!kpis || kpis.length === 0) return null;
-          const allCatSelected = kpis.every(k => selectedKpiIds.includes(k.id));
+          const selectedCount = kpis.filter(k => selectedKpiIds.includes(k.id)).length;
+          const allCatSelected = selectedCount === kpis.length;
+          const someCatSelected = selectedCount > 0 && !allCatSelected;
+
+          const handleCategoryClick = () => {
+            const catIds = kpis.map(k => k.id);
+            if (onToggleCategory) {
+              onToggleCategory(catIds, !allCatSelected);
+            } else {
+              catIds.forEach(id => {
+                const isSel = selectedKpiIds.includes(id);
+                if (!allCatSelected && !isSel) onToggleKpi(id);
+                if (allCatSelected && isSel) onToggleKpi(id);
+              });
+            }
+          };
 
           return (
             <div key={category} className="pt-2 first:pt-0 space-y-1">
-              {/* Category Group Header */}
-              <div className="flex items-center justify-between px-1 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
-                <span>{category}</span>
-                <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
-                  {kpis.filter(k => selectedKpiIds.includes(k.id)).length}/{kpis.length}
+              {/* Category Group Header (Clickable for parent group selection - Gambar 2) */}
+              <div 
+                onClick={handleCategoryClick}
+                className={`flex items-center justify-between px-1.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider cursor-pointer transition select-none group ${
+                  darkMode ? 'hover:bg-slate-800/80 text-blue-400' : 'hover:bg-blue-50/80 text-blue-600'
+                }`}
+                title={allCatSelected ? `Batal pilih semua ${category}` : `Pilih semua ${category}`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition ${
+                    allCatSelected 
+                      ? 'bg-blue-600 border-blue-600 text-white' 
+                      : someCatSelected 
+                        ? 'bg-blue-100 border-blue-500 text-blue-600 dark:bg-blue-950 dark:border-blue-400' 
+                        : darkMode ? 'border-slate-600 bg-slate-800 group-hover:border-blue-400' : 'border-slate-300 bg-white group-hover:border-blue-400'
+                  }`}>
+                    {allCatSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                    {someCatSelected && <span className="w-1.5 h-1.5 rounded-xs bg-blue-600 dark:bg-blue-400"></span>}
+                  </div>
+                  <span>{category}</span>
+                </div>
+                <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold transition ${
+                  allCatSelected 
+                    ? 'bg-blue-600 text-white' 
+                    : darkMode ? 'bg-slate-800 text-slate-400 group-hover:text-blue-300' : 'bg-slate-100 text-slate-500 group-hover:text-blue-600'
+                }`}>
+                  {selectedCount}/{kpis.length}
                 </span>
               </div>
 

@@ -259,8 +259,9 @@ export default function SectorPayloadChart({
         fontSize: 10,
         fontWeight: '600'
       },
-      min: minY !== null ? minY : undefined,
-      max: maxY !== null ? maxY : undefined,
+      scale: true, // Axis does not always start from 0; auto-scales to data bounds (Gambar 1 Fix)
+      min: (minY !== null && minY !== undefined && minY !== 0) ? minY : undefined,
+      max: maxY !== null && maxY !== undefined ? maxY : undefined,
       axisLine: { show: true, lineStyle: { color: darkMode ? '#475569' : '#cbd5e1' } },
       axisTick: { show: true },
       axisLabel: {
