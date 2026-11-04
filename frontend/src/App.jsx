@@ -310,7 +310,7 @@ export default function App() {
   const [selectedSites, setSelectedSites] = useState(['MRW002']);
 
   // Cascading helpers for City & Kecamatan
-  const [cityFilterNop, setCityFilterNop] = useState('MAKASSAR');
+  const [cityFilterNops, setCityFilterNops] = useState(['MAKASSAR']);
   const [kecFilterNop, setKecFilterNop] = useState('MAKASSAR');
   const [kecFilterKab, setKecFilterKab] = useState('KOTA MAKASSAR');
 
@@ -638,7 +638,7 @@ export default function App() {
     if (newScope === 'sector') {
       fetchSectorData(siteId, startDate, endDate, activeMenu, filterType);
     } else {
-      let nops = selectedNops;
+      let nops = newScope === 'city' ? cityFilterNops : selectedNops;
       let cities = selectedCities;
       let kecs = selectedKecamatans;
       let sites = selectedSites;
@@ -655,13 +655,13 @@ export default function App() {
   // Switch between Aggregation vs Band mode
   const handleSwitchAggregationMode = (newMode) => {
     setAggregationMode(newMode);
-    let nops = selectedNops;
+    let nops = aggregationScope === 'city' ? cityFilterNops : selectedNops;
     let cities = selectedCities;
     let kecs = selectedKecamatans;
     let sites = selectedSites;
 
     if (newMode === 'band') {
-      if (nops.length > 1) {
+      if (nops.length > 1 && aggregationScope !== 'city') {
         nops = [nops[0]];
         setSelectedNops(nops);
       }
@@ -755,7 +755,8 @@ export default function App() {
     if (aggregationScope === 'sector') {
       fetchSectorData(siteId, startDate, endDate, activeMenu, filterType);
     } else {
-      fetchScopeAggregationData(aggregationScope, aggregationMode, startDate, endDate, selectedNops, selectedCities, selectedKecamatans, selectedSites, selectedBands);
+      const activeNops = aggregationScope === 'city' ? cityFilterNops : selectedNops;
+      fetchScopeAggregationData(aggregationScope, aggregationMode, startDate, endDate, activeNops, selectedCities, selectedKecamatans, selectedSites, selectedBands);
     }
   };
 
@@ -924,11 +925,16 @@ export default function App() {
   }, [hierarchyData]);
 
   const cityOptions = useMemo(() => {
-    if (cityFilterNop && hierarchyData?.kabupaten_by_nop?.[cityFilterNop]) {
-      return Array.from(hierarchyData.kabupaten_by_nop[cityFilterNop]).sort();
+    if (cityFilterNops && cityFilterNops.length > 0 && hierarchyData?.kabupaten_by_nop) {
+      const set = new Set();
+      cityFilterNops.forEach(n => {
+        const kabs = hierarchyData.kabupaten_by_nop[n];
+        if (kabs) kabs.forEach(k => set.add(k));
+      });
+      if (set.size > 0) return Array.from(set).sort();
     }
     return ['KOTA MAKASSAR', 'GOWA', 'MAROS', 'MOROWALI', 'KENDARI', 'PALU', 'MANADO'];
-  }, [cityFilterNop, hierarchyData]);
+  }, [cityFilterNops, hierarchyData]);
 
   const kecCityOptions = useMemo(() => {
     if (kecFilterNop && hierarchyData?.kabupaten_by_nop?.[kecFilterNop]) {
@@ -1812,30 +1818,37 @@ export default function App() {
             {aggregationScope === 'city' && (
               <div className="flex flex-wrap items-center gap-4">
                 
-                {/* NOP Selector */}
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-1">
-                    NOP
-                  </label>
-                  <select
-                    value={cityFilterNop}
-                    onChange={(e) => {
-                      setCityFilterNop(e.target.value);
-                      const available = hierarchyData?.kabupaten_by_nop?.[e.target.value] ? Array.from(hierarchyData.kabupaten_by_nop[e.target.value]) : [];
-                      if (available.length > 0) {
-                        setSelectedCities([available[0]]);
-                        fetchScopeAggregationData('city', aggregationMode, startDate, endDate, [e.target.value], [available[0]], selectedKecamatans, selectedSites, selectedBands);
-                      }
-                    }}
-                    className={`border rounded-lg px-3 py-1.5 text-xs font-bold cursor-pointer ${
-                      darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
-                    }`}
-                  >
-                    {nopOptions.map(n => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
-                </div>
+                {/* NOP MultiSelectDropdown (NOP multiple selection pada part City/Kabupaten) */}
+                <MultiSelectDropdown
+                  label="NOP"
+                  options={nopOptions}
+                  selectedValues={cityFilterNops}
+                  onChange={(newList) => {
+                    const nextNops = newList.length > 0 ? newList : [nopOptions[0] || 'MAKASSAR'];
+                    setCityFilterNops(nextNops);
+                    
+                    // Collect available cities for the newly selected NOPs
+                    const set = new Set();
+                    nextNops.forEach(n => {
+                      const kabs = hierarchyData?.kabupaten_by_nop?.[n];
+                      if (kabs) kabs.forEach(k => set.add(k));
+                    });
+                    const availableKabs = Array.from(set).sort();
+                    
+                    // Retain previously selected cities that exist in availableKabs, or pick the first available
+                    const retainedCities = selectedCities.filter(c => set.has(c));
+                    const nextCities = retainedCities.length > 0 ? retainedCities : (availableKabs.slice(0, 1));
+                    
+                    if (nextCities.length > 0) {
+                      setSelectedCities(nextCities);
+                      fetchScopeAggregationData('city', aggregationMode, startDate, endDate, nextNops, nextCities, selectedKecamatans, selectedSites, selectedBands);
+                    }
+                  }}
+                  isMulti={true}
+                  placeholder="Pilih NOP..."
+                  darkMode={darkMode}
+                  minWidth="min-w-44"
+                />
 
                 {/* City / Kabupaten Dropdown Multi-Select */}
                 <MultiSelectDropdown
@@ -1844,7 +1857,7 @@ export default function App() {
                   selectedValues={selectedCities}
                   onChange={(newList) => {
                     setSelectedCities(newList);
-                    fetchScopeAggregationData('city', aggregationMode, startDate, endDate, [cityFilterNop], newList, selectedKecamatans, selectedSites, selectedBands);
+                    fetchScopeAggregationData('city', aggregationMode, startDate, endDate, cityFilterNops, newList, selectedKecamatans, selectedSites, selectedBands);
                   }}
                   isMulti={aggregationMode === 'full'}
                   placeholder="Pilih City..."
@@ -2327,7 +2340,7 @@ export default function App() {
                 }`}>
                   {aggregationScope === 'regional' ? 'Sulawesi Region' :
                    aggregationScope === 'nop' ? (selectedNops.length > 1 ? `${selectedNops.length} NOPs` : selectedNops[0]) :
-                   aggregationScope === 'city' ? (selectedCities.length > 1 ? `${selectedCities.length} Cities` : `${cityFilterNop} • ${selectedCities[0]}`) :
+                   aggregationScope === 'city' ? (selectedCities.length > 1 ? `${selectedCities.length} Cities` : `${cityFilterNops.length > 1 ? `${cityFilterNops.length} NOPs` : cityFilterNops[0]} • ${selectedCities[0]}`) :
                    aggregationScope === 'kecamatan' ? (selectedKecamatans.length > 1 ? `${selectedKecamatans.length} Kecamatans` : `${kecFilterKab} • ${selectedKecamatans[0]}`) :
                    aggregationScope === 'site' ? (selectedSites.length > 1 ? `${selectedSites.length} Sites` : selectedSites[0]) :
                    `${currentSiteMeta.nop} • ${currentSiteMeta.kabupaten}`}
