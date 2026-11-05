@@ -20,6 +20,8 @@ from .queries_daily import (
 )
 from .queries_5g import get_5g_sites, get_site_payload_5g_data, get_scope_aggregation_5g_data, KPIS_5G_CONFIG
 from .queries_2g import get_2g_sites, get_site_payload_2g_data, get_scope_aggregation_2g_data, KPIS_2G_CONFIG
+from .queries_ta import get_ta_4g_data, get_ta_5g_data
+from .queries_twamp import get_twamp_packet_loss_data
 from .site_names import load_site_names, get_site_display_name, get_site_name
 
 # Short-lived result cache: switching back to a scope/site already viewed returns instantly.
@@ -57,6 +59,9 @@ get_site_payload_5g_data = _cached(get_site_payload_5g_data)
 get_scope_aggregation_5g_data = _cached(get_scope_aggregation_5g_data)
 get_site_payload_2g_data = _cached(get_site_payload_2g_data)
 get_scope_aggregation_2g_data = _cached(get_scope_aggregation_2g_data)
+get_ta_4g_data = _cached(get_ta_4g_data)
+get_ta_5g_data = _cached(get_ta_5g_data)
+get_twamp_packet_loss_data = _cached(get_twamp_packet_loss_data)
 
 app = FastAPI(title="netPulse - KPI Monitoring Dashboard", version="3.8.0")
 
@@ -91,6 +96,9 @@ def get_latest_dates():
         "4g_daily": ("onedb", "measDy4g"),
         "5g": ("onedb", "measDy5g"),
         "2g": ("onedb", "measDy2g"),
+        "ta_4g": ("onedb", "measTa4g"),
+        "ta_5g": ("onedb", "measTa5g"),
+        "packet_loss": ("onedb", "measTwamp4g"),
     }
     return {k: get_latest_data_date(db, t).strftime("%Y-%m-%d") for k, (db, t) in sources.items()}
 
@@ -465,6 +473,59 @@ def get_2g_aggregation_endpoint(
             "kpis": {},
             "timestamps": []
         }
+
+
+
+@app.get("/api/timing_advance/4g")
+def get_ta_4g_endpoint(
+    site_id: str = Query("BUO028"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    sector: Optional[str] = Query(None),
+    band: Optional[str] = Query(None),
+    cell_type: Optional[str] = Query("all")
+):
+    """Returns 4G Timing Advance distribution and cumulative data matching Bild 1 layout."""
+    return get_ta_4g_data(
+        site_id=site_id,
+        start_date=start_date,
+        end_date=end_date,
+        sector_filter=sector,
+        band_filter=band,
+        cell_type=cell_type
+    )
+
+@app.get("/api/timing_advance/5g")
+def get_ta_5g_endpoint(
+    site_id: str = Query("UPD364"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    sector: Optional[str] = Query(None),
+    band: Optional[str] = Query(None),
+    cell_type: Optional[str] = Query("all")
+):
+    """Returns 5G Timing Advance distribution and cumulative data."""
+    return get_ta_5g_data(
+        site_id=site_id,
+        start_date=start_date,
+        end_date=end_date,
+        sector_filter=sector,
+        band_filter=band,
+        cell_type=cell_type
+    )
+
+@app.get("/api/packet_loss/4g")
+def get_packet_loss_4g_endpoint(
+    site_id: str = Query("KWA001"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None)
+):
+    """Returns 4G TWAMP packet loss rate, delay, jitter, and packet volumes."""
+    return get_twamp_packet_loss_data(
+        site_id=site_id,
+        start_date=start_date,
+        end_date=end_date
+    )
 
 # Static file serving for React frontend production build
 DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"

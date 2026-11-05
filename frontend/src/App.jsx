@@ -4,6 +4,8 @@ import DataLoadingOverlay from './components/DataLoadingOverlay';
 import KpiDropdownPopover from './components/KpiDropdownPopover';
 import AggregationScopeBar from './components/AggregationScopeBar';
 import MultiSelectDropdown from './components/MultiSelectDropdown';
+import TimingAdvanceView from './components/TimingAdvanceView';
+import PacketLossView from './components/PacketLossView';
 import { 
   Menu, 
   Calendar, 
@@ -39,8 +41,8 @@ import {
   MapPin,
   Globe,
   Zap,
-  Wifi
-} from 'lucide-react';
+  Wifi,
+  ShieldAlert } from 'lucide-react';
 
 const APP_NAME = "NetPulse";
 const APP_VERSION = "v3.8.0";
@@ -364,6 +366,7 @@ export default function App() {
   const [chartsPerRow, setChartsPerRow] = useState(3);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [kpiMonitoringOpen, setKpiMonitoringOpen] = useState(true);
+  const [taGroupOpen, setTaGroupOpen] = useState(true);
   const [expanded4G, setExpanded4G] = useState(true);
 
   // Sites list and names map for dropdown
@@ -708,6 +711,10 @@ export default function App() {
     if (targetMenu === activeMenu) return;
     setActiveMenu(targetMenu);
     
+    if (['ta-4g', 'ta-5g', 'packet-loss'].includes(targetMenu)) {
+      return;
+    }
+
     let nextSite = siteId;
     let nextSites = selectedSites;
     let nextBands = selectedBands;
@@ -1196,6 +1203,100 @@ export default function App() {
               </div>
             )}
           </div>
+
+          {/* Menu Group 1: Timing Advance (User Request) */}
+          <div className="space-y-1 pt-1.5 border-t border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setTaGroupOpen(!taGroupOpen)}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-bold text-xs transition cursor-pointer ${
+                darkMode ? 'text-slate-200 hover:bg-slate-800/80' : 'text-slate-800 hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Clock className="w-4 h-4 text-amber-500" />
+                <span>Timing Advance</span>
+              </div>
+              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${taGroupOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {taGroupOpen && (
+              <div className={`mt-1 ml-2.5 pl-2.5 border-l space-y-1 ${
+                darkMode ? 'border-slate-800' : 'border-slate-200'
+              }`}>
+                {/* 1. Timing Advance 4G */}
+                <button 
+                  type="button"
+                  onClick={() => handleSwitchMenu("ta-4g")}
+                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${
+                    activeMenu === "ta-4g"
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : darkMode 
+                        ? 'text-slate-300 hover:text-white hover:bg-slate-800/80' 
+                        : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <BarChart3 className={`w-3.5 h-3.5 ${activeMenu === "ta-4g" ? 'text-white' : 'text-amber-500'}`} />
+                    <span>Timing Advance 4G</span>
+                  </div>
+                  {activeMenu === "ta-4g" ? (
+                    <span className="w-2 h-2 rounded-full bg-amber-300 animate-pulse"></span>
+                  ) : (
+                    <span className="text-[10px] opacity-60">OneDb</span>
+                  )}
+                </button>
+
+                {/* 2. Timing Advance 5G */}
+                <button 
+                  type="button"
+                  onClick={() => handleSwitchMenu("ta-5g")}
+                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${
+                    activeMenu === "ta-5g"
+                      ? 'bg-cyan-600 text-white shadow-xs'
+                      : darkMode 
+                        ? 'text-slate-300 hover:text-white hover:bg-slate-800/80' 
+                        : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Wifi className={`w-3.5 h-3.5 ${activeMenu === "ta-5g" ? 'text-white' : 'text-cyan-500'}`} />
+                    <span>Timing Advance 5G</span>
+                  </div>
+                  {activeMenu === "ta-5g" ? (
+                    <span className="w-2 h-2 rounded-full bg-cyan-300 animate-pulse"></span>
+                  ) : (
+                    <span className="text-[10px] opacity-60">OneDb</span>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Menu Group 2: Packet Loss (User Request) */}
+          <div className="space-y-1 pt-1.5 border-t border-slate-100 dark:border-slate-800">
+            <button 
+              type="button"
+              onClick={() => handleSwitchMenu("packet-loss")}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-bold text-xs transition cursor-pointer ${
+                activeMenu === "packet-loss"
+                  ? 'bg-rose-600 text-white shadow-xs'
+                  : darkMode 
+                    ? 'text-slate-300 hover:text-white hover:bg-slate-800/80' 
+                    : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <ShieldAlert className={`w-4 h-4 ${activeMenu === "packet-loss" ? 'text-white' : 'text-rose-500'}`} />
+                <span>Packet Loss</span>
+              </div>
+              {activeMenu === "packet-loss" ? (
+                <span className="w-2 h-2 rounded-full bg-rose-300 animate-pulse"></span>
+              ) : (
+                <span className="text-[10px] opacity-60">OneDb</span>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Database Status in Sidebar */}
@@ -1247,32 +1348,52 @@ export default function App() {
 
             <div className="flex items-center gap-2">
               <h1 className={`text-sm sm:text-base font-black tracking-tight ${darkMode ? 'text-white' : 'text-slate-900'}`}>
-                {isDailyMode ? '4G Daily Monitoring' : '4G Hourly Monitoring'}
+                {activeMenu === 'ta-4g' ? 'Timing Advance 4G' :
+                 activeMenu === 'ta-5g' ? 'Timing Advance 5G' :
+                 activeMenu === 'packet-loss' ? 'TWAMP Packet Loss' :
+                 activeMenu === '2g' ? '2G Monitoring' :
+                 activeMenu === '5g' ? '5G Monitoring' :
+                 isDailyMode ? '4G Daily Monitoring' : '4G Hourly Monitoring'}
               </h1>
               <div className={`hidden md:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
-                isDailyMode
-                  ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
-                  : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                activeMenu === 'packet-loss'
+                  ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                  : activeMenu.startsWith('ta')
+                    ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                    : isDailyMode
+                      ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                      : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
               }`}>
-                <span className="opacity-70 font-medium">4G Monitoring</span>
+                <span className="opacity-70 font-medium">
+                  {activeMenu.startsWith('ta') ? 'Timing Advance' : activeMenu === 'packet-loss' ? 'Quality & Transport' : 'KPI Monitoring'}
+                </span>
                 <span className="opacity-40">/</span>
-                <span className="font-bold">{isDailyMode ? '4G Daily' : '4G Hourly'}</span>
+                <span className="font-bold">
+                  {activeMenu === 'ta-4g' ? '4G TA' :
+                   activeMenu === 'ta-5g' ? '5G TA' :
+                   activeMenu === 'packet-loss' ? 'TWAMP 4G' :
+                   activeMenu === '2g' ? '2G Daily' :
+                   activeMenu === '5g' ? '5G Daily' :
+                   isDailyMode ? '4G Daily' : '4G Hourly'}
+                </span>
               </div>
             </div>
 
             {/* Live Connection Badge */}
             <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
-              isDailyMode
-                ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
-                : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+              activeMenu === '4g-hourly'
+                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
             }`}>
-              <CheckCircle2 className={`w-3 h-3 ${isDailyMode ? 'text-amber-500' : 'text-emerald-500'}`} />
-              <span>{isDailyMode ? 'OneDb Live' : 'TwoDb Live'}</span>
+              <CheckCircle2 className={`w-3 h-3 ${activeMenu === '4g-hourly' ? 'text-emerald-500' : 'text-amber-500'}`} />
+              <span>{activeMenu === '4g-hourly' ? 'TwoDb Live' : 'OneDb Live'}</span>
             </div>
           </div>
 
           {/* Right side controls: Dates, Toggle Hourly/Daily, Get Data, Charts/Row, Theme */}
           <form onSubmit={handleGetData} className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
+            {!['ta-4g', 'ta-5g', 'packet-loss'].includes(activeMenu) && (
+              <>
             
             {/* Start Date */}
             <div className="flex items-center gap-1.5">
@@ -1343,6 +1464,8 @@ export default function App() {
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
               <span>{loading ? "Loading..." : "Get Data"}</span>
             </button>
+              </>
+            )}
 
             {/* Charts Per Row */}
             <div className={`hidden lg:flex items-center p-0.5 rounded-lg border ${
@@ -1388,6 +1511,38 @@ export default function App() {
         {/* Content Body */}
         <main className="p-4 sm:p-5 grow overflow-y-auto space-y-4">
           
+          {/* Module 1: Timing Advance 4G */}
+          {activeMenu === 'ta-4g' && (
+            <TimingAdvanceView 
+              tech="4g" 
+              darkMode={darkMode} 
+              allSites={allSites} 
+              siteNamesMap={siteNamesMap} 
+            />
+          )}
+
+          {/* Module 2: Timing Advance 5G */}
+          {activeMenu === 'ta-5g' && (
+            <TimingAdvanceView 
+              tech="5g" 
+              darkMode={darkMode} 
+              allSites={sites5g.length > 0 ? sites5g : allSites} 
+              siteNamesMap={siteNamesMap} 
+            />
+          )}
+
+          {/* Module 3: Packet Loss (measTwamp4G) */}
+          {activeMenu === 'packet-loss' && (
+            <PacketLossView 
+              darkMode={darkMode} 
+              allSites={allSites} 
+              siteNamesMap={siteNamesMap} 
+            />
+          )}
+
+          {/* Core Modules: 4G Hourly, 4G Daily, 5G, 2G */}
+          {!['ta-4g', 'ta-5g', 'packet-loss'].includes(activeMenu) && (
+            <>
           {/* ========================================================================= */}
           {/* Filters & KPI Selection Card                                              */}
           {/* ========================================================================= */}
@@ -2560,6 +2715,8 @@ export default function App() {
             </div>
 
           </div>
+            </>
+          )}
 
         </main>
 
@@ -2571,7 +2728,10 @@ export default function App() {
             <div>
               <span className="font-semibold">Database: </span>
               <span className="font-mono font-medium">
-                {activeMenu === '2g' ? 'OneDb Live (measDy2g)' :
+                {activeMenu === 'ta-4g' ? 'OneDb Live (measTa4g)' :
+                 activeMenu === 'ta-5g' ? 'OneDb Live (measTa5g)' :
+                 activeMenu === 'packet-loss' ? 'OneDb Live (measTwamp4g)' :
+                 activeMenu === '2g' ? 'OneDb Live (measDy2g)' :
                  activeMenu === '5g' ? 'OneDb Live (measDy5g)' :
                  isDailyMode ? 'OneDb Live (measDy4g & measBdbh4g)' : 'TwoDb Live (measHy4g)'}
               </span>
