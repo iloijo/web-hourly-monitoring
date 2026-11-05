@@ -51,15 +51,27 @@ export default function useKpiMonitoring(activeMenu, ref) {
   const [aggregationData, setAggregationData] = useState(null);
   const [loading, setLoading] = useState(false);
   const requestId = useRef(0);
+  const menuRef = useRef(activeMenu);
+  const datesEditedRef = useRef(false);
+  useEffect(() => { menuRef.current = activeMenu; }, [activeMenu]);
 
-  // Default dates follow the latest data in the DB; no KPI query here
+  const applyDefaultDates = (menu) => {
+    const dates = getInitialDateRange(menu === '4g-hourly' ? 'hourly' : 'daily', menu);
+    setStartDate(dates.start);
+    setEndDate(dates.end);
+    return dates;
+  };
+
+  // Default dates follow the latest data in the DB (no KPI query). The answer can arrive after the
+  // user opened another menu, so it is applied to the menu open at that moment, unless dates were edited.
   useEffect(() => {
     loadLatestDates().then(() => {
-      const dates = getInitialDateRange('hourly');
-      setStartDate(dates.start);
-      setEndDate(dates.end);
+      if (!datesEditedRef.current) applyDefaultDates(menuRef.current);
     });
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const editStartDate = (v) => { datesEditedRef.current = true; setStartDate(v); };
+  const editEndDate = (v) => { datesEditedRef.current = true; setEndDate(v); };
 
   const activeBandOptions = useMemo(() => bandOptionsFor(activeMenu), [activeMenu]);
   const allActiveBandIds = useMemo(() => activeBandOptions.map(b => b.id), [activeBandOptions]);
@@ -185,11 +197,9 @@ export default function useKpiMonitoring(activeMenu, ref) {
       if (targetMenu === '4g-hourly') setAggregationScope('sector');
     }
 
-    const isDaily = targetMenu !== '4g-hourly';
-    setTimeMode(isDaily ? 'daily' : 'hourly');
-    const dates = getInitialDateRange(isDaily ? 'daily' : 'hourly', targetMenu);
-    setStartDate(dates.start);
-    setEndDate(dates.end);
+    setTimeMode(targetMenu === '4g-hourly' ? 'hourly' : 'daily');
+    datesEditedRef.current = false;
+    applyDefaultDates(targetMenu);
     clearData();
   };
 
@@ -365,7 +375,7 @@ export default function useKpiMonitoring(activeMenu, ref) {
     cityFilterNops, kecFilterNop, kecFilterKab,
     siteId, selectedSector, setSelectedSector, selectedBands, filterType, setFilterType,
     sectorViewMode, sectoralSectors, setSectoralSectors,
-    startDate, setStartDate, endDate, setEndDate,
+    startDate, setStartDate: editStartDate, endDate, setEndDate: editEndDate,
     data, aggregationData, loading,
     // derived
     activeBandOptions, allActiveBandIds, activeSitesList, activeKpiCatalog, activeSelectedKpiIds,

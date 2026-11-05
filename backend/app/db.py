@@ -11,6 +11,8 @@ logger = logging.getLogger("twodb_connection")
 # (db, table) -> (fetched_at_epoch, latest_date)
 _LATEST_DATE_CACHE: Dict[tuple, tuple] = {}
 _LATEST_DATE_TTL_SEC = 600
+_LATEST_DATE_FAILED_AT: Dict[tuple, float] = {}
+_LATEST_DATE_RETRY_SEC = 60
 
 def get_latest_data_date(db: str, table: str) -> datetime:
     """
@@ -23,9 +25,15 @@ def get_latest_data_date(db: str, table: str) -> datetime:
         return cached[1]
 
     fallback = cached[1] if cached else (datetime.now() - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    # An unreachable DB is not retried for a minute, so /api/latest_dates stays fast while TwoDb is down
+    failed_at = _LATEST_DATE_FAILED_AT.get(key)
+    if failed_at and time.time() - failed_at < _LATEST_DATE_RETRY_SEC:
+        return fallback
     conn = get_twodb_connection(timeout=5) if db == "twodb" else get_onedb_connection(timeout=5)
     if not conn:
+        _LATEST_DATE_FAILED_AT[key] = time.time()
         return fallback
+    _LATEST_DATE_FAILED_AT.pop(key, None)
     try:
         cur = conn.cursor()
         cur.execute(f'SELECT MAX("Begin Time") FROM "{table}";')

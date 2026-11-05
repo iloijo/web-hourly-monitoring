@@ -23,6 +23,7 @@ from .queries_2g import get_2g_sites, get_site_payload_2g_data, get_scope_aggreg
 from .queries_ta import get_ta_4g_data, get_ta_5g_data, get_ta_compare_data
 from .queries_twamp import get_twamp_packet_loss_data, get_twamp_scope_aggregation
 from .site_names import load_site_names, get_site_display_name, get_site_name
+from .queries_properties import get_site_properties
 
 # Short-lived result cache: switching back to a scope/site already viewed returns instantly.
 # Data only changes when the auto import runs (every 2 h), so 10 minutes is safe.
@@ -64,6 +65,7 @@ get_ta_5g_data = _cached(get_ta_5g_data)
 get_twamp_packet_loss_data = _cached(get_twamp_packet_loss_data)
 get_ta_compare_data = _cached(get_ta_compare_data)
 get_twamp_scope_aggregation = _cached(get_twamp_scope_aggregation)
+get_site_properties = _cached(get_site_properties)
 
 app = FastAPI(title="netPulse - KPI Monitoring Dashboard", version="3.8.0")
 
@@ -231,6 +233,14 @@ def get_daily_payload_sectors(
         return data
     except Exception as e:
         return {"error": str(e), "site_id": site_id if isinstance(site_id, str) else "MRW002", "sectors": {}}
+
+@app.get("/api/daily/properties")
+def get_daily_properties(site_id: str = Query(..., description="Site ID e.g. MRW002")):
+    """4G cell properties of one site (CompilePowerRet + lte_cell_config + location)."""
+    try:
+        return get_site_properties(site_id=site_id)
+    except Exception as e:
+        return {"error": str(e), "site_id": site_id, "columns": [], "rows": []}
 
 @app.get("/api/daily/aggregation")
 def get_daily_aggregation_endpoint(

@@ -10,6 +10,91 @@
   }
 }
 
+/* ==========================================================================
+   DISPLAY PALETTES (html[data-palette]). Components use the slate scale for
+   neutrals and the blue scale for accents, so each palette remaps those two.
+   Dark palettes also get the .dark class (see constants/themes.js).
+   ========================================================================== */
+:root[data-palette="midnight"] {
+  --color-slate-100: #edf0fa;
+  --color-slate-200: #d9def2;
+  --color-slate-300: #b9c2e3;
+  --color-slate-400: #8f9bc4;
+  --color-slate-500: #5d6a98;
+  --color-slate-600: #3a4778;
+  --color-slate-700: #24305f;
+  --color-slate-800: #16204a;
+  --color-slate-900: #0d1430;
+  --color-slate-950: #070b1a;
+  --color-blue-50: #f0eeff;
+  --color-blue-100: #e2dfff;
+  --color-blue-200: #c9c3ff;
+  --color-blue-300: #c4bdff;
+  --color-blue-400: #a69cff;
+  --color-blue-500: #8577ff;
+  --color-blue-600: #6d5efc;
+  --color-blue-700: #5848e0;
+  --color-blue-800: #4335b0;
+  --color-blue-900: #2a2370;
+  --color-blue-950: #1a1548;
+}
+
+:root[data-palette="ocean"] {
+  --color-slate-50: #f2f8f9;
+  --color-slate-100: #e3eff1;
+  --color-slate-200: #cfe1e4;
+  --color-slate-300: #b0c9cd;
+  --color-blue-50: #ecfdfb;
+  --color-blue-100: #ccfbf3;
+  --color-blue-200: #99f3e6;
+  --color-blue-300: #5ee6d5;
+  --color-blue-400: #2dd0be;
+  --color-blue-500: #14b4a4;
+  --color-blue-600: #0d9488;
+  --color-blue-700: #0f766e;
+  --color-blue-800: #115e59;
+  --color-blue-900: #134e4a;
+  --color-blue-950: #042f2e;
+}
+
+:root[data-palette="crimson"] {
+  --color-slate-50: #faf7f7;
+  --color-slate-100: #f3eded;
+  --color-slate-200: #e7dcdc;
+  --color-slate-300: #d3c3c3;
+  --color-blue-50: #fef2f2;
+  --color-blue-100: #fee2e2;
+  --color-blue-200: #fecaca;
+  --color-blue-300: #fca5a5;
+  --color-blue-400: #f87171;
+  --color-blue-500: #ef4444;
+  --color-blue-600: #dc2626;
+  --color-blue-700: #b91c1c;
+  --color-blue-800: #991b1b;
+  --color-blue-900: #7f1d1d;
+  --color-blue-950: #450a0a;
+}
+
+:root[data-palette="contrast"] {
+  --color-slate-100: #ffffff;
+  --color-slate-200: #f5f5f5;
+  --color-slate-300: #ededed;
+  --color-slate-400: #d4d4d4;
+  --color-slate-500: #a3a3a3;
+  --color-slate-600: #6b6b6b;
+  --color-slate-700: #4a4a4a;
+  --color-slate-800: #141414;
+  --color-slate-900: #050505;
+  --color-slate-950: #000000;
+  --color-blue-300: #fde68a;
+  --color-blue-400: #fde047;
+  --color-blue-500: #facc15;
+  --color-blue-600: #a16207;
+  --color-blue-700: #854d0e;
+  --color-blue-900: #422006;
+  --color-blue-950: #1c1003;
+}
+
 /* Custom scrollbar for data tables and sidebars */
 ::-webkit-scrollbar {
   width: 6px;

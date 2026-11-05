@@ -1,9 +1,10 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
-import { Moon, Sun } from 'lucide-react';
 import DataLoadingOverlay from './components/DataLoadingOverlay';
 import AppSidebar from './components/layout/AppSidebar';
 import AppHeader from './components/layout/AppHeader';
 import AppFooter from './components/layout/AppFooter';
+import ThemePicker from './components/layout/ThemePicker';
+import { THEMES, readStoredTheme, storeTheme } from './constants/themes';
 import KpiMonitoringView from './views/KpiMonitoringView';
 import useReferenceData from './hooks/useReferenceData';
 import useKpiMonitoring from './hooks/useKpiMonitoring';
@@ -13,7 +14,8 @@ const TimingAdvanceView = lazy(() => import('./components/TimingAdvanceView'));
 const PacketLossView = lazy(() => import('./components/PacketLossView'));
 
 export default function App() {
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
+  const [themeId, setThemeId] = useState(readStoredTheme);
+  const darkMode = THEMES.find(t => t.id === themeId)?.dark ?? false;
   const [activeMenu, setActiveMenu] = useState('4g-hourly');
   const [chartsPerRow, setChartsPerRow] = useState(3);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -24,8 +26,9 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
-    localStorage.setItem('theme', darkMode ? 'dark' : 'light');
-  }, [darkMode]);
+    document.documentElement.dataset.palette = themeId;
+    storeTheme(themeId);
+  }, [themeId, darkMode]);
 
   // Opening a menu never queries KPI data; the user picks a site or clicks Generate
   const handleSwitchMenu = (menu) => {
@@ -59,16 +62,7 @@ export default function App() {
           setChartsPerRow={setChartsPerRow}
           darkMode={darkMode}
         >
-          <button
-            type="button"
-            onClick={() => setDarkMode(d => !d)}
-            className={`w-9 h-9 rounded-lg border transition-all duration-300 cursor-pointer flex items-center justify-center active:scale-90 ${
-              darkMode ? 'bg-slate-800 border-slate-700 text-amber-400 hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100 shadow-2xs'
-            }`}
-            title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-          >
-            {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
+          <ThemePicker themeId={themeId} onChange={setThemeId} darkMode={darkMode} />
         </AppHeader>
 
         <main className="p-4 sm:p-5 grow overflow-y-auto space-y-4">
@@ -99,6 +93,7 @@ export default function App() {
               siteNamesMap={ref.siteNamesMap}
               chartsPerRow={chartsPerRow}
               darkMode={darkMode}
+              sidebarOpen={sidebarOpen}
             />
           )}
         </main>
