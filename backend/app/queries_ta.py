@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
 from .db import get_onedb_connection, get_latest_data_date
+from .bands import lte_band
 from .site_names import get_site_display_name, get_site_name
 
 logger = logging.getLogger("timing_advance")
@@ -62,47 +63,8 @@ TA_5G_LABELS = [b["label"] for b in TA_5G_BINS]
 
 
 def derive_band_4g(ci: Optional[float], cell_name: str = "") -> str:
-    """Derives 4G LTE band from cell identifier or name suffix according to Band_LTE rule."""
-    if ci is not None:
-        try:
-            last_digit = int(float(ci)) % 10
-            if last_digit == 1:
-                return "L1800"
-            elif last_digit == 2:
-                return "L900"
-            elif last_digit == 3:
-                return "L2100"
-            elif last_digit == 4:
-                return "L2300_1"
-            elif last_digit == 5:
-                return "L2300_2"
-            elif last_digit == 6:
-                return "L2300_3"
-            elif last_digit == 7:
-                return "L700"
-            elif last_digit in (8, 9):
-                return "L2600"
-        except (ValueError, TypeError):
-            pass
-
-    cn = (cell_name or "").upper()
-    if any(k in cn for k in ("ML", "SL", "QL", "IL")):
-        return "L1800"
-    if any(k in cn for k in ("MR", "VR", "QR", "IR")):
-        return "L2100"
-    if "MT" in cn:
-        return "L900"
-    if any(k in cn for k in ("ME", "VE", "QE")):
-        return "L2300_1"
-    if any(k in cn for k in ("MF", "VF", "QF")):
-        return "L2300_2"
-    if any(k in cn for k in ("VV", "QV")):
-        return "L2300_3"
-    if any(k in cn for k in ("MD", "VD")):
-        return "L700"
-    if any(k in cn for k in ("MG", "VG")):
-        return "L2600"
-    return "L1800"
+    """LTE band for TA charts; L2600 carriers grouped (see bands.py)."""
+    return lte_band(ci, cell_name, merge_l2600=True)
 
 
 def derive_sector_and_type_4g(sec_new_type: Optional[str], ci: Optional[float], cell_name: str = "") -> tuple:

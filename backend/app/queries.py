@@ -6,57 +6,12 @@ from collections import defaultdict
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from .db import get_twodb_connection, get_latest_data_date
+from .bands import lte_band
 from .site_names import get_site_display_name, get_site_name
 
 def get_band_from_ci(ci, cell_name: str = "") -> str:
-    """
-    Standard LTE Band derivation compliant with Band_LTE and ConnectMeasHourly skills:
-    ci / cellId last digit:
-      1 -> L1800
-      2 -> L900
-      3 -> L2100
-      4 -> L2300_1
-      5 -> L2300_2
-      6 -> L2300_3
-      7 -> L700
-      8 -> L2600_1 (or L2600_3 if len > 2)
-      9 -> L2600_2 (or L2600_4 if len > 2)
-    """
-    try:
-        if ci is not None:
-            ci_int = int(ci)
-            ci_str = str(ci_int)
-            last_digit = ci_str[-1]
-            if len(ci_str) > 2 and last_digit == '8':
-                return 'L2600_3'
-            if len(ci_str) > 2 and last_digit == '9':
-                return 'L2600_4'
-            mapping = {
-                '1': 'L1800',
-                '2': 'L900',
-                '3': 'L2100',
-                '4': 'L2300_1',
-                '5': 'L2300_2',
-                '6': 'L2300_3',
-                '7': 'L700',
-                '8': 'L2600_1',
-                '9': 'L2600_2',
-            }
-            if last_digit in mapping:
-                return mapping[last_digit]
-    except Exception:
-        pass
-
-    upper = cell_name.upper()
-    if 'SL' in upper or 'ML' in upper or 'QL' in upper or 'IL' in upper: return 'L1800'
-    if 'MR' in upper or 'VR' in upper or 'QR' in upper or 'IR' in upper: return 'L2100'
-    if 'MT' in upper: return 'L900'
-    if 'ME' in upper or 'VE' in upper or 'QE' in upper or 'IE' in upper: return 'L2300_1'
-    if 'MF' in upper or 'VF' in upper or 'QF' in upper or 'IF' in upper: return 'L2300_2'
-    if 'VV' in upper or 'QV' in upper: return 'L2300_3'
-    if 'MD' in upper or 'VD' in upper: return 'L700'
-    if 'MG' in upper or 'VG' in upper: return 'L2600'
-    return 'L1800'
+    """LTE band per carrier (see bands.py)."""
+    return lte_band(ci, cell_name)
 
 def normalize_cell_key(name: str) -> str:
     n = name.strip()

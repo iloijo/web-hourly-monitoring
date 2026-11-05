@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import ReactECharts from 'echarts-for-react';
+import ReactECharts from '../lib/echarts';
 
 // Standard LTE Band color mapping strictly adhering to Band_LTE skill & Image 7 reference
 export const BAND_COLORS = {

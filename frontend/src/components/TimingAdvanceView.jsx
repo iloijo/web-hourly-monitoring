@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import ReactECharts from 'echarts-for-react';
+import ReactECharts from '../lib/echarts';
 import { 
   Calendar, 
   Search, 

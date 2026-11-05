@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from .db import get_onedb_connection, get_latest_data_date
 from .queries import get_band_from_ci, normalize_cell_key, get_clean_carrier_label
+from .bands import lte_band_sql
 from .site_names import get_site_display_name, get_site_name
 
 # =============================================================================
@@ -1265,28 +1266,8 @@ def get_site_payload_daily_data(
         "latest_db_date": max_known_db_date.strftime("%Y-%m-%d")
     }
 
-def _band_case_sql(alias: str) -> str:
-    """
-    Band_LTE rule (skill band-lte): last digit of cellId. Unmatched -> 'OTHER' (skipped).
-    L2600 carriers (_1.._4, digits 8/9) are merged into one 'L2600' curve to match the 4G band filter.
-    """
-    c = f'{alias}."cellId"::bigint::text'
-    return f"""
-    CASE
-        WHEN RIGHT({c}, 1) IN ('8', '9') THEN 'L2600'
-        WHEN RIGHT({c}, 1) = '1' THEN 'L1800'
-        WHEN RIGHT({c}, 1) = '2' THEN 'L900'
-        WHEN RIGHT({c}, 1) = '3' THEN 'L2100'
-        WHEN RIGHT({c}, 1) = '4' THEN 'L2300_1'
-        WHEN RIGHT({c}, 1) = '5' THEN 'L2300_2'
-        WHEN RIGHT({c}, 1) = '6' THEN 'L2300_3'
-        WHEN RIGHT({c}, 1) = '7' THEN 'L700'
-        ELSE 'OTHER'
-    END
-"""
-
-BAND_CASE_SQL = _band_case_sql("d")
-BAND_CASE_BDBH_SQL = _band_case_sql("b")
+BAND_CASE_SQL = lte_band_sql("d")
+BAND_CASE_BDBH_SQL = lte_band_sql("b")
 
 def get_scope_aggregation_data(
     scope: str = "regional",
