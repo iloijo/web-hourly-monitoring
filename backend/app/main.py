@@ -20,8 +20,8 @@ from .queries_daily import (
 )
 from .queries_5g import get_5g_sites, get_site_payload_5g_data, get_scope_aggregation_5g_data, KPIS_5G_CONFIG
 from .queries_2g import get_2g_sites, get_site_payload_2g_data, get_scope_aggregation_2g_data, KPIS_2G_CONFIG
-from .queries_ta import get_ta_4g_data, get_ta_5g_data
-from .queries_twamp import get_twamp_packet_loss_data
+from .queries_ta import get_ta_4g_data, get_ta_5g_data, get_ta_compare_data
+from .queries_twamp import get_twamp_packet_loss_data, get_twamp_scope_aggregation
 from .site_names import load_site_names, get_site_display_name, get_site_name
 
 # Short-lived result cache: switching back to a scope/site already viewed returns instantly.
@@ -62,6 +62,8 @@ get_scope_aggregation_2g_data = _cached(get_scope_aggregation_2g_data)
 get_ta_4g_data = _cached(get_ta_4g_data)
 get_ta_5g_data = _cached(get_ta_5g_data)
 get_twamp_packet_loss_data = _cached(get_twamp_packet_loss_data)
+get_ta_compare_data = _cached(get_ta_compare_data)
+get_twamp_scope_aggregation = _cached(get_twamp_scope_aggregation)
 
 app = FastAPI(title="netPulse - KPI Monitoring Dashboard", version="3.8.0")
 
@@ -525,6 +527,54 @@ def get_packet_loss_4g_endpoint(
         site_id=site_id,
         start_date=start_date,
         end_date=end_date
+    )
+
+
+
+@app.get("/api/timing_advance/compare")
+def get_ta_compare_endpoint(
+    tech: str = Query("4g"),
+    site_id: str = Query("BUO028"),
+    before_start: Optional[str] = Query(None),
+    before_end: Optional[str] = Query(None),
+    after_start: Optional[str] = Query(None),
+    after_end: Optional[str] = Query(None),
+    sector: Optional[str] = Query(None),
+    band: Optional[str] = Query(None),
+    cell_type: Optional[str] = Query("all")
+):
+    """Compares Timing Advance between Before and After date ranges."""
+    return get_ta_compare_data(
+        tech=tech,
+        site_id=site_id,
+        before_start=before_start,
+        before_end=before_end,
+        after_start=after_start,
+        after_end=after_end,
+        sector_filter=sector,
+        band_filter=band,
+        cell_type=cell_type
+    )
+
+@app.get("/api/packet_loss/aggregation")
+def get_packet_loss_aggregation_endpoint(
+    scope: str = Query("regional"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    nops: Optional[List[str]] = Query(None),
+    cities: Optional[List[str]] = Query(None),
+    kecamatans: Optional[List[str]] = Query(None),
+    sites: Optional[List[str]] = Query(None)
+):
+    """Returns TWAMP packet loss aggregated across Regional, NOP, City, Kecamatan, Site scopes."""
+    return get_twamp_scope_aggregation(
+        scope=scope,
+        start_date=start_date,
+        end_date=end_date,
+        nops=nops,
+        cities=cities,
+        kecamatans=kecamatans,
+        sites=sites
     )
 
 # Static file serving for React frontend production build

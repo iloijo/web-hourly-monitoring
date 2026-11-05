@@ -13,6 +13,7 @@ import {
   CheckCircle2, 
   Activity, 
   Radio, 
+  RadioTower, 
   BarChart3, 
   Sliders, 
   ChevronLeft, 
@@ -1057,7 +1058,7 @@ export default function App() {
         {/* Navigation Menus */}
         <div className="p-3 space-y-1 grow overflow-y-auto">
           <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Main Navigation
+            Main KPI
           </div>
 
           {/* Group: KPI Monitoring (Gambar 3) */}
@@ -1070,7 +1071,7 @@ export default function App() {
               }`}
             >
               <div className="flex items-center gap-2.5">
-                <Activity className="w-4 h-4 text-blue-500" />
+                <RadioTower className="w-4 h-4 text-blue-500" />
                 <span>KPI Monitoring</span>
               </div>
               <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${kpiMonitoringOpen ? 'rotate-180' : ''}`} />
@@ -1204,8 +1205,13 @@ export default function App() {
             )}
           </div>
 
-          {/* Menu Group 1: Timing Advance (User Request) */}
-          <div className="space-y-1 pt-1.5 border-t border-slate-100 dark:border-slate-800">
+          {/* Section: Others */}
+          <div className="pt-3 pb-1 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Others
+          </div>
+
+          {/* Menu Group 1: Timing Advance */}
+          <div className="space-y-1">
             <button
               type="button"
               onClick={() => setTaGroupOpen(!taGroupOpen)}
@@ -1224,7 +1230,7 @@ export default function App() {
               <div className={`mt-1 ml-2.5 pl-2.5 border-l space-y-1 ${
                 darkMode ? 'border-slate-800' : 'border-slate-200'
               }`}>
-                {/* 1. Timing Advance 4G */}
+                {/* 1. Timing Advance 4G (Identical Clock icon) */}
                 <button 
                   type="button"
                   onClick={() => handleSwitchMenu("ta-4g")}
@@ -1247,7 +1253,7 @@ export default function App() {
                   )}
                 </button>
 
-                {/* 2. Timing Advance 5G */}
+                {/* 2. Timing Advance 5G (Cyan BarChart3 icon - Gambar 2) */}
                 <button 
                   type="button"
                   onClick={() => handleSwitchMenu("ta-5g")}
@@ -1260,7 +1266,7 @@ export default function App() {
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <Wifi className={`w-3.5 h-3.5 ${activeMenu === "ta-5g" ? 'text-white' : 'text-cyan-500'}`} />
+                    <BarChart3 className={`w-3.5 h-3.5 ${activeMenu === "ta-5g" ? 'text-white' : 'text-cyan-500'}`} />
                     <span>Timing Advance 5G</span>
                   </div>
                   {activeMenu === "ta-5g" ? (
@@ -1273,25 +1279,25 @@ export default function App() {
             )}
           </div>
 
-          {/* Menu Group 2: Packet Loss (User Request) */}
-          <div className="space-y-1 pt-1.5 border-t border-slate-100 dark:border-slate-800">
+          {/* Menu Group 2: Packet Loss (Tosca Activity icon - Gambar 2) */}
+          <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-slate-800">
             <button 
               type="button"
               onClick={() => handleSwitchMenu("packet-loss")}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-bold text-xs transition cursor-pointer ${
                 activeMenu === "packet-loss"
-                  ? 'bg-rose-600 text-white shadow-xs'
+                  ? 'bg-teal-600 text-white shadow-xs'
                   : darkMode 
                     ? 'text-slate-300 hover:text-white hover:bg-slate-800/80' 
                     : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
               <div className="flex items-center gap-2.5">
-                <ShieldAlert className={`w-4 h-4 ${activeMenu === "packet-loss" ? 'text-white' : 'text-rose-500'}`} />
+                <Activity className={`w-4 h-4 ${activeMenu === "packet-loss" ? 'text-white' : 'text-teal-500 dark:text-teal-400'}`} />
                 <span>Packet Loss</span>
               </div>
               {activeMenu === "packet-loss" ? (
-                <span className="w-2 h-2 rounded-full bg-rose-300 animate-pulse"></span>
+                <span className="w-2 h-2 rounded-full bg-teal-300 animate-pulse"></span>
               ) : (
                 <span className="text-[10px] opacity-60">OneDb</span>
               )}
@@ -1537,6 +1543,7 @@ export default function App() {
               darkMode={darkMode} 
               allSites={allSites} 
               siteNamesMap={siteNamesMap} 
+              hierarchyData={hierarchyData}
             />
           )}
 

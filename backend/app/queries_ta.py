@@ -504,3 +504,93 @@ def get_ta_5g_data(
         "data_by_sector": data_by_sector,
         "table_rows": table_rows
     }
+
+
+def get_ta_compare_data(
+    tech: str = "4g",
+    site_id: str = "BUO028",
+    before_start: Optional[str] = None,
+    before_end: Optional[str] = None,
+    after_start: Optional[str] = None,
+    after_end: Optional[str] = None,
+    sector_filter: Optional[str] = None,
+    band_filter: Optional[str] = None,
+    cell_type: Optional[str] = "all"
+) -> Dict[str, Any]:
+    """
+    Compares Timing Advance distribution and cumulative % between Before and After date ranges.
+    Calculates deltas per bin, total sample change, and % within 1km comparison.
+    """
+    fn = get_ta_4g_data if str(tech).lower() == "4g" else get_ta_5g_data
+    before = fn(site_id, before_start, before_end, sector_filter, band_filter, cell_type)
+    after = fn(site_id, after_start, after_end, sector_filter, band_filter, cell_type)
+
+    if before.get("status") == "error":
+        return before
+    if after.get("status") == "error":
+        return after
+
+    all_sectors = sorted(list(set(before.get("sectors", []) + after.get("sectors", []))), key=lambda x: int(x) if x.isdigit() else 999)
+    all_bands = sorted(list(set(before.get("bands", []) + after.get("bands", []))))
+    bins = before.get("bins", [])
+
+    data_by_sector = {}
+    for sec in all_sectors:
+        sec_dict = {}
+        b_sec = before.get("data_by_sector", {}).get(sec, {})
+        a_sec = after.get("data_by_sector", {}).get(sec, {})
+        sec_bands = sorted(list(set(list(b_sec.keys()) + list(a_sec.keys()))))
+        for band in sec_bands:
+            b_counts = b_sec.get(band, {}).get("counts", [0.0] * len(bins))
+            a_counts = a_sec.get(band, {}).get("counts", [0.0] * len(bins))
+            b_cum = b_sec.get(band, {}).get("cumulative", [0.0] * len(bins))
+            a_cum = a_sec.get(band, {}).get("cumulative", [0.0] * len(bins))
+            b_tot = b_sec.get(band, {}).get("total", 0.0)
+            a_tot = a_sec.get(band, {}).get("total", 0.0)
+
+            delta_counts = [round(a - b, 0) for a, b in zip(a_counts, b_counts)]
+            delta_cum = [round(a - b, 2) for a, b in zip(a_cum, b_cum)]
+
+            k1_idx = 7 if len(bins) >= 7 else len(bins)
+            pct_1k_before = b_cum[k1_idx - 1] if len(b_cum) >= k1_idx else 0.0
+            pct_1k_after = a_cum[k1_idx - 1] if len(a_cum) >= k1_idx else 0.0
+
+            sec_dict[band] = {
+                "before_counts": b_counts,
+                "after_counts": a_counts,
+                "delta_counts": delta_counts,
+                "before_cumulative": b_cum,
+                "after_cumulative": a_cum,
+                "delta_cumulative": delta_cum,
+                "before_total": b_tot,
+                "after_total": a_tot,
+                "delta_total": round(a_tot - b_tot, 0),
+                "pct_1k_before": pct_1k_before,
+                "pct_1k_after": pct_1k_after,
+                "delta_1k": round(pct_1k_after - pct_1k_before, 2)
+            }
+        data_by_sector[sec] = sec_dict
+
+    table_rows = []
+    for r in before.get("table_rows", []):
+        r_copy = dict(r)
+        r_copy["period"] = "Before"
+        table_rows.append(r_copy)
+    for r in after.get("table_rows", []):
+        r_copy = dict(r)
+        r_copy["period"] = "After"
+        table_rows.append(r_copy)
+
+    return {
+        "status": "success",
+        "site_id": site_id.strip().upper(),
+        "site_name": before.get("site_name", site_id),
+        "tech": tech,
+        "before_range": { "start": before.get("start_date"), "end": before.get("end_date") },
+        "after_range": { "start": after.get("start_date"), "end": after.get("end_date") },
+        "sectors": all_sectors,
+        "bands": all_bands,
+        "bins": bins,
+        "data_by_sector": data_by_sector,
+        "table_rows": table_rows
+    }
