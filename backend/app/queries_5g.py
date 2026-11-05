@@ -42,7 +42,7 @@ KPIS_5G_CONFIG = {
 
     # 2. Throughput & Speed
     "user_dl_thp": {
-        "title": "User DL Thp (Mbps)",
+        "title": "User DL Thp (Mbps) [BDBH]",
         "unit": "Mbps",
         "category": "Throughput & Speed",
         "has_tot": False,
@@ -51,7 +51,7 @@ KPIS_5G_CONFIG = {
         "max_y": None
     },
     "user_ul_thp": {
-        "title": "User UL Thp (Mbps)",
+        "title": "User UL Thp (Mbps) [BDBH]",
         "unit": "Mbps",
         "category": "Throughput & Speed",
         "has_tot": False,
@@ -60,7 +60,7 @@ KPIS_5G_CONFIG = {
         "max_y": None
     },
     "cell_dl_thp": {
-        "title": "Cell DL Thp (Mbps)",
+        "title": "Cell DL Thp (Mbps) [BDBH]",
         "unit": "Mbps",
         "category": "Throughput & Speed",
         "has_tot": False,
@@ -69,7 +69,7 @@ KPIS_5G_CONFIG = {
         "max_y": None
     },
     "cell_ul_thp": {
-        "title": "Cell UL Thp (Mbps)",
+        "title": "Cell UL Thp (Mbps) [BDBH]",
         "unit": "Mbps",
         "category": "Throughput & Speed",
         "has_tot": False,
@@ -78,7 +78,7 @@ KPIS_5G_CONFIG = {
         "max_y": None
     },
     "spectrum_efficiency": {
-        "title": "Spectrum Efficiency (bps/Hz)",
+        "title": "Spectrum Efficiency (bps/Hz) [BDBH]",
         "unit": "bps/Hz",
         "category": "Throughput & Speed",
         "has_tot": False,
@@ -149,7 +149,7 @@ KPIS_5G_CONFIG = {
 
     # 6. Capacity & Utilization
     "dl_prb": {
-        "title": "DL PRB Utilization (%)",
+        "title": "DL PRB Utilization (%) [BDBH]",
         "unit": "%",
         "category": "Capacity & Utilization",
         "has_tot": False,
@@ -158,7 +158,7 @@ KPIS_5G_CONFIG = {
         "max_y": 100
     },
     "ul_prb": {
-        "title": "UL PRB Utilization (%)",
+        "title": "UL PRB Utilization (%) [BDBH]",
         "unit": "%",
         "category": "Capacity & Utilization",
         "has_tot": False,
@@ -254,6 +254,57 @@ KPIS_5G_CONFIG = {
 }
 
 CACHED_5G_SITES: Optional[List[str]] = None
+
+# =============================================================================
+# 5G BDBH (measBdbh5g): one busy-hour row per cell per day. PRB, User/Cell Thp
+# and Spectrum Efficiency charts read these values instead of the daily ones.
+# =============================================================================
+BDBH_5G_KPIS = ("dl_prb", "ul_prb", "user_dl_thp", "user_ul_thp", "cell_dl_thp", "cell_ul_thp", "spectrum_efficiency")
+
+
+def _bdbh_5g_rows_sql(extra_where: str = "") -> str:
+    """
+    measBdbh5g limited to [%s, %s], one row per cell per day. A few cells report
+    several tied busy hours; the one with the highest DL PRB is kept.
+    """
+    return f"""
+        SELECT DISTINCT ON ("NRPhysicalCellDU Name", "Begin Time"::date) *
+        FROM "measBdbh5g"
+        WHERE "Begin Time" >= %s AND "Begin Time" <= %s {extra_where}
+        ORDER BY "NRPhysicalCellDU Name", "Begin Time"::date,
+                 "PRB_Utilization_DL(%%)_LW_Num" / NULLIF("PRB_Utilization_DL(%%)_LW_Denum", 0) DESC NULLS LAST
+    """
+
+
+def _fetch_bdbh_5g_by_cell(cur, start_str: str, end_str: str, site_like: str) -> Dict[tuple, Dict[str, float]]:
+    """{(cell_name, 'YYYY-MM-DD'): {kpi_id: value}} for one site."""
+    cur.execute(f"""
+        SELECT
+            b."NRPhysicalCellDU Name" AS cell_name,
+            b."Begin Time"::date AS dt,
+            ROUND((b."PRB_Utilization_DL(%%)_LW_Num" / NULLIF(b."PRB_Utilization_DL(%%)_LW_Denum", 0) * 100)::numeric, 2) AS dl_prb,
+            ROUND((b."PRB_Utilization_UL(%%)_LW_Num" / NULLIF(b."PRB_Utilization_UL(%%)_LW_Denum", 0) * 100)::numeric, 2) AS ul_prb,
+            ROUND(b."User_Throughput_DL(Mbps)_LW"::numeric, 2) AS user_dl_thp,
+            ROUND(b."User_Throughput_UL(Mbps)_LW"::numeric, 2) AS user_ul_thp,
+            ROUND(b."Cell_Throughput_DL(Mbps)_KML"::numeric, 2) AS cell_dl_thp,
+            ROUND(b."Cell_Throughput_UL(Mbps)_KML"::numeric, 2) AS cell_ul_thp,
+            ROUND((b."Num_Spectrum_Eff-xhj" / NULLIF(b."Denum_Spectrum_Eff-xhj", 0))::numeric, 2) AS spectrum_efficiency
+        FROM ({_bdbh_5g_rows_sql('AND "NRPhysicalCellDU Name" LIKE %s')}) b
+    """, (start_str, end_str, site_like))
+    cols = [d[0] for d in cur.description]
+    out = {}
+    for r in cur.fetchall():
+        row = dict(zip(cols, r))
+        out[(row["cell_name"], row["dt"].strftime("%Y-%m-%d"))] = {k: row[k] for k in BDBH_5G_KPIS}
+    return out
+
+
+def _apply_bdbh_5g(row: Dict[str, Any], bdbh_by_cell: Dict[tuple, Dict[str, float]]) -> None:
+    """Replace the BDBH KPIs of a measDy5g row with that cell/day's busy-hour values (None if missing)."""
+    vals = bdbh_by_cell.get((row["cell_name"], row["begin_time"].strftime("%Y-%m-%d")), {})
+    for k in BDBH_5G_KPIS:
+        row[k] = vals.get(k)
+
 
 def get_5g_sites() -> List[str]:
     """Returns all unique 5G site IDs from ref_cell_5g in OneDb."""
@@ -443,6 +494,7 @@ def get_site_payload_5g_data(
 
     meas_rows = cur.fetchall()
     col_names = [d[0] for d in cur.description]
+    bdbh_by_cell = _fetch_bdbh_5g_by_cell(cur, start_str, end_str, f"%{site_clean}%")
     cur.close()
     conn.close()
 
@@ -460,6 +512,7 @@ def get_site_payload_5g_data(
 
     for r_tuple in meas_rows:
         row = dict(zip(col_names, r_tuple))
+        _apply_bdbh_5g(row, bdbh_by_cell)
         cname = row['cell_name']
         if cname not in cell_meta_cache:
             cell_meta_cache[cname] = parse_5g_cell(cname, cell_id=row.get('cell_id'))
@@ -508,6 +561,7 @@ def get_site_payload_5g_data(
     if not found_sectors and meas_rows:
         for r_tuple in meas_rows:
             row = dict(zip(col_names, r_tuple))
+            _apply_bdbh_5g(row, bdbh_by_cell)
             cname = row['cell_name']
             if cname not in cell_meta_cache:
                 cell_meta_cache[cname] = parse_5g_cell(cname, cell_id=row.get('cell_id'))
@@ -778,6 +832,28 @@ def get_scope_aggregation_5g_data(
     cur.execute(sql, tuple(params))
     rows = cur.fetchall()
     col_names = [d[0] for d in cur.description]
+
+    bdbh_sql = f"""
+        SELECT
+            m."Begin Time"::date as dt,
+            {series_key_sql} as series_key,
+            ROUND((SUM(m."PRB_Utilization_DL(%%)_LW_Num") / NULLIF(SUM(m."PRB_Utilization_DL(%%)_LW_Denum"), 0) * 100)::numeric, 2) as dl_prb,
+            ROUND((SUM(m."PRB_Utilization_UL(%%)_LW_Num") / NULLIF(SUM(m."PRB_Utilization_UL(%%)_LW_Denum"), 0) * 100)::numeric, 2) as ul_prb,
+            ROUND(AVG(m."User_Throughput_DL(Mbps)_LW")::numeric, 2) as user_dl_thp,
+            ROUND(AVG(m."User_Throughput_UL(Mbps)_LW")::numeric, 2) as user_ul_thp,
+            ROUND(AVG(m."Cell_Throughput_DL(Mbps)_KML")::numeric, 2) as cell_dl_thp,
+            ROUND(AVG(m."Cell_Throughput_UL(Mbps)_KML")::numeric, 2) as cell_ul_thp,
+            ROUND((SUM(m."Num_Spectrum_Eff-xhj") / NULLIF(SUM(m."Denum_Spectrum_Eff-xhj"), 0))::numeric, 2) as spectrum_efficiency
+        FROM ({_bdbh_5g_rows_sql()}) m
+        {join_sql}
+        WHERE TRUE
+        {where_entity}
+        {where_band}
+        GROUP BY dt, series_key
+    """
+    cur.execute(bdbh_sql, tuple(params))
+    bdbh_rows = cur.fetchall()
+    bdbh_cols = [d[0] for d in cur.description]
     cur.close()
     conn.close()
 
@@ -790,12 +866,22 @@ def get_scope_aggregation_5g_data(
         series_k = str(row['series_key']).strip() if row.get('series_key') is not None else "Other"
 
         for k_id in KPIS_5G_CONFIG.keys():
+            if k_id in BDBH_5G_KPIS:
+                continue
             val = row.get(k_id)
             if val is not None:
                 try:
                     data_map[k_id][series_k][d_str] = float(val)
                 except (ValueError, TypeError):
                     pass
+
+    for r_tuple in bdbh_rows:
+        row = dict(zip(bdbh_cols, r_tuple))
+        d_str = row['dt'].strftime("%Y-%m-%d")
+        series_k = str(row['series_key']).strip() if row.get('series_key') is not None else "Other"
+        for k_id in BDBH_5G_KPIS:
+            if row.get(k_id) is not None:
+                data_map[k_id][series_k][d_str] = float(row[k_id])
 
     # Construct result kpis dictionary
     result_kpis = {}
@@ -844,5 +930,5 @@ def get_scope_aggregation_5g_data(
         "carriers": carrier_keys,
         "kpis": result_kpis,
         "execution_time_sec": round(t1 - t0, 3),
-        "source": "OneDb Live (measDy5g)"
+        "source": "OneDb Live (measDy5g & measBdbh5g)"
     }
