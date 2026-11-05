@@ -18,23 +18,26 @@ export default function WorstCellView({ hierarchyData, darkMode, onOpenSite, onE
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const requestId = useRef(0);
+  const autoLoaded = useRef(false);
 
-  // Default: the latest day of the chosen technology (1 day, like the WPC report)
-  useEffect(() => {
-    loadLatestDates().then(d => {
-      const day = d[TECH_MENU[filters.tech]];
-      setDates({ start: day, end: day });
-    });
-  }, [filters.tech]);
-
-  const load = (f = filters) => {
+  const load = (f = filters, ds = dates) => {
     const id = ++requestId.current;
     setLoading(true);
-    getJson('/api/worstcell', { tech: f.tech, start_date: dates.start, end_date: dates.end, top_n: topN, ...scopeParams(f) })
+    getJson('/api/worstcell', { tech: f.tech, start_date: ds.start, end_date: ds.end, top_n: topN, ...scopeParams(f) })
       .then(json => { if (id === requestId.current) setResult({ ...json, filters: f }); })
       .catch(err => { if (id === requestId.current) setResult({ error: String(err) }); })
       .finally(() => { if (id === requestId.current) setLoading(false); });
   };
+
+  // Default: the latest day of the chosen technology (1 day, like the WPC report).
+  // Opening the menu queries once right away with the defaults (4G, Regional).
+  useEffect(() => {
+    loadLatestDates().then(d => {
+      const day = d[TECH_MENU[filters.tech]];
+      setDates({ start: day, end: day });
+      if (!autoLoaded.current) { autoLoaded.current = true; load(filters, { start: day, end: day }); }
+    });
+  }, [filters.tech]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Excel export of what is on screen: one sheet per KPI
   useEffect(() => {
@@ -63,7 +66,7 @@ export default function WorstCellView({ hierarchyData, darkMode, onOpenSite, onE
         setFilters={setFilters}
         hierarchyData={hierarchyData}
         onGenerate={() => load()}
-        onAutoQuery={load}
+        onAutoQuery={(f) => load(f)}
         loading={loading}
         darkMode={darkMode}
       >

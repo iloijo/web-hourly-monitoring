@@ -24,21 +24,27 @@ export default function ZtzpView({ hierarchyData, darkMode, onOpenSite, onExport
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const requestId = useRef(0);
+  const autoLoaded = useRef(false);
 
-  useEffect(() => {
-    loadLatestDates().then(d => setDate(d[TECH_MENU[filters.tech]]));
-  }, [filters.tech]);
+  const params = (f, cat, limit, d = date) => ({ tech: f.tech, date: d, category: cat || undefined, limit, ...scopeParams(f) });
 
-  const params = (f, cat, limit) => ({ tech: f.tech, date, category: cat || undefined, limit, ...scopeParams(f) });
-
-  const load = (f = filters, cat = category) => {
+  const load = (f = filters, cat = category, d = date) => {
     const id = ++requestId.current;
     setLoading(true);
-    getJson('/api/ztzp', params(f, cat, PAGE))
+    getJson('/api/ztzp', params(f, cat, PAGE, d))
       .then(json => { if (id === requestId.current) setResult({ ...json, filters: f }); })
       .catch(err => { if (id === requestId.current) setResult({ error: String(err) }); })
       .finally(() => { if (id === requestId.current) setLoading(false); });
   };
+
+  // Opening the menu queries once right away with the defaults (4G, Regional, latest date)
+  useEffect(() => {
+    loadLatestDates().then(d => {
+      const day = d[TECH_MENU[filters.tech]];
+      setDate(day);
+      if (!autoLoaded.current) { autoLoaded.current = true; load(filters, category, day); }
+    });
+  }, [filters.tech]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pickCategory = (cat) => {
     const next = cat === category ? null : cat;
