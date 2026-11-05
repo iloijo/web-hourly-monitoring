@@ -646,6 +646,12 @@ if DIST_DIR.exists() and (DIST_DIR / "index.html").exists():
 
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
+        # Unknown API paths get a clear 404 instead of the app's HTML (e.g. a server older than the frontend)
+        if full_path.startswith("api/"):
+            return Response(
+                content='{"error": "Endpoint tidak ada di server ini. Restart start_dashboard.bat."}',
+                status_code=404, media_type="application/json",
+            )
         file_path = DIST_DIR / full_path
         if file_path.exists() and file_path.is_file():
             return FileResponse(file_path)
