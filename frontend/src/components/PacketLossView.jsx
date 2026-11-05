@@ -358,15 +358,11 @@ export default function PacketLossView({
     }
   };
 
-  // Initial load
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  // Handlers for instant updates
+  // No query on open or scope change: NOP / City / Kecamatan filters load right away,
+  // site scope loads on site pick or Generate
   const handleScopeChange = (newScope) => {
     setScope(newScope);
-    fetchData({ scope: newScope });
+    setData(null);
   };
 
   const handleNopsChange = (newList) => {
@@ -393,7 +389,7 @@ export default function PacketLossView({
 
   const handleSiteModeChange = (newMode) => {
     setSiteMode(newMode);
-    fetchData({ siteMode: newMode });
+    setData(null);
   };
 
   const handleSelectSingleSite = (s) => {
@@ -404,7 +400,6 @@ export default function PacketLossView({
 
   const handleCompareSitesChange = (newList) => {
     setSelectedSites(newList);
-    fetchData({ selectedSites: newList });
   };
 
   // =========================================================================

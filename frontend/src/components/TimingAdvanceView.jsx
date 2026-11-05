@@ -16,6 +16,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { BAND_COLORS } from './SectorPayloadChart';
+import { loadLatestDates, shiftDate } from '../constants/dates';
 
 export default function TimingAdvanceView({
   tech = '4g', // '4g' or '5g'
@@ -99,42 +100,29 @@ export default function TimingAdvanceView({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Fetch initial latest dates on mount
+  // Default dates from the latest TA data: standard = last 7 days,
+  // compare = latest day (after) vs the same weekday one week earlier (before)
   useEffect(() => {
-    fetch('/api/latest_dates')
-      .then(res => res.json())
-      .then(dates => {
-        const key = is5G ? 'ta_5g' : 'ta_4g';
-        if (dates && dates[key]) {
-          const lDate = dates[key];
-          setToDate(lDate);
-          setAfterEnd(lDate);
-
-          const dStart = new Date(lDate);
-          dStart.setDate(dStart.getDate() - 6);
-          setFromDate(dStart.toISOString().split('T')[0]);
-          setAfterStart(dStart.toISOString().split('T')[0]);
-
-          const bEnd = new Date(dStart);
-          bEnd.setDate(bEnd.getDate() - 1);
-          setBeforeEnd(bEnd.toISOString().split('T')[0]);
-
-          const bStart = new Date(bEnd);
-          bStart.setDate(bStart.getDate() - 6);
-          setBeforeStart(bStart.toISOString().split('T')[0]);
-        }
-      })
-      .catch(() => {});
+    loadLatestDates().then(dates => {
+      const latest = dates[is5G ? 'ta-5g' : 'ta-4g'];
+      const weekBefore = shiftDate(latest, -7);
+      setToDate(latest);
+      setFromDate(shiftDate(latest, -6));
+      setAfterStart(latest);
+      setAfterEnd(latest);
+      setBeforeStart(weekBefore);
+      setBeforeEnd(weekBefore);
+    });
   }, [is5G]);
 
   // Fetch standard data
-  const fetchStandardData = async () => {
+  const fetchStandardData = async (site = selectedSite) => {
     setLoading(true);
     setErrorMsg(null);
     try {
       const endpoint = is5G ? '/api/timing_advance/5g' : '/api/timing_advance/4g';
       const params = new URLSearchParams({
-        site_id: selectedSite,
+        site_id: site,
         start_date: fromDate,
         end_date: toDate,
         sector: sectorFilter,
@@ -156,13 +144,13 @@ export default function TimingAdvanceView({
   };
 
   // Fetch compare data
-  const fetchCompareData = async () => {
+  const fetchCompareData = async (site = selectedSite) => {
     setLoading(true);
     setErrorMsg(null);
     try {
       const params = new URLSearchParams({
         tech: tech,
-        site_id: selectedSite,
+        site_id: site,
         before_start: beforeStart,
         before_end: beforeEnd,
         after_start: afterStart,
@@ -185,18 +173,14 @@ export default function TimingAdvanceView({
     }
   };
 
-  // Fetch whenever trigger changes
-  const fetchData = () => {
+  // Loads only on Generate or when a site is picked; other filter changes wait for Generate
+  const fetchData = (site = selectedSite) => {
     if (compareMode) {
-      fetchCompareData();
+      fetchCompareData(site);
     } else {
-      fetchStandardData();
+      fetchStandardData(site);
     }
   };
-
-  useEffect(() => {
-    fetchData();
-  }, [tech, selectedSite, compareMode, sectorFilter, bandFilter, filterType]);
 
   // Filtered sites for dropdown
   const filteredSites = useMemo(() => {
@@ -659,6 +643,7 @@ export default function TimingAdvanceView({
                         onClick={() => {
                           setSelectedSite(s);
                           setSiteDropdownOpen(false);
+                          fetchData(s);
                         }}
                         className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition cursor-pointer ${
                           selectedSite === s 
@@ -685,7 +670,7 @@ export default function TimingAdvanceView({
             {/* GENERATE BUTTON */}
             <button
               type="button"
-              onClick={fetchData}
+              onClick={() => fetchData()}
               disabled={loading}
               className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
             >
