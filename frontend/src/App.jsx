@@ -1299,7 +1299,8 @@ export default function App() {
               />
             </div>
 
-            {/* Top Hourly / Daily Switcher Toggle (matching user request) */}
+            {/* Top Hourly / Daily Switcher Toggle (4G only; 2G and 5G are daily-only) */}
+            {activeMenu.startsWith('4g') && (
             <div className={`flex items-center p-0.5 rounded-lg border ${
               darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'
             }`}>
@@ -1326,6 +1327,7 @@ export default function App() {
                 Daily
               </button>
             </div>
+            )}
 
             {/* Get Data Button */}
             <button
