@@ -203,6 +203,15 @@ export default function useKpiMonitoring(activeMenu, ref) {
     clearData();
   };
 
+  // Opened from Worst Cell / ZTZP: show that site's sector charts in the given KPI menu
+  const openSiteInMenu = (menu, site) => {
+    prepareMenu(menu);
+    setAggregationScope('sector');
+    setSiteId(site);
+    const dates = getInitialDateRange(menu === '4g-hourly' ? 'hourly' : 'daily', menu);
+    fetchSectorData(site, dates.start, dates.end, menu);
+  };
+
   // NOP / City / Kecamatan filters query immediately (auto-query scopes)
   const handleNopsChange = (newList) => {
     setSelectedNops(newList);
@@ -382,7 +391,7 @@ export default function useKpiMonitoring(activeMenu, ref) {
     availableSectors, nopOptions, cityOptions, kecCityOptions, kecOptions,
     currentSiteMeta, resolvedNeName,
     // handlers
-    prepareMenu, handleGetData, handleSelectSectorSite, handleSelectScope, handleSwitchAggregationMode,
+    prepareMenu, openSiteInMenu, handleGetData, handleSelectSectorSite, handleSelectScope, handleSwitchAggregationMode,
     handleNopsChange, handleCityNopsChange, handleCitiesChange, handleKecNopChange, handleKecKabChange,
     handleKecamatansChange, handleToggleBand, handleToggleAllBands,
     handleToggleKpi, handleSelectAllKpis, handleDeselectAllKpis, handleToggleCategory, handleSelectDefaultKpis,

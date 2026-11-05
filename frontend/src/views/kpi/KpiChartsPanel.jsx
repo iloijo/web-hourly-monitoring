@@ -17,7 +17,7 @@ const gridClass = (perRow) =>
 const plural = (list, many, one) => (list.length > 1 ? `${list.length} ${many}` : one);
 
 // Chart container for the KPI monitoring menus (sector, sectoral and higher-scope charts)
-export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPerRow, darkMode, markers = [] }) {
+export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPerRow, darkMode, markers = [], headerExtra = null }) {
   const scope = km.aggregationScope;
   const ScopeIcon = SCOPE_ICON[scope] || Radio;
   const sectorData = km.data;
@@ -82,6 +82,7 @@ export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPer
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {headerExtra}
           <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${darkMode ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
             {scope === 'sector'
               ? (km.sectorViewMode === 'sectoral' ? 'Sectoral View' : `Sector ${km.selectedSector}`)

@@ -108,7 +108,8 @@ export default function SectorPayloadChart({
   minY = null,
   maxY = null,
   darkMode = false,
-  chartsPerRow = 3
+  chartsPerRow = 3,
+  markers = []  // [{ date: 'YYYY-MM-DD', label }] activity markers drawn as vertical lines
 }) {
   const echartsRef = useRef(null);
 
@@ -217,6 +218,31 @@ export default function SectorPayloadChart({
         color: '#f43f5e'
       },
       data: dynamicTotal
+    });
+  }
+
+  // 3. Activity markers: dashed vertical line at the first timestamp of each marker date
+  const markerLines = (markers || [])
+    .map(m => {
+      const x = (timestamps || []).find(t => String(t).startsWith(m.date));
+      return x ? { xAxis: x, label: { formatter: m.label || m.date } } : null;
+    })
+    .filter(Boolean);
+  if (markerLines.length > 0) {
+    series.push({
+      id: 'activity_markers',
+      name: '__markers',
+      type: 'line',
+      data: [],
+      silent: true,
+      markLine: {
+        symbol: ['none', 'none'],
+        silent: true,
+        animation: false,
+        lineStyle: { type: 'dashed', color: '#e11d48', width: 1.5 },
+        label: { position: 'insideEndTop', color: '#e11d48', fontSize: 10, fontWeight: 'bold' },
+        data: markerLines
+      }
     });
   }
 

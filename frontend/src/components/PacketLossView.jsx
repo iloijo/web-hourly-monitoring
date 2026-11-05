@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { formatAxisDate } from './SectorPayloadChart';
 import MultiSelectDropdown from './MultiSelectDropdown';
+import { objectRowsSheet } from '../api/export';
 
 // Aggregation scopes matching Gambar 2
 const AGGREGATION_SCOPES = [
@@ -45,7 +46,8 @@ export default function PacketLossView({
   darkMode = false,
   allSites = [],
   siteNamesMap = {},
-  hierarchyData = { nops: [], tree: {}, site_map: {}, sites: [] }
+  hierarchyData = { nops: [], tree: {}, site_map: {}, sites: [] },
+  onExportData = null
 }) {
   // 1. Dates
   const [fromDate, setFromDate] = useState(() => {
@@ -97,6 +99,18 @@ export default function PacketLossView({
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
+
+  // Header "Export Excel": the TWAMP table rows currently loaded
+  useEffect(() => {
+    if (!onExportData) return undefined;
+    const rows = data?.table_rows;
+    if (!rows?.length) { onExportData(null); return undefined; }
+    onExportData(() => ({
+      filename: `TWAMP_PacketLoss_${scope}_${fromDate}_${toDate}`,
+      sheets: [objectRowsSheet('TWAMP Packet Loss', rows)],
+    }));
+    return () => onExportData(null);
+  }, [data, onExportData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const chartRefs = useRef({});
 

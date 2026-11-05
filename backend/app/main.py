@@ -24,6 +24,8 @@ from .queries_ta import get_ta_4g_data, get_ta_5g_data, get_ta_compare_data
 from .queries_twamp import get_twamp_packet_loss_data, get_twamp_scope_aggregation
 from .site_names import load_site_names, get_site_display_name, get_site_name
 from .queries_properties import get_site_properties
+from .queries_worstcell import get_worst_cells, get_ztzp
+from .export_xlsx import build_workbook, safe_filename
 
 # Short-lived result cache: switching back to a scope/site already viewed returns instantly.
 # Data only changes when the auto import runs (every 2 h), so 10 minutes is safe.
@@ -66,6 +68,8 @@ get_twamp_packet_loss_data = _cached(get_twamp_packet_loss_data)
 get_ta_compare_data = _cached(get_ta_compare_data)
 get_twamp_scope_aggregation = _cached(get_twamp_scope_aggregation)
 get_site_properties = _cached(get_site_properties)
+get_worst_cells = _cached(get_worst_cells)
+get_ztzp = _cached(get_ztzp)
 
 app = FastAPI(title="netPulse - KPI Monitoring Dashboard", version="3.8.0")
 
@@ -241,6 +245,54 @@ def get_daily_properties(site_id: str = Query(..., description="Site ID e.g. MRW
         return get_site_properties(site_id=site_id)
     except Exception as e:
         return {"error": str(e), "site_id": site_id, "columns": [], "rows": []}
+
+@app.post("/api/export/xlsx")
+async def export_xlsx(request: Request):
+    """Turns the page's export payload {filename, sheets: [{name, columns, rows}]} into an .xlsx download."""
+    payload = await request.json()
+    content = build_workbook(payload.get("sheets") or [])
+    filename = safe_filename(payload.get("filename"))
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+@app.get("/api/worstcell")
+def get_worstcell_endpoint(
+    tech: str = Query("4g", description="2g, 4g or 5g"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    top_n: int = Query(10),
+    scope: str = Query("regional", description="regional, nop, city or kecamatan"),
+    nops: Optional[List[str]] = Query(None),
+    cities: Optional[List[str]] = Query(None),
+    kecamatans: Optional[List[str]] = Query(None),
+):
+    """Worst Cell Top-N per KPI (WPC rules); a date range sums num/denum and counts breach days."""
+    try:
+        return get_worst_cells(tech=tech, start_date=start_date, end_date=end_date, top_n=top_n,
+                               scope=scope, nops=nops, cities=cities, kecamatans=kecamatans)
+    except Exception as e:
+        return {"error": str(e), "kpis": []}
+
+@app.get("/api/ztzp")
+def get_ztzp_endpoint(
+    tech: str = Query("4g", description="2g, 4g or 5g"),
+    date: Optional[str] = Query(None),
+    scope: str = Query("regional"),
+    nops: Optional[List[str]] = Query(None),
+    cities: Optional[List[str]] = Query(None),
+    kecamatans: Optional[List[str]] = Query(None),
+    category: Optional[str] = Query(None),
+    limit: int = Query(500, description="rows returned; 0 = all"),
+):
+    """ZTZP sleeping / low payload / availability-issue cells on one date with aging."""
+    try:
+        return get_ztzp(tech=tech, date=date, scope=scope, nops=nops, cities=cities,
+                        kecamatans=kecamatans, category=category, limit=limit)
+    except Exception as e:
+        return {"error": str(e), "rows": []}
 
 @app.get("/api/daily/aggregation")
 def get_daily_aggregation_endpoint(

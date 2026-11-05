@@ -1,9 +1,10 @@
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import DataLoadingOverlay from './components/DataLoadingOverlay';
 import AppSidebar from './components/layout/AppSidebar';
 import AppHeader from './components/layout/AppHeader';
 import AppFooter from './components/layout/AppFooter';
 import ThemePicker from './components/layout/ThemePicker';
+import ExportButton from './components/layout/ExportButton';
 import { THEMES, readStoredTheme, storeTheme } from './constants/themes';
 import KpiMonitoringView from './views/KpiMonitoringView';
 import useReferenceData from './hooks/useReferenceData';
@@ -12,6 +13,11 @@ import { KPI_MENUS } from './constants/kpis';
 
 const TimingAdvanceView = lazy(() => import('./components/TimingAdvanceView'));
 const PacketLossView = lazy(() => import('./components/PacketLossView'));
+const WorstCellView = lazy(() => import('./views/WorstCellView'));
+const ZtzpView = lazy(() => import('./views/ZtzpView'));
+
+// Worst Cell / ZTZP rows open the daily sector charts of that technology
+const TECH_TO_MENU = { '2g': '2g', '4g': '4g-daily', '5g': '5g' };
 
 export default function App() {
   const [themeId, setThemeId] = useState(readStoredTheme);
@@ -19,10 +25,15 @@ export default function App() {
   const [activeMenu, setActiveMenu] = useState('4g-hourly');
   const [chartsPerRow, setChartsPerRow] = useState(3);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [markers, setMarkers] = useState([]); // temporary chart markers, cleared on reload
+  const [exportGetter, setExportGetter] = useState(null);
 
   const ref = useReferenceData();
   const km = useKpiMonitoring(activeMenu, ref);
   const isKpiMenu = KPI_MENUS.includes(activeMenu);
+
+  // Pages register a function returning their Excel sheets (or null when there is nothing to export)
+  const registerExport = useCallback((getter) => setExportGetter(() => getter), []);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -36,6 +47,14 @@ export default function App() {
     setActiveMenu(menu);
     if (KPI_MENUS.includes(menu)) km.prepareMenu(menu);
   };
+
+  const openSite = (tech, site) => {
+    const menu = TECH_TO_MENU[tech];
+    setActiveMenu(menu);
+    km.openSiteInMenu(menu, site);
+  };
+
+  const common = { darkMode, onExportData: registerExport };
 
   return (
     <div className={`min-h-screen flex flex-row font-sans select-none transition-colors duration-300 overflow-x-hidden ${
@@ -62,6 +81,7 @@ export default function App() {
           setChartsPerRow={setChartsPerRow}
           darkMode={darkMode}
         >
+          <ExportButton getPayload={exportGetter} darkMode={darkMode} />
           <ThemePicker themeId={themeId} onChange={setThemeId} darkMode={darkMode} />
         </AppHeader>
 
@@ -71,18 +91,19 @@ export default function App() {
               <TimingAdvanceView
                 key={activeMenu}
                 tech={activeMenu === 'ta-5g' ? '5g' : '4g'}
-                darkMode={darkMode}
                 allSites={activeMenu === 'ta-5g' && ref.sites5g.length > 0 ? ref.sites5g : ref.allSites}
                 siteNamesMap={ref.siteNamesMap}
+                {...common}
               />
             )}
             {activeMenu === 'packet-loss' && (
-              <PacketLossView
-                darkMode={darkMode}
-                allSites={ref.allSites}
-                siteNamesMap={ref.siteNamesMap}
-                hierarchyData={ref.hierarchyData}
-              />
+              <PacketLossView allSites={ref.allSites} siteNamesMap={ref.siteNamesMap} hierarchyData={ref.hierarchyData} {...common} />
+            )}
+            {activeMenu === 'worst-cell' && (
+              <WorstCellView hierarchyData={ref.hierarchyData} onOpenSite={openSite} {...common} />
+            )}
+            {activeMenu === 'ztzp' && (
+              <ZtzpView hierarchyData={ref.hierarchyData} onOpenSite={openSite} {...common} />
             )}
           </Suspense>
 
@@ -92,8 +113,10 @@ export default function App() {
               activeMenu={activeMenu}
               siteNamesMap={ref.siteNamesMap}
               chartsPerRow={chartsPerRow}
-              darkMode={darkMode}
               sidebarOpen={sidebarOpen}
+              markers={markers}
+              setMarkers={setMarkers}
+              {...common}
             />
           )}
         </main>

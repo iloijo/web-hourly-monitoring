@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { Activity, BarChart3, Calendar, ChevronDown, ChevronLeft, Clock, Database, Radio, RadioTower, Wifi } from 'lucide-react';
+import {
+  Activity, BarChart3, Calendar, ChevronDown, ChevronLeft, Clock, Database, Moon, Radio, RadioTower, TrendingDown, Wifi,
+} from 'lucide-react';
 import { APP_NAME, APP_VERSION } from '../../constants/kpis';
 
 // Accent classes per menu (active background, dot, idle icon color)
@@ -143,6 +145,12 @@ export default function AppSidebar({ open, onClose, activeMenu, onSelectMenu, db
           </div>
           <MenuButton id="5g" label="5G Monitoring" Icon={Wifi} accent="cyan" tag="OneDb" {...common} />
         </Group>
+
+        <SectionTitle>Worst Cell &amp; ZTZP</SectionTitle>
+        <div className="space-y-1">
+          <MenuButton id="worst-cell" label="Worst Cell Top-N" Icon={TrendingDown} accent="rose" tag="2G/4G/5G" size="lg" {...common} />
+          <MenuButton id="ztzp" label="ZTZP" Icon={Moon} accent="violet" tag="2G/4G/5G" size="lg" {...common} />
+        </div>
 
         <SectionTitle>Others</SectionTitle>
         <Group label="Timing Advance" Icon={Clock} iconClass="text-amber-500" open={taOpen} onToggle={() => setTaOpen(!taOpen)} darkMode={darkMode}>

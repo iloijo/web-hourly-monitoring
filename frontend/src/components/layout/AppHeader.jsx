@@ -26,7 +26,7 @@ export default function AppHeader({
   const pillBox = `flex items-center p-0.5 rounded-lg border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'}`;
 
   return (
-    <header className={`h-14 border-b px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 transition-colors duration-300 ${
+    <header className={`min-h-14 py-2 gap-2 flex-wrap border-b px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 transition-colors duration-300 ${
       darkMode ? 'bg-slate-900/95 border-slate-800 backdrop-blur' : 'bg-white/95 border-slate-200 backdrop-blur'
     }`}>
       <div className="flex items-center gap-3">

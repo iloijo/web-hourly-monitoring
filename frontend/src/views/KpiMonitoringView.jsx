@@ -1,16 +1,37 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ScopeFilterPanel from './kpi/ScopeFilterPanel';
 import KpiChartsPanel from './kpi/KpiChartsPanel';
 import PropertiesPanel from './kpi/PropertiesPanel';
+import MarkerControl from './kpi/MarkerControl';
+import { buildKpiExport } from './kpi/kpiExport';
 import useSiteProperties from '../hooks/useSiteProperties';
 
 // 2G / 4G Hourly / 4G Daily / 5G monitoring page body
-export default function KpiMonitoringView({ km, activeMenu, siteNamesMap, chartsPerRow, darkMode, sidebarOpen, markers }) {
+export default function KpiMonitoringView({
+  km, activeMenu, siteNamesMap, chartsPerRow, darkMode, sidebarOpen, markers, setMarkers, onExportData,
+}) {
   const [propsOpen, setPropsOpen] = useState(false);
   const showProperties = activeMenu === '4g-daily' && km.aggregationScope === 'sector';
   const props = useSiteProperties(showProperties && propsOpen, km.siteId);
   const sectors = km.sectorViewMode === 'sectoral' ? km.sectoralSectors.map(Number) : [Number(km.selectedSector)];
   const propertyRows = props.rows.filter(r => sectors.includes(r.sector));
+  const hasData = km.aggregationScope === 'sector' ? !!km.data?.sectors : !!km.aggregationData?.kpis;
+
+  // Excel export of the charts (and the properties table when it is open). The getter reads the
+  // latest screen state from a ref, so it is registered only when data appears or disappears.
+  const exportInput = useRef(null);
+  useEffect(() => {
+    exportInput.current = {
+      km, activeMenu, sectors,
+      propertyRows: showProperties && propsOpen ? propertyRows : [],
+      propertyColumns: props.columns,
+    };
+  });
+  useEffect(() => {
+    if (!hasData) { onExportData(null); return undefined; }
+    onExportData(() => buildKpiExport(exportInput.current));
+    return () => onExportData(null);
+  }, [hasData, onExportData]);
 
   return (
     <>
@@ -22,6 +43,7 @@ export default function KpiMonitoringView({ km, activeMenu, siteNamesMap, charts
         chartsPerRow={chartsPerRow}
         darkMode={darkMode}
         markers={markers}
+        headerExtra={<MarkerControl markers={markers} setMarkers={setMarkers} defaultDate={km.endDate} darkMode={darkMode} />}
       />
       {showProperties && (
         <>

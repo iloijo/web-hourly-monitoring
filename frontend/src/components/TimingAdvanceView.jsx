@@ -17,12 +17,14 @@ import {
 } from 'lucide-react';
 import { BAND_COLORS } from './SectorPayloadChart';
 import { loadLatestDates, shiftDate } from '../constants/dates';
+import { objectRowsSheet } from '../api/export';
 
 export default function TimingAdvanceView({
   tech = '4g', // '4g' or '5g'
   darkMode = false,
   allSites = [],
-  siteNamesMap = {}
+  siteNamesMap = {},
+  onExportData = null
 }) {
   const is5G = tech === '5g';
 
@@ -194,6 +196,18 @@ export default function TimingAdvanceView({
 
   // Active data source
   const activeDataSource = compareMode ? compareData : data;
+
+  // Header "Export Excel": the TA table rows currently loaded
+  useEffect(() => {
+    if (!onExportData) return undefined;
+    const rows = activeDataSource?.table_rows;
+    if (!rows?.length) { onExportData(null); return undefined; }
+    onExportData(() => ({
+      filename: `${compareMode ? 'TA_Compare' : 'TA'}_${tech.toUpperCase()}_${activeDataSource.site_id || selectedSite}`,
+      sheets: [objectRowsSheet(compareMode ? 'TA Compare' : 'Timing Advance', rows)],
+    }));
+    return () => onExportData(null);
+  }, [activeDataSource, compareMode, onExportData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Available sectors from loaded data
   const availableSectors = useMemo(() => {
