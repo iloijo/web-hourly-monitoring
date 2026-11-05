@@ -58,7 +58,7 @@ get_scope_aggregation_5g_data = _cached(get_scope_aggregation_5g_data)
 get_site_payload_2g_data = _cached(get_site_payload_2g_data)
 get_scope_aggregation_2g_data = _cached(get_scope_aggregation_2g_data)
 
-app = FastAPI(title="Monitoring KPI Dashboard", version="2.5.0")
+app = FastAPI(title="netPulse - KPI Monitoring Dashboard", version="3.8.0")
 
 # HTTP Basic login for every request when DASHBOARD_USER and DASHBOARD_PASS are set in backend/.env
 @app.middleware("http")
@@ -73,7 +73,7 @@ async def basic_auth(request: Request, call_next):
             user, pw = "", ""
         if secrets.compare_digest(user, settings.DASHBOARD_USER) and secrets.compare_digest(pw, settings.DASHBOARD_PASS):
             return await call_next(request)
-    return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="NetKPI Monitor"'})
+    return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="netPulse"'})
 
 # In-memory cache for all site IDs from CellListRCI
 CACHED_SITES: List[str] = []

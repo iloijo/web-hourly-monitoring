@@ -42,6 +42,9 @@ import {
   Wifi
 } from 'lucide-react';
 
+const APP_NAME = "NetPulse";
+const APP_VERSION = "v3.8.0";
+
 const BAND_OPTIONS_4G = [
   { id: 'L1800', label: 'L1800 (1.8 GHz)' },
   { id: 'L2100', label: 'L2100 (2.1 GHz)' },
@@ -1012,21 +1015,23 @@ export default function App() {
           darkMode ? 'border-slate-800' : 'border-slate-200'
         }`}>
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/30">
-              <Activity className="w-5 h-5 stroke-[2.5]" />
+            <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center shadow-md shadow-blue-500/20 border border-blue-400/30 bg-slate-950 shrink-0">
+              <img 
+                src="/netpulse-icon.png" 
+                alt="NetPulse Logo" 
+                className="w-full h-full object-cover"
+              />
             </div>
             <div>
               <span className={`font-extrabold text-sm tracking-tight block leading-tight ${
                 darkMode ? 'text-white' : 'text-slate-900'
               }`}>
-                NetKPI Monitor
+                {APP_NAME}
               </span>
-              <span className={`text-[10px] font-medium tracking-wide ${
+              <span className={`text-[10px] font-semibold tracking-wider ${
                 darkMode ? 'text-slate-400' : 'text-slate-500'
               }`}>
-                {activeMenu === '2g' ? '2G Monitoring (oneDB)' :
-                 activeMenu === '5g' ? '5G Monitoring (oneDB)' :
-                 isDailyMode ? '4G Daily (oneDB)' : '4G Hourly (twoDB)'}
+                {APP_VERSION}
               </span>
             </div>
           </div>

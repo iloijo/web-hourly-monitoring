@@ -1,7 +1,7 @@
 @echo off
-title Expose NetKPI Dashboard to Internet (Cloudflare Tunnel)
+title Expose netPulse Dashboard to Internet (Cloudflare Tunnel)
 echo ============================================================
-echo   ONLINEKAN DASHBOARD VIA CLOUDFLARE QUICK TUNNEL
+echo   ONLINEKAN NETPULSE DASHBOARD VIA CLOUDFLARE QUICK TUNNEL
 echo   Web URL Lokal: http://localhost:8000
 echo ============================================================
 echo.

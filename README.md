@@ -1,6 +1,6 @@
-# NetKPI 4G Hourly Monitoring Dashboard
+# netPulse — Network KPI Monitoring Dashboard
 
-Web dashboard pemantauan KPI 4G per jam (*hourly*) terinspirasi dari antarmuka **NetKPI Monitor v3.8**, menggunakan data sumber dari **TwoDb** (`measHy4g` & `CellListRCI`) via Cloudflare Tunnel (`localhost:5434`).
+Web dashboard pemantauan KPI jaringan (4G Hourly & Daily, 5G, 2G) **netPulse v3.8**, menggunakan data sumber dari **TwoDb** (measHy4g & CellListRCI) via Cloudflare Tunnel (localhost:5434) serta **OneDb**.
 
 ---
 

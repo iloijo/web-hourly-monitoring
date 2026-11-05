@@ -4,9 +4,9 @@ setlocal enabledelayedexpansion
 :: Pastikan working directory selalu berada di folder project
 cd /d "%~dp0"
 
-title NetKPI 4G Hourly Monitoring Dashboard
+title netPulse — Network KPI Monitoring Dashboard
 echo ============================================================
-echo   Starting NetKPI 4G Hourly Monitoring Dashboard
+echo   Starting netPulse Monitoring Dashboard
 echo   Architecture: FastAPI Backend + React / ECharts Frontend
 echo ============================================================
 echo.
