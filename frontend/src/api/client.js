@@ -2,7 +2,7 @@
 
 export const getAuthToken = () => {
   try {
-    return localStorage.getItem('netpulse_auth_token') || '';
+    return localStorage.getItem('netpulse_auth_token') || sessionStorage.getItem('netpulse_auth_token') || '';
   } catch {
     return '';
   }
@@ -16,6 +16,8 @@ export const setAuthSession = (token, user) => {
     } else {
       localStorage.removeItem('netpulse_auth_token');
       localStorage.removeItem('netpulse_auth_user');
+      sessionStorage.removeItem('netpulse_auth_token');
+      sessionStorage.removeItem('netpulse_auth_user');
     }
   } catch {
     // Ignore storage availability errors
@@ -24,7 +26,7 @@ export const setAuthSession = (token, user) => {
 
 export const getStoredAuthUser = () => {
   try {
-    return localStorage.getItem('netpulse_auth_user') || 'Admin';
+    return localStorage.getItem('netpulse_auth_user') || sessionStorage.getItem('netpulse_auth_user') || 'Admin';
   } catch {
     return 'Admin';
   }

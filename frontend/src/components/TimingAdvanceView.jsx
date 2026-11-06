@@ -19,6 +19,7 @@ import {
 import { BAND_COLORS } from './SectorPayloadChart';
 import { loadLatestDates, shiftDate } from '../constants/dates';
 import { objectRowsSheet } from '../api/export';
+import { getJson } from '../api/client';
 
 export default function TimingAdvanceView({
   tech = '4g', // '4g' or '5g'
@@ -124,17 +125,15 @@ export default function TimingAdvanceView({
     setErrorMsg(null);
     try {
       const endpoint = is5G ? '/api/timing_advance/5g' : '/api/timing_advance/4g';
-      const params = new URLSearchParams({
+      const params = {
         site_id: site,
         start_date: fromDate,
         end_date: toDate,
         sector: sectorFilter,
         band: bandFilter,
         cell_type: filterType
-      });
-      const res = await fetch(`${endpoint}?${params.toString()}`);
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      const json = await res.json();
+      };
+      const json = await getJson(endpoint, params);
       if (json.status === 'error') throw new Error(json.message || 'Gagal memuat data');
       setData(json);
     } catch (err) {
@@ -151,7 +150,7 @@ export default function TimingAdvanceView({
     setLoading(true);
     setErrorMsg(null);
     try {
-      const params = new URLSearchParams({
+      const params = {
         tech: tech,
         site_id: site,
         before_start: beforeStart,
@@ -161,10 +160,8 @@ export default function TimingAdvanceView({
         sector: sectorFilter,
         band: bandFilter,
         cell_type: filterType
-      });
-      const res = await fetch(`/api/timing_advance/compare?${params.toString()}`);
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      const json = await res.json();
+      };
+      const json = await getJson('/api/timing_advance/compare', params);
       if (json.status === 'error') throw new Error(json.message || 'Gagal memuat data komparasi');
       setCompareData(json);
     } catch (err) {

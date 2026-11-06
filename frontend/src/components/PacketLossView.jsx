@@ -27,6 +27,7 @@ import {
 import { formatAxisDate } from './SectorPayloadChart';
 import MultiSelectDropdown from './MultiSelectDropdown';
 import { objectRowsSheet } from '../api/export';
+import { getJson } from '../api/client';
 
 // Aggregation scopes matching Gambar 2
 const AGGREGATION_SCOPES = [
@@ -330,37 +331,32 @@ export default function PacketLossView({
       const curToDate = overrides.toDate !== undefined ? overrides.toDate : toDate;
 
       if (curScope === 'site' && curSiteMode === 'single') {
-        const params = new URLSearchParams({
+        const json = await getJson('/api/packet_loss/4g', {
           site_id: curSite,
           start_date: curFromDate,
           end_date: curToDate
         });
-        const res = await fetch(`/api/packet_loss/4g?${params.toString()}`);
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        const json = await res.json();
         if (json.status === 'error') throw new Error(json.message || 'Gagal memuat data');
         setData(json);
       } else {
-        const params = new URLSearchParams({
+        const params = {
           scope: curScope,
           start_date: curFromDate,
           end_date: curToDate
-        });
+        };
 
         if (curScope === 'nop') {
-          curNops.forEach(n => params.append('nops', n));
+          params.nops = curNops;
         } else if (curScope === 'city') {
-          curCities.forEach(c => params.append('cities', c));
+          params.cities = curCities;
         } else if (curScope === 'kecamatan') {
-          params.append('cities', curParentCity);
-          curKecamatans.forEach(k => params.append('kecamatans', k));
+          params.cities = curParentCity;
+          params.kecamatans = curKecamatans;
         } else if (curScope === 'site' && curSiteMode === 'compare') {
-          curSites.forEach(s => params.append('sites', s));
+          params.sites = curSites;
         }
 
-        const res = await fetch(`/api/packet_loss/aggregation?${params.toString()}`);
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        const json = await res.json();
+        const json = await getJson('/api/packet_loss/aggregation', params);
         if (json.status === 'error') throw new Error(json.message || 'Gagal memuat data');
         setData(json);
       }
