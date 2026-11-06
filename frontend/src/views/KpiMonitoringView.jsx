@@ -35,7 +35,7 @@ export default function KpiMonitoringView({
 
   return (
     <>
-      <ScopeFilterPanel km={km} siteNamesMap={siteNamesMap} darkMode={darkMode} />
+      <ScopeFilterPanel km={km} activeMenu={activeMenu} siteNamesMap={siteNamesMap} darkMode={darkMode} />
       <KpiChartsPanel
         km={km}
         activeMenu={activeMenu}

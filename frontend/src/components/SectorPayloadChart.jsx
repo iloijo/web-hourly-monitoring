@@ -102,6 +102,7 @@ export default function SectorPayloadChart({
   carrierSeries = {},
   totalSeries = null,
   carrierBands = {},
+  availableBands = null,
   hasTotal = false,
   bandFilter = "all",
   timeMode = "hourly",
@@ -130,6 +131,16 @@ export default function SectorPayloadChart({
   
   // Filter carriers based on bandFilter (can be string 'all' or array of selected bands)
   const carrierKeys = allCarrierKeys.filter(cName => {
+    // Exclude bands not owned by the site
+    if (availableBands && Array.isArray(availableBands) && availableBands.length > 0) {
+      if (!carrierBands || carrierBands[cName] !== 'ENTITY') {
+        const rawBand = (carrierBands && carrierBands[cName]) ? carrierBands[cName] : getBandForCarrier(cName, carrierBands);
+        const b = rawBand.startsWith('L2600') ? 'L2600' : rawBand;
+        if (!availableBands.includes(b) && !availableBands.includes(rawBand)) {
+          return false;
+        }
+      }
+    }
     if (!bandFilter || bandFilter === "all") return true;
     if (carrierBands && carrierBands[cName] === 'ENTITY') return true;
     const rawBand = (carrierBands && carrierBands[cName] && carrierBands[cName] !== 'ENTITY')
@@ -225,9 +236,11 @@ export default function SectorPayloadChart({
   const markerLines = (markers || [])
     .map(m => {
       const x = (timestamps || []).find(t => String(t).startsWith(m.date));
-      return x ? { xAxis: x, label: { formatter: m.label || m.date } } : null;
+      return x ? { xAxis: x, text: m.label || m.date } : null;
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    // Labels sit horizontally above the plot; neighbours alternate between 2 rows so they never cover each other
+    .map((m, i) => ({ xAxis: m.xAxis, label: { formatter: m.text, distance: [0, 4 + (i % 2) * 16] } }));
   if (markerLines.length > 0) {
     series.push({
       id: 'activity_markers',
@@ -235,12 +248,21 @@ export default function SectorPayloadChart({
       type: 'line',
       data: [],
       silent: true,
+      z: 20,
       markLine: {
         symbol: ['none', 'none'],
         silent: true,
         animation: false,
         lineStyle: { type: 'dashed', color: '#e11d48', width: 1.5 },
-        label: { position: 'insideEndTop', color: '#e11d48', fontSize: 10, fontWeight: 'bold' },
+        label: {
+          position: 'end',
+          color: '#ffffff',
+          backgroundColor: '#e11d48',
+          borderRadius: 3,
+          padding: [2, 4],
+          fontSize: 8,
+          fontWeight: 'bold'
+        },
         data: markerLines
       }
     });
@@ -306,7 +328,7 @@ export default function SectorPayloadChart({
   if (hasTotal) {
     yAxisList.push({
       type: 'value',
-      name: 'Total (GB)',
+      name: `Total (${unit})`,
       nameLocation: 'middle',
       nameGap: 30,
       nameTextStyle: {
@@ -329,8 +351,9 @@ export default function SectorPayloadChart({
   const labelInterval = Math.max(1, Math.floor((tsLen - 1) / 3));
 
   // Check for BDBH remark in title
-  const isBdbh = title.includes('[BDBH]') || title.includes('(BDBH)');
-  const cleanTitle = title.replace(/\[BDBH\]|\(BDBH\)/gi, '').trim();
+  const titleStr = typeof title === 'string' ? title : '';
+  const isBdbh = titleStr.includes('[BDBH]') || titleStr.includes('(BDBH)');
+  const cleanTitle = titleStr.replace(/\[BDBH\]|\(BDBH\)/gi, '').trim();
 
   // Identical smooth cubicInOut transition animation in both directions
   const option = {
@@ -423,7 +446,7 @@ export default function SectorPayloadChart({
       }
     },
     grid: {
-      top: 45,
+      top: markerLines.length > 1 ? 58 : markerLines.length ? 50 : 45,
       right: hasTotal ? 48 : 25,
       bottom: 60, // 60px bottom padding ensures X-axis and legend never overlap
       left: 45,

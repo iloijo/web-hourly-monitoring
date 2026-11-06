@@ -27,6 +27,9 @@ export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPer
   const shownSectoralSectors = km.availableSectors.filter(s => km.sectoralSectors.includes(String(s)));
   const errorText = scope === 'sector' ? sectorData?.error : aggData?.error;
   const hasResult = scope === 'sector' ? !!sectorData : !!aggData;
+  // Filter Type picked a cell type this site does not have (e.g. Indoor on a macro-only site)
+  const missingType = scope === 'sector' && sectorData && !sectorData.error && km.filterType !== 'all'
+    && !(sectorData.available_types || []).some(t => t.toLowerCase() === km.filterType);
 
   const siteLabel = (s) => (siteNamesMap[s] ? `${s} - ${siteNamesMap[s]}` : s);
   const title = {
@@ -48,11 +51,16 @@ export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPer
     site: plural(km.selectedSites, 'Sites', km.selectedSites[0]),
   }[scope] || `${km.currentSiteMeta.nop} • ${km.currentSiteMeta.kabupaten}`;
 
+  const currentAvailableBands = scope === 'sector'
+    ? (sectorData?.available_bands || [])
+    : (aggData?.available_bands || sectorData?.available_bands || []);
+
   const chartProps = (kpiData) => ({
     unit: kpiData.unit,
     carrierSeries: kpiData.carrier_series,
     totalSeries: kpiData.total_series,
     carrierBands: kpiData.carrier_bands || {},
+    availableBands: currentAvailableBands,
     hasTotal: kpiData.has_total || kpiData.has_tot,
     minY: kpiData.min_y,
     maxY: kpiData.max_y,
@@ -101,6 +109,13 @@ export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPer
             <div className="font-bold text-sm">Gagal memuat data grafik</div>
             <p>{errorText}</p>
           </div>
+        </div>
+      )}
+
+      {missingType && (
+        <div className={`mb-4 p-3 rounded-xl border text-xs flex items-center gap-2 ${darkMode ? 'bg-amber-950/40 border-amber-800 text-amber-200' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+          Site {km.siteId} tidak punya cell {km.filterType === 'indoor' ? 'Indoor' : 'Macro'}. Ganti Filter Type ke All untuk melihat semua cell.
         </div>
       )}
 
@@ -153,7 +168,7 @@ export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPer
           if (!kpiData) return null;
           return (
             <SectorPayloadChart
-              key={`${activeMenu}_sector_${km.selectedSector}_${kpiId}`}
+              key={`${activeMenu}_sector_${km.siteId}_${km.selectedSector}_${km.filterType}_${kpiId}`}
               title={kpiData.title}
               timestamps={currentSectorData.timestamps || sectorData?.timestamps || []}
               bandFilter={km.selectedBands}
@@ -166,13 +181,22 @@ export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPer
         {scope !== 'sector' && aggData?.kpis && kpiIds.map(kpiId => {
           const kpiData = aggData.kpis[kpiId];
           if (!kpiData) return null;
+          const entityKey = scope === 'site'
+            ? (km.selectedSites || []).join('_')
+            : scope === 'nop'
+              ? (km.selectedNops || []).join('_')
+              : scope === 'city'
+                ? (km.selectedCities || []).join('_')
+                : scope === 'kecamatan'
+                  ? (km.selectedKecamatans || []).join('_')
+                  : 'regional';
           return (
             <SectorPayloadChart
-              key={`${activeMenu}_${scope}_${km.aggregationMode}_${kpiId}`}
+              key={`${activeMenu}_${scope}_${km.aggregationMode}_${entityKey}_${kpiId}`}
               title={kpiData.title}
               timestamps={aggData.timestamps}
               bandFilter={km.aggregationMode === 'band' ? km.selectedBands : 'all'}
-              timeMode="daily"
+              timeMode={km.timeMode}
               {...chartProps(kpiData)}
             />
           );

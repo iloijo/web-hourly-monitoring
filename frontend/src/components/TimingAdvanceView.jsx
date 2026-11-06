@@ -389,13 +389,19 @@ export default function TimingAdvanceView({
         markLine: isFirst && thresholdPct > 0 ? {
           symbol: ['none', 'none'],
           silent: true,
+          // Value in a highlighted box just outside the plot, level with the line
           label: {
             show: true,
-            position: 'insideEndTop',
-            formatter: `${thresholdPct}%`,
+            position: 'end',
+            distance: 6,
+            formatter: `${thresholdPct}`,
             color: '#ef4444',
-            fontSize: 10,
-            fontWeight: 'bold'
+            fontSize: 11,
+            fontWeight: 'bold',
+            backgroundColor: darkMode ? '#0f172a' : '#ffffff',
+            borderColor: '#ef4444',
+            borderWidth: 1.5,
+            padding: [2, 5]
           },
           lineStyle: {
             type: 'dashed',
@@ -458,7 +464,7 @@ export default function TimingAdvanceView({
       grid: {
         top: 40,
         left: 45,
-        right: 25,
+        right: thresholdPct > 0 ? 48 : 25,
         bottom: 95,
         containLabel: false
       },

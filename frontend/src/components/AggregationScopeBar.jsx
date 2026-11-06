@@ -22,11 +22,16 @@ export const AGGREGATION_SCOPES = [
 export default function AggregationScopeBar({
   currentScope = 'sector',
   onSelectScope,
-  darkMode = false
+  darkMode = false,
+  activeMenu = '4g-hourly'
 }) {
+  const visibleScopes = activeMenu === '4g-hourly'
+    ? AGGREGATION_SCOPES.filter(s => s.id === 'site' || s.id === 'sector')
+    : AGGREGATION_SCOPES;
+
   return (
     <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-semibold select-none">
-      {AGGREGATION_SCOPES.map(scope => {
+      {visibleScopes.map(scope => {
         const Icon = scope.icon;
         const isActive = currentScope === scope.id;
 

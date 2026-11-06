@@ -12,9 +12,13 @@ const AGGREGATION_MODE_OPTIONS = [['full', 'Aggregation'], ['band', 'Band']];
 const VIEW_MODE_OPTIONS = [['all', 'All KPI'], ['sectoral', 'Sectoral']];
 
 // "Filters & KPI Selection" card for the KPI monitoring menus
-export default function ScopeFilterPanel({ km, siteNamesMap, darkMode }) {
+export default function ScopeFilterPanel({ km, siteNamesMap, darkMode, activeMenu }) {
   const scope = km.aggregationScope;
   const isFull = km.aggregationMode === 'full';
+
+  const currentAvailableBands = scope === 'sector'
+    ? km.data?.available_bands
+    : (km.aggregationData?.available_bands || km.data?.available_bands);
 
   const bandFilter = (variant, className) => (
     <BandFilter
@@ -23,7 +27,7 @@ export default function ScopeFilterPanel({ km, siteNamesMap, darkMode }) {
       allIds={km.allActiveBandIds}
       onToggle={km.handleToggleBand}
       onToggleAll={km.handleToggleAllBands}
-      activeBands={km.data?.available_bands || km.allActiveBandIds}
+      activeBands={currentAvailableBands || km.allActiveBandIds}
       variant={variant}
       darkMode={darkMode}
       className={className}
@@ -59,7 +63,7 @@ export default function ScopeFilterPanel({ km, siteNamesMap, darkMode }) {
             Filters & KPI Selection
           </h3>
         </div>
-        <AggregationScopeBar currentScope={scope} onSelectScope={km.handleSelectScope} darkMode={darkMode} />
+        <AggregationScopeBar currentScope={scope} onSelectScope={km.handleSelectScope} darkMode={darkMode} activeMenu={activeMenu || km.activeMenu} />
       </div>
 
       {scope === 'sector' && (
@@ -181,7 +185,7 @@ export default function ScopeFilterPanel({ km, siteNamesMap, darkMode }) {
             label="SITE ID"
             options={km.activeSitesList.map(s => ({ value: s, label: siteNamesMap[s] ? `${s} - ${siteNamesMap[s]}` : s }))}
             selectedValues={km.selectedSites}
-            onChange={km.setSelectedSites}
+            onChange={km.handleSitesChange}
             isMulti={isFull}
             placeholder="Pilih Site..."
             darkMode={darkMode}

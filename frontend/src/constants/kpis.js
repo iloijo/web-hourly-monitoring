@@ -109,6 +109,7 @@ export const FALLBACK_DAILY_KPIS = [
   { id: 'max_ul_active_users_qci1', label: 'Max UL Active Users QCI1', unit: 'Users', category: 'User Concurrency', source: 'measDy4g', is_bdbh: false },
   { id: 'max_user_volte', label: 'Max VoLTE Users', unit: 'Users', category: 'User Concurrency', source: 'measDy4g', is_bdbh: false },
   { id: 'simultaneous_ue_avg', label: 'Avg Simultaneous UE', unit: 'Users', category: 'User Concurrency', source: 'measDy4g', is_bdbh: false },
+  { id: 'simultaneous_ue_max', label: 'Max Simultaneous UE', unit: 'Users', category: 'User Concurrency', source: 'measDy4g', is_bdbh: false },
   { id: 'rrc_connected_mean', label: 'Mean RRC Connected Users', unit: 'Users', category: 'User Concurrency', source: 'measDy4g', is_bdbh: false },
 
   // Quality & Latency
@@ -169,7 +170,7 @@ export const REGIONAL_DEFAULT_KPIS = [
   'spectrum_efficiency',
   'cqi',
   'csfb_sr',
-  'ip_delay'
+  'dl_ip_packet_delay'
 ];
 
 // Fallback 5G KPIs
@@ -238,6 +239,26 @@ export const FALLBACK_2G_KPIS = [
 ];
 
 export const ALL_2G_KPI_IDS = FALLBACK_2G_KPIS.map(k => k.id);
+
+// Fixed chart order: these first (whatever the menu calls them), then the rest in catalog order
+const KPI_DISPLAY_PRIORITY = [
+  'payload', 'payload_total',
+  'dl_prb', 'user_dl_thp',
+  'ul_prb', 'user_ul_thp',
+  'max_rrc', 'rrc_users', 'max_rrc_users',
+  'active_users',
+  'spectrum_efficiency',
+  'cqi',
+];
+
+export const orderKpiIds = (ids, catalog) => {
+  const catalogIndex = new Map(catalog.map((k, i) => [k.id, i]));
+  const rank = (id) => {
+    const p = KPI_DISPLAY_PRIORITY.indexOf(id);
+    return p >= 0 ? p : KPI_DISPLAY_PRIORITY.length + (catalogIndex.get(id) ?? catalog.length);
+  };
+  return [...ids].sort((a, b) => rank(a) - rank(b));
+};
 
 export const KPI_MENUS = ['4g-hourly', '4g-daily', '5g', '2g'];
 

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getJson } from '../api/client';
 import {
-  ALL_BAND_IDS, HOURLY_KPIS, SECTORAL_KPIS, DEFAULT_HOURLY_KPIS, DEFAULT_DAILY_KPIS,
-  REGIONAL_DEFAULT_KPIS, BAND_OPTIONS_4G, BAND_OPTIONS_5G, BAND_OPTIONS_2G, bandOptionsFor,
+  ALL_BAND_IDS, HOURLY_KPIS, SECTORAL_KPIS, DEFAULT_HOURLY_KPIS, DEFAULT_DAILY_KPIS, FALLBACK_DAILY_KPIS,
+  REGIONAL_DEFAULT_KPIS, BAND_OPTIONS_4G, BAND_OPTIONS_5G, BAND_OPTIONS_2G, bandOptionsFor, orderKpiIds,
 } from '../constants/kpis';
 import { getInitialDateRange, loadLatestDates } from '../constants/dates';
 
@@ -10,7 +10,7 @@ const FALLBACK_5G_SITES = ['UPD012', 'UPD003', 'UPD076', 'SSU136', 'TER129', 'UP
 const FALLBACK_2G_SITES = ['MRW002', 'UPD012', 'UPD183', 'COI350', 'UPD919'];
 
 // Scopes whose filter changes query immediately; every other change waits for Generate
-const AUTO_QUERY_SCOPES = ['nop', 'city', 'kecamatan'];
+const AUTO_QUERY_SCOPES = ['regional', 'nop', 'city', 'kecamatan', 'site'];
 
 const firstOnly = (list) => (list.length > 1 ? [list[0]] : list);
 
@@ -127,7 +127,11 @@ export default function useKpiMonitoring(activeMenu, ref) {
     const bandCount = bandOptionsFor(menu).length;
     if (bands && bands.length > 0 && bands.length < bandCount) params.bands = bands;
 
-    const endpoint = menu === '2g' ? '/api/2g/aggregation' : menu === '5g' ? '/api/5g/aggregation' : '/api/daily/aggregation';
+    const endpoint = {
+      '2g': '/api/2g/aggregation',
+      '5g': '/api/5g/aggregation',
+      '4g-hourly': '/api/hourly/aggregation',
+    }[menu] || '/api/daily/aggregation';
     runRequest(endpoint, params, setAggregationData);
   };
 
@@ -151,16 +155,46 @@ export default function useKpiMonitoring(activeMenu, ref) {
     }
   };
 
+  // Filter Type is an explicit choice too: reload the sector charts already on screen
+  const handleFilterTypeChange = (type) => {
+    setFilterType(type);
+    if (aggregationScope === 'sector' && data && !data.error) fetchSectorData(siteId, startDate, endDate, activeMenu, type);
+  };
+
   // Picking a site in sector scope is an explicit choice, so it loads right away
   const handleSelectSectorSite = (s) => {
     setSiteId(s);
+    setSelectedSites([s]);
     fetchSectorData(s, startDate, endDate);
+  };
+
+  const handleSitesChange = (newList) => {
+    const next = newList && newList.length > 0 ? newList : [siteId];
+    setSelectedSites(next);
+    if (next.length === 1 && next[0] !== siteId) {
+      setSiteId(next[0]);
+    }
+    fetchScopeAggregationData('site', aggregationMode, startDate, endDate, selectedNops, selectedCities, selectedKecamatans, next, selectedBands);
   };
 
   const handleSelectScope = (newScope) => {
     if (newScope === aggregationScope) return;
     setAggregationScope(newScope);
     clearData();
+    if (newScope === 'sector') {
+      fetchSectorData(siteId, startDate, endDate);
+    } else {
+      let currentSites = selectedSites;
+      if (newScope === 'site') {
+        currentSites = selectedSites && selectedSites.length > 0 ? selectedSites : [siteId];
+        if (!selectedSites.includes(siteId) && selectedSites.length <= 1) {
+          currentSites = [siteId];
+          setSelectedSites([siteId]);
+        }
+      }
+      const nops = newScope === 'city' ? cityFilterNops : selectedNops;
+      fetchScopeAggregationData(newScope, aggregationMode, startDate, endDate, nops, selectedCities, selectedKecamatans, currentSites, selectedBands);
+    }
   };
 
   const handleSwitchAggregationMode = (newMode) => {
@@ -175,7 +209,7 @@ export default function useKpiMonitoring(activeMenu, ref) {
       kecs = firstOnly(kecs); setSelectedKecamatans(kecs);
       sites = firstOnly(sites); setSelectedSites(sites);
     }
-    if (AUTO_QUERY_SCOPES.includes(aggregationScope)) {
+    if (aggregationScope !== 'sector') {
       fetchScopeAggregationData(aggregationScope, newMode, startDate, endDate, nops, cities, kecs, sites, selectedBands);
     }
   };
@@ -194,7 +228,9 @@ export default function useKpiMonitoring(activeMenu, ref) {
       setSelectedBands(BAND_OPTIONS_2G.map(b => b.id));
     } else {
       setSelectedBands(BAND_OPTIONS_4G.map(b => b.id));
-      if (targetMenu === '4g-hourly') setAggregationScope('sector');
+      if (targetMenu === '4g-hourly') {
+        if (aggregationScope !== 'site') setAggregationScope('sector');
+      }
     }
 
     setTimeMode(targetMenu === '4g-hourly' ? 'hourly' : 'daily');
@@ -277,15 +313,16 @@ export default function useKpiMonitoring(activeMenu, ref) {
   const activeKpiCatalog = useMemo(() => {
     if (activeMenu === '5g') return kpis5gList;
     if (activeMenu === '2g') return kpis2gList;
-    if (activeMenu === '4g-daily') return dailyKpisList;
+    if (activeMenu === '4g-daily') return dailyKpisList?.length > 0 ? dailyKpisList : FALLBACK_DAILY_KPIS;
     return HOURLY_KPIS;
   }, [activeMenu, kpis5gList, kpis2gList, dailyKpisList]);
 
-  const activeSelectedKpiIds = {
+  // Charts always follow a fixed KPI order, not the order the boxes were ticked
+  const activeSelectedKpiIds = orderKpiIds({
     '5g': selected5gKpiIds ?? kpis5gList.map(k => k.id),
     '2g': selected2gKpiIds ?? kpis2gList.map(k => k.id),
     '4g-daily': selectedDailyKpiIds,
-  }[activeMenu] || selectedHourlyKpis;
+  }[activeMenu] || selectedHourlyKpis, activeKpiCatalog);
 
   const setActiveKpiIds = (next) => {
     // Resolve the "all" default before applying an updater
@@ -317,7 +354,7 @@ export default function useKpiMonitoring(activeMenu, ref) {
   const handleSelectDefaultKpis = () => {
     if (activeMenu === '5g') setSelected5gKpiIds(null);
     else if (activeMenu === '2g') setSelected2gKpiIds(null);
-    else if (activeMenu === '4g-daily') setSelectedDailyKpiIds(aggregationScope !== 'sector' ? REGIONAL_DEFAULT_KPIS : DEFAULT_DAILY_KPIS);
+    else if (activeMenu === '4g-daily') setSelectedDailyKpiIds(DEFAULT_DAILY_KPIS);
     else setSelectedHourlyKpis(DEFAULT_HOURLY_KPIS);
   };
 
@@ -378,11 +415,12 @@ export default function useKpiMonitoring(activeMenu, ref) {
   const resolvedNeName = data?.enodeb_name?.includes(' - ') ? data.enodeb_name : cleanNeName;
 
   return {
+    activeMenu,
     // state
     timeMode, aggregationScope, aggregationMode,
     selectedNops, selectedCities, selectedKecamatans, selectedSites, setSelectedSites,
     cityFilterNops, kecFilterNop, kecFilterKab,
-    siteId, selectedSector, setSelectedSector, selectedBands, filterType, setFilterType,
+    siteId, selectedSector, setSelectedSector, selectedBands, filterType, setFilterType: handleFilterTypeChange,
     sectorViewMode, sectoralSectors, setSectoralSectors,
     startDate, setStartDate: editStartDate, endDate, setEndDate: editEndDate,
     data, aggregationData, loading,
@@ -391,7 +429,7 @@ export default function useKpiMonitoring(activeMenu, ref) {
     availableSectors, nopOptions, cityOptions, kecCityOptions, kecOptions,
     currentSiteMeta, resolvedNeName,
     // handlers
-    prepareMenu, openSiteInMenu, handleGetData, handleSelectSectorSite, handleSelectScope, handleSwitchAggregationMode,
+    prepareMenu, handleSitesChange, openSiteInMenu, handleGetData, handleSelectSectorSite, handleSelectScope, handleSwitchAggregationMode,
     handleNopsChange, handleCityNopsChange, handleCitiesChange, handleKecNopChange, handleKecKabChange,
     handleKecamatansChange, handleToggleBand, handleToggleAllBands,
     handleToggleKpi, handleSelectAllKpis, handleDeselectAllKpis, handleToggleCategory, handleSelectDefaultKpis,

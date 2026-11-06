@@ -16,7 +16,6 @@ from .queries import get_site_payload_data
 from .queries_daily import (
     get_hierarchy_data, 
     get_site_payload_daily_data, 
-    get_scope_aggregation_data,
     DAILY_KPIS_CONFIG
 )
 from .queries_5g import get_5g_sites, get_site_payload_5g_data, get_scope_aggregation_5g_data, KPIS_5G_CONFIG
@@ -25,6 +24,7 @@ from .queries_ta import get_ta_4g_data, get_ta_5g_data, get_ta_compare_data
 from .queries_twamp import get_twamp_packet_loss_data, get_twamp_scope_aggregation
 from .site_names import load_site_names, get_site_display_name, get_site_name
 from .queries_properties import get_site_properties
+from .queries_scope_4g import get_scope_aggregation_data, get_hourly_scope_aggregation_data
 from .queries_worstcell import get_worst_cells, get_ztzp
 from .export_xlsx import build_workbook, safe_filename
 
@@ -59,6 +59,7 @@ def _cached(fn):
 get_site_payload_data = _cached(get_site_payload_data)
 get_site_payload_daily_data = _cached(get_site_payload_daily_data)
 get_scope_aggregation_data = _cached(get_scope_aggregation_data)
+get_hourly_scope_aggregation_data = _cached(get_hourly_scope_aggregation_data)
 get_site_payload_5g_data = _cached(get_site_payload_5g_data)
 get_scope_aggregation_5g_data = _cached(get_scope_aggregation_5g_data)
 get_site_payload_2g_data = _cached(get_site_payload_2g_data)
@@ -349,6 +350,28 @@ def get_ztzp_endpoint(
                         kecamatans=kecamatans, category=category, limit=limit)
     except Exception as e:
         return {"error": str(e), "rows": []}
+
+@app.get("/api/hourly/aggregation")
+def get_hourly_aggregation_endpoint(
+    scope: str = Query("regional"),
+    mode: str = Query("full"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    nops: Optional[List[str]] = Query(None),
+    cities: Optional[List[str]] = Query(None),
+    kecamatans: Optional[List[str]] = Query(None),
+    sites: Optional[List[str]] = Query(None),
+    bands: Optional[List[str]] = Query(None)
+):
+    """4G Hourly charts (measHy4g) per Site; other scopes are not offered for Hourly."""
+    try:
+        return get_hourly_scope_aggregation_data(
+            scope=scope, mode=mode, start_date=start_date, end_date=end_date,
+            nops=nops, cities=cities, kecamatans=kecamatans, sites=sites, bands=bands,
+        )
+    except Exception as e:
+        return {"error": str(e), "scope": scope, "mode": mode, "kpis": {}, "timestamps": []}
+
 
 @app.get("/api/daily/aggregation")
 def get_daily_aggregation_endpoint(
@@ -711,4 +734,7 @@ if DIST_DIR.exists() and (DIST_DIR / "index.html").exists():
         file_path = DIST_DIR / full_path
         if file_path.exists() and file_path.is_file():
             return FileResponse(file_path)
-        return FileResponse(DIST_DIR / "index.html")
+        return FileResponse(
+            DIST_DIR / "index.html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+        )
