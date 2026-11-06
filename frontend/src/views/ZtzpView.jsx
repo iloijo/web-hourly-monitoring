@@ -1,3 +1,4 @@
+import DataLoadingOverlay from '../components/DataLoadingOverlay';
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, MousePointerClick, Moon as SleepIcon } from 'lucide-react';
 import { getJson } from '../api/client';
@@ -189,7 +190,8 @@ export default function ZtzpView({ hierarchyData, darkMode, onOpenSite, onExport
               Menampilkan {result.returned.toLocaleString('id-ID')} dari {result.total.toLocaleString('id-ID')} cell (aging terlama dulu). Export Excel berisi seluruh daftar.
             </div>
           )}
-        </div>
+          {loading && <DataLoadingOverlay message="Menganalisis Zero Traffic Zero Payload..." />}
+    </div>
       )}
     </>
   );

@@ -11,7 +11,7 @@ export default function KpiMonitoringView({
   km, activeMenu, siteNamesMap, chartsPerRow, darkMode, sidebarOpen, markers, setMarkers, onExportData,
 }) {
   const [propsOpen, setPropsOpen] = useState(false);
-  const showProperties = activeMenu === '4g-daily' && km.aggregationScope === 'sector';
+  const showProperties = (activeMenu === '4g-daily' || activeMenu === '4g-hourly') && km.aggregationScope === 'sector';
   const props = useSiteProperties(showProperties && propsOpen, km.siteId);
   const sectors = km.sectorViewMode === 'sectoral' ? km.sectoralSectors.map(Number) : [Number(km.selectedSector)];
   const propertyRows = props.rows.filter(r => sectors.includes(r.sector));

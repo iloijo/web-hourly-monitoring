@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Optional, List
 from fastapi import FastAPI, Query, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, JSONResponse
+from pydantic import BaseModel
 from .config import settings
 from .db import check_db_health, get_twodb_connection, get_latest_data_date
 from .queries import get_site_payload_data
@@ -73,11 +74,21 @@ get_ztzp = _cached(get_ztzp)
 
 app = FastAPI(title="netPulse - KPI Monitoring Dashboard", version="3.8.0")
 
-# HTTP Basic login for every request when DASHBOARD_USER and DASHBOARD_PASS are set in backend/.env
+class LoginPayload(BaseModel):
+    username: str
+    password: str
+
+# HTTP Basic login for protected endpoints when DASHBOARD_USER and DASHBOARD_PASS are set in backend/.env
 @app.middleware("http")
 async def basic_auth(request: Request, call_next):
     if not (settings.DASHBOARD_USER and settings.DASHBOARD_PASS):
         return await call_next(request)
+
+    path = request.url.path
+    # Allow static assets, SPA routes, and auth endpoints through
+    if not path.startswith("/api/") or path.startswith("/api/auth/"):
+        return await call_next(request)
+
     header = request.headers.get("authorization", "")
     if header.lower().startswith("basic "):
         try:
@@ -86,7 +97,51 @@ async def basic_auth(request: Request, call_next):
             user, pw = "", ""
         if secrets.compare_digest(user, settings.DASHBOARD_USER) and secrets.compare_digest(pw, settings.DASHBOARD_PASS):
             return await call_next(request)
-    return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="netPulse"'})
+
+    # Return 401 JSON without WWW-Authenticate header to prevent native browser login dialog
+    return JSONResponse(
+        status_code=401,
+        content={"error": "Unauthorized", "message": "Autentikasi diperlukan untuk mengakses data netPulse."}
+    )
+
+@app.post("/api/auth/login")
+def api_login(payload: LoginPayload):
+    """Authenticate against DASHBOARD_USER and DASHBOARD_PASS from backend/.env."""
+    if not (settings.DASHBOARD_USER and settings.DASHBOARD_PASS):
+        return {"success": True, "user": payload.username or "Admin", "token": "open_access"}
+
+    if (
+        secrets.compare_digest(payload.username, settings.DASHBOARD_USER)
+        and secrets.compare_digest(payload.password, settings.DASHBOARD_PASS)
+    ):
+        raw = f"{payload.username}:{payload.password}"
+        token = base64.b64encode(raw.encode("utf-8")).decode("utf-8")
+        return {"success": True, "user": payload.username, "token": token}
+
+    return JSONResponse(
+        status_code=401,
+        content={"error": "Kombinasi Username dan Kata Sandi tidak cocok."}
+    )
+
+@app.get("/api/auth/check")
+def api_check_auth(request: Request):
+    """Verify currently stored session token."""
+    if not (settings.DASHBOARD_USER and settings.DASHBOARD_PASS):
+        return {"authenticated": True, "auth_required": False, "user": "Admin"}
+
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("basic "):
+        try:
+            user, _, pw = base64.b64decode(header[6:]).decode("utf-8").partition(":")
+            if secrets.compare_digest(user, settings.DASHBOARD_USER) and secrets.compare_digest(pw, settings.DASHBOARD_PASS):
+                return {"authenticated": True, "auth_required": True, "user": user}
+        except Exception:
+            pass
+
+    return JSONResponse(
+        status_code=401,
+        content={"authenticated": False, "auth_required": True}
+    )
 
 # In-memory cache for all site IDs from CellListRCI
 CACHED_SITES: List[str] = []
@@ -238,6 +293,7 @@ def get_daily_payload_sectors(
     except Exception as e:
         return {"error": str(e), "site_id": site_id if isinstance(site_id, str) else "MRW002", "sectors": {}}
 
+@app.get("/api/hourly/properties")
 @app.get("/api/daily/properties")
 def get_daily_properties(site_id: str = Query(..., description="Site ID e.g. MRW002")):
     """4G cell properties of one site (CompilePowerRet + lte_cell_config + location)."""

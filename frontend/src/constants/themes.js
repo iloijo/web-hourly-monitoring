@@ -9,7 +9,7 @@ export const THEMES = [
   { id: 'contrast', label: 'High Contrast', dark: true, swatch: ['#000000', '#facc15'] },
 ];
 
-export const DEFAULT_THEME = 'light';
+export const DEFAULT_THEME = 'ocean';
 
 export const readStoredTheme = () => {
   try {

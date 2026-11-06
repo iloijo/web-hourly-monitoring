@@ -6,26 +6,29 @@ from .bands import lte_band
 from .db import get_onedb_connection
 
 # (key, header) in display order; the frontend renders and exports these as-is
+# User requested order:
+# Setelah cellname masukkan SiteID_CI. Geser Max CP Pwr, CP Pwr, RS PWR, PA, PB, Tilt RET setelah TAC.
 PROPERTY_COLUMNS: List[tuple] = [
     ("sector", "Sector"),
     ("cell_name", "Cell Name"),
+    ("siteid_ci", "SiteID_CI"),
     ("band", "Band"),
     ("earfcn", "EARFCN"),
     ("bandwidth_dl", "BW DL"),
     ("pci", "PCI"),
     ("tac", "TAC"),
-    ("tx_rx", "TxRx"),
-    ("mimo", "MIMO"),
-    ("rru_type", "RRU Type"),
-    ("ref_ant", "Antenna"),
     ("max_cp_trans_pwr", "Max CP Pwr (dBm)"),
-    ("max_transmit_power_w", "Max Tx Pwr (W)"),
     ("cp_trans_pwr", "CP Pwr (dBm)"),
     ("cp_spe_ref_sig_pwr", "RS Pwr (dBm)"),
     ("pa_for_dtch", "Pa"),
     ("pb", "Pb"),
-    ("real_power", "Real Pwr (W)"),
     ("tilt_ret", "Tilt RET"),
+    ("tx_rx", "TxRx"),
+    ("mimo", "MIMO"),
+    ("rru_type", "RRU Type"),
+    ("ref_ant", "Antenna"),
+    ("max_transmit_power_w", "Max Tx Pwr (W)"),
+    ("real_power", "Real Pwr (W)"),
     ("ret_match_method", "RET Match"),
     ("cell_reselection_priority", "Resel Priority"),
     ("thresh_svr_low", "threshSvrLow"),
@@ -64,6 +67,7 @@ def get_site_properties(site_id: str) -> Dict[str, Any]:
                 SELECT siteid_ci FROM "CompilePowerRet" WHERE siteid = %s
             )
             SELECT
+                x.siteid_ci AS siteid_ci,
                 COALESCE(r.cell_name, p.cellname) AS rci_cell_name, COALESCE(r.ci, p.cellid) AS ci,
                 COALESCE(r."sec new type", p.siteid_sec_rci) AS sec_type, r.site_id_sector_id,
                 COALESCE(r.kecamatan, l."Kecamatan") AS kecamatan,
@@ -99,6 +103,7 @@ def get_site_properties(site_id: str) -> Dict[str, Any]:
     rows = []
     for r in raw:
         row = {k: r.get(k) for k, _ in PROPERTY_COLUMNS}
+        row["siteid_ci"] = r.get("siteid_ci")
         row["cell_name"] = r["cellname"] or r["rci_cell_name"]
         row["sector"] = _sector_from(r["sec_type"], r["site_id_sector_id"])
         row["band"] = lte_band(r["ci"], row["cell_name"])

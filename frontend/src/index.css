@@ -134,3 +134,153 @@
   transform-origin: center;
   animation: echarts-graphic-loading 1s infinite;
 }
+
+
+/* ==========================================================================
+   NETPULSE ANIMATED LOGIN PORTAL STYLES & KEYFRAMES
+   ========================================================================== */
+.font-brand {
+  font-family: 'Orbitron', -apple-system, sans-serif;
+  letter-spacing: 0.06em;
+}
+
+.font-mono-tech {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+@keyframes logoFloat {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    transform: translateY(-8px) scale(1.015);
+  }
+}
+
+@keyframes sonarRipple {
+  0% {
+    transform: translate(-50%, -50%) scale(0.82);
+    opacity: 0.75;
+    border-width: 2px;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.48);
+    opacity: 0;
+    border-width: 0.5px;
+  }
+}
+
+@keyframes holoScanline {
+  0% {
+    top: 10%;
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.85;
+  }
+  85% {
+    opacity: 0.85;
+  }
+  100% {
+    top: 90%;
+    opacity: 0;
+  }
+}
+
+@keyframes orbitSpinCW {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to   { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+@keyframes orbitSpinCCW {
+  from { transform: translate(-50%, -50%) rotate(360deg); }
+  to   { transform: translate(-50%, -50%) rotate(0deg); }
+}
+
+.glass-panel {
+  background: var(--panel-bg, rgba(255, 255, 255, 0.84));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--panel-border, rgba(2, 132, 199, 0.28));
+  box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.12),
+              0 0 35px 0 rgba(56, 189, 248, 0.2);
+  transition: background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+}
+
+.glass-pill {
+  background: var(--pill-bg, rgba(255, 255, 255, 0.82));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--panel-border, rgba(2, 132, 199, 0.28));
+  transition: background 0.4s ease, border-color 0.4s ease;
+}
+
+.holo-scanner {
+  animation: holoScanline 2.2s linear infinite;
+}
+
+:root {
+  --pulse-speed: 2.4s;
+  --glow-power: 1;
+  --float-amp: -10px;
+}
+
+@keyframes ecgTrace {
+  0% {
+    stroke-dashoffset: 240;
+    opacity: 0.2;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: -240;
+    opacity: 0.2;
+  }
+}
+
+@keyframes pulseHeartbeatGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 calc(12px * var(--glow-power, 1)) rgba(0, 242, 254, 0.25))
+            drop-shadow(0 0 calc(28px * var(--glow-power, 1)) rgba(29, 111, 242, 0.2))
+            brightness(1);
+  }
+  42% {
+    filter: drop-shadow(0 0 calc(16px * var(--glow-power, 1)) rgba(0, 242, 254, 0.45))
+            drop-shadow(0 0 calc(35px * var(--glow-power, 1)) rgba(29, 111, 242, 0.35))
+            brightness(1.06);
+  }
+  50% {
+    filter: drop-shadow(0 0 calc(32px * var(--glow-power, 1)) rgba(0, 242, 254, 0.95))
+            drop-shadow(0 0 calc(64px * var(--glow-power, 1)) rgba(29, 111, 242, 0.65))
+            brightness(1.22);
+  }
+  58% {
+    filter: drop-shadow(0 0 calc(18px * var(--glow-power, 1)) rgba(0, 242, 254, 0.4))
+            drop-shadow(0 0 calc(35px * var(--glow-power, 1)) rgba(29, 111, 242, 0.3))
+            brightness(1.04);
+  }
+}
+
+.logo-img-animated {
+  animation: pulseHeartbeatGlow var(--pulse-speed, 2.4s) ease-in-out infinite;
+  mask-image: radial-gradient(circle at 50% 50%, black 66%, transparent 98%);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, black 66%, transparent 98%);
+}
+
+.ecg-laser-line {
+  stroke-dasharray: 75 300;
+  animation: ecgTrace var(--pulse-speed, 2.4s) cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.sonar-ring-1 {
+  animation: sonarRipple var(--pulse-speed, 2.4s) cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.sonar-ring-2 {
+  animation: sonarRipple var(--pulse-speed, 2.4s) cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  animation-delay: calc(var(--pulse-speed, 2.4s) * 0.45);
+}

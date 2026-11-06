@@ -1,4 +1,4 @@
-import { CheckCircle2, Menu, RefreshCw } from 'lucide-react';
+import { CheckCircle2, Menu, RefreshCw, LogOut } from 'lucide-react';
 import { MENU_META } from '../../constants/menus';
 
 const BADGE = {
@@ -14,7 +14,7 @@ const crumbColor = (menu) =>
 // Top bar: page title, KPI date range + Generate (KPI menus only), charts per row and page actions
 export default function AppHeader({
   activeMenu, sidebarOpen, onOpenSidebar, km, isKpiMenu, onSwitchMenu,
-  chartsPerRow, setChartsPerRow, darkMode, children,
+  chartsPerRow, setChartsPerRow, darkMode, authUser, onLogout, children,
 }) {
   const meta = MENU_META[activeMenu] || { title: activeMenu, crumbGroup: '', crumb: '', db: 'onedb' };
   const isTwoDb = meta.db === 'twodb';
@@ -119,6 +119,31 @@ export default function AppHeader({
         </div>
 
         {children}
+
+        {authUser && (
+          <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200 dark:border-slate-800">
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+              darkMode ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-200 text-slate-700'
+            }`}>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>{authUser}</span>
+            </div>
+            {onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                  darkMode
+                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                    : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                }`}
+                title="Keluar (Logout)"
+              >
+                <LogOut className="w-3.5 h-3.5 text-rose-500" />
+              </button>
+            )}
+          </div>
+        )}
       </form>
     </header>
   );

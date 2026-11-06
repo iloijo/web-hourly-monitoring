@@ -7,9 +7,11 @@ import ThemePicker from './components/layout/ThemePicker';
 import ExportButton from './components/layout/ExportButton';
 import { THEMES, readStoredTheme, storeTheme } from './constants/themes';
 import KpiMonitoringView from './views/KpiMonitoringView';
+import LoginPage from './views/LoginPage';
 import useReferenceData from './hooks/useReferenceData';
 import useKpiMonitoring from './hooks/useKpiMonitoring';
 import { KPI_MENUS } from './constants/kpis';
+import { getAuthToken, getStoredAuthUser, setAuthSession, getJson } from './api/client';
 
 const TimingAdvanceView = lazy(() => import('./components/TimingAdvanceView'));
 const PacketLossView = lazy(() => import('./components/PacketLossView'));
@@ -28,6 +30,14 @@ export default function App() {
   const [markers, setMarkers] = useState([]); // temporary chart markers, cleared on reload
   const [exportGetter, setExportGetter] = useState(null);
 
+  // Authentication State
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return Boolean(getAuthToken() || sessionStorage.getItem('netpulse_auth_token'));
+  });
+  const [authUser, setAuthUser] = useState(() => {
+    return getStoredAuthUser() || sessionStorage.getItem('netpulse_auth_user') || 'Admin';
+  });
+
   const ref = useReferenceData();
   const km = useKpiMonitoring(activeMenu, ref);
   const isKpiMenu = KPI_MENUS.includes(activeMenu);
@@ -40,6 +50,55 @@ export default function App() {
     document.documentElement.dataset.palette = themeId;
     storeTheme(themeId);
   }, [themeId, darkMode]);
+
+  // Check auth session on startup
+  useEffect(() => {
+    getJson('/api/auth/check')
+      .then((data) => {
+        if (data?.authenticated) {
+          setIsAuthenticated(true);
+          if (data?.user) setAuthUser(data.user);
+        }
+      })
+      .catch(() => {
+        // Unauthenticated or expired session
+        if (getAuthToken() || sessionStorage.getItem('netpulse_auth_token')) {
+          setIsAuthenticated(false);
+        }
+      });
+
+    const handleUnauthorized = () => {
+      setAuthSession(null);
+      try {
+        sessionStorage.removeItem('netpulse_auth_token');
+        sessionStorage.removeItem('netpulse_auth_user');
+      } catch {
+        // Ignore storage errors
+      }
+      setIsAuthenticated(false);
+    };
+
+    window.addEventListener('netpulse:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('netpulse:unauthorized', handleUnauthorized);
+  }, []);
+
+  const handleLoginSuccess = (user) => {
+    setAuthUser(user || 'Admin');
+    setIsAuthenticated(true);
+    setThemeId('ocean');
+    storeTheme('ocean');
+  };
+
+  const handleLogout = () => {
+    setAuthSession(null);
+    try {
+      sessionStorage.removeItem('netpulse_auth_token');
+      sessionStorage.removeItem('netpulse_auth_user');
+    } catch {
+      // Ignore storage errors
+    }
+    setIsAuthenticated(false);
+  };
 
   // Opening a menu never queries KPI data; the user picks a site or clicks Generate
   const handleSwitchMenu = (menu) => {
@@ -55,6 +114,11 @@ export default function App() {
   };
 
   const common = { darkMode, onExportData: registerExport };
+
+  // If not authenticated, present the interactive NetPulse Animated Login Portal
+  if (!isAuthenticated) {
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+  }
 
   return (
     <div className={`min-h-screen flex flex-row font-sans select-none transition-colors duration-300 overflow-x-hidden ${
@@ -80,6 +144,8 @@ export default function App() {
           chartsPerRow={chartsPerRow}
           setChartsPerRow={setChartsPerRow}
           darkMode={darkMode}
+          authUser={authUser}
+          onLogout={handleLogout}
         >
           <ExportButton getPayload={exportGetter} darkMode={darkMode} />
           <ThemePicker themeId={themeId} onChange={setThemeId} darkMode={darkMode} />

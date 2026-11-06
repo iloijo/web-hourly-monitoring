@@ -1,3 +1,4 @@
+import DataLoadingOverlay from './DataLoadingOverlay';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactECharts from '../lib/echarts';
 import { 
@@ -1679,6 +1680,7 @@ export default function PacketLossView({
         </div>
       )}
 
+      {loading && <DataLoadingOverlay message="Menganalisis Packet Loss Telemetry..." />}
     </div>
   );
 }

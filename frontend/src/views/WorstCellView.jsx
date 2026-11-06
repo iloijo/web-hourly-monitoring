@@ -1,3 +1,4 @@
+import DataLoadingOverlay from '../components/DataLoadingOverlay';
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, MousePointerClick, TrendingDown } from 'lucide-react';
 import { getJson } from '../api/client';
@@ -147,7 +148,8 @@ export default function WorstCellView({ hierarchyData, darkMode, onOpenSite, onE
                 </div>
               </div>
             ))}
-          </div>
+            {loading && <DataLoadingOverlay message="Memuat Data Worst Cell..." />}
+    </div>
         </>
       )}
     </>

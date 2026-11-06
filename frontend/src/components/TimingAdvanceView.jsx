@@ -1,3 +1,4 @@
+import DataLoadingOverlay from './DataLoadingOverlay';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactECharts from '../lib/echarts';
 import { 
@@ -1135,6 +1136,7 @@ export default function TimingAdvanceView({
         </div>
       )}
 
+      {loading && <DataLoadingOverlay message="Menghitung Distribusi Timing Advance..." />}
     </div>
   );
 }
