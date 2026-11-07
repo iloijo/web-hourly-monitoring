@@ -154,7 +154,7 @@ DAILY_KPIS_CONFIG = {
         "max_y": 100
     },
     "s1_conn_sr": {
-        "title": "S1 Connection SR (%)",
+        "title": "S1 Signaling SR (%)",
         "unit": "%",
         "category": "Accessibility",
         "source": "measDy4g",

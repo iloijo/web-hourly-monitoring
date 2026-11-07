@@ -72,7 +72,7 @@ export const FALLBACK_DAILY_KPIS = [
   { id: 'rrc_setup_sr', label: 'RRC Setup SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
   { id: 'erab_setup_sr', label: 'E-RAB Setup SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
   { id: 'cssr', label: 'CSSR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
-  { id: 's1_conn_sr', label: 'S1 Connection SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
+  { id: 's1_conn_sr', label: 'S1 Signaling SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
   { id: 'volte_rrc_sr', label: 'VoLTE RRC SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
   { id: 'volte_erab_qci1_sr', label: 'VoLTE E-RAB QCI1 SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
   { id: 'volte_erab_qci5_sr', label: 'VoLTE E-RAB QCI5 SR (%)', unit: '%', category: 'Accessibility', source: 'measDy4g', is_bdbh: false },
