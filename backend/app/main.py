@@ -353,7 +353,7 @@ def get_ztzp_endpoint(
 
 @app.get("/api/hourly/aggregation")
 def get_hourly_aggregation_endpoint(
-    scope: str = Query("regional"),
+    scope: str = Query("site"),
     mode: str = Query("full"),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
