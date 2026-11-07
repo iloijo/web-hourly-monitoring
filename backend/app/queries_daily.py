@@ -969,7 +969,7 @@ def get_site_payload_daily_data(
                 ROUND((d."RRC Setup SR (%%) AMQ" * 100)::numeric, 2) AS rrc_setup_sr,
                 ROUND((d."E-RAB Setup SR (%%) AMQ" * 100)::numeric, 2) AS erab_setup_sr,
                 ROUND((d."CSSR (%%) AMQ" * 100)::numeric, 2) AS cssr,
-                ROUND(d."S1-Signal Connection Establishment Success Rate(%%)"::numeric, 2) AS s1_conn_sr,
+                ROUND((COALESCE(d."Num S1 Signaling SR" / NULLIF(d."Denum S1 Signaling SR", 0), NULLIF(d."S1 Signaling SR", 0)) * 100)::numeric, 2) AS s1_conn_sr,
                 ROUND((d."RRC_Establishment_VoLTE_SR_(%%) AMQ" * 100)::numeric, 2) AS volte_rrc_sr,
                 ROUND((d."E-RAB_Setup_VoLTE_QCI1_SR_(%%) AMQ" * 100)::numeric, 2) AS volte_erab_qci1_sr,
                 ROUND((d."E-RAB_Setup_VoLTE_QCI5_SR_(%%) AMQ" * 100)::numeric, 2) AS volte_erab_qci5_sr,

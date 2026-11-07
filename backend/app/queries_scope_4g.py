@@ -52,7 +52,7 @@ DAILY_DY_AGG = {
     "rrc_setup_sr": _ratio("Num RRC Setup SR AMQ", "Denum RRC Setup SR AMQ", _D),
     "erab_setup_sr": _ratio("Num E-RAB Setup SR AMQ", "Denum E-RAB Setup SR AMQ", _D),
     "cssr": _ratio("Num CSSR AMQ", "Denum CSSR AMQ", _D),
-    "s1_conn_sr": _col("AVG", "S1-Signal Connection Establishment Success Rate(%)", _D),
+    "s1_conn_sr": _ratio("Num S1 Signaling SR", "Denum S1 Signaling SR", _D),
     "volte_rrc_sr": _ratio("RRC_Establishment_VoLTE_Num AMQ", "RRC_Establishment_VoLTE_Denum AMQ", _D),
     "volte_erab_qci1_sr": _ratio("E-RAB_Setup_VoLTE_QCI1_Num AMQ", "E-RAB_Setup_VoLTE_QCI1_Denum AMQ", _D),
     "volte_erab_qci5_sr": _ratio("E-RAB_Setup_VoLTE_QCI5_Num AMQ", "E-RAB_Setup_VoLTE_QCI5_Denum AMQ", _D),
