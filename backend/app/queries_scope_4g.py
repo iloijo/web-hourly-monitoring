@@ -319,7 +319,7 @@ def get_scope_aggregation_data(scope="regional", mode="full", start_date=None, e
     entities, enb_to_entity, scope_bands = resolve_scope(scope, mode, nops, cities, kecamatans, sites)
     enb_list = list(enb_to_entity)
     if scope != "regional" and not enb_list:
-        raise RuntimeError(f"Tidak ada eNodeB untuk {scope}: {', '.join(entities)}")
+        raise RuntimeError(f"No eNodeB found for {scope}: {', '.join(entities)}")
 
     sql_dy = f"""
         SELECT d."Begin Time"::date AS dt, {_series_key_sql('d', mode, scope, entities, enb_to_entity)} AS series_key,
@@ -443,7 +443,7 @@ def get_hourly_scope_aggregation_data(scope="site", mode="full", start_date=None
         entities = entities[:1]
     name_to_site, site_bands = _site_enodeb_names(entities)
     if not name_to_site:
-        raise RuntimeError(f"Tidak ada eNodeB untuk site: {', '.join(entities)}")
+        raise RuntimeError(f"No eNodeB found for site: {', '.join(entities)}")
 
     if mode == "band":
         series_key = lte_band_sql("m")

@@ -26,7 +26,7 @@ export default function BandFilter({
         onClick={() => setOpen(!open)}
         className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer ${fieldClass(darkMode)}`}
       >
-        <span>{allSelected ? 'Semua Band' : `${selected.length} ${isSector ? 'selected' : 'Bands'}`}</span>
+        <span>{allSelected ? 'All Bands' : `${selected.length} ${isSector ? 'selected' : 'Bands'}`}</span>
         <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
       </button>
 
@@ -42,7 +42,7 @@ export default function BandFilter({
               >
                 <div className="flex items-center gap-2">
                   <input type="checkbox" checked={allSelected} onChange={() => {}} className="w-3.5 h-3.5 rounded text-blue-600 pointer-events-none" />
-                  <span>Pilih Semua Band</span>
+                  <span>Select All Bands</span>
                 </div>
                 {allSelected && <Check className="w-3.5 h-3.5" />}
               </div>

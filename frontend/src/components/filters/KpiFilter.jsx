@@ -20,7 +20,7 @@ export default function KpiFilter({ km, darkMode, className = '' }) {
         onClick={() => setOpen(!open)}
         className={`w-full flex items-center justify-between border rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer ${fieldClass(darkMode)}`}
       >
-        <span className="truncate">{km.activeSelectedKpiIds.length} KPI Terpilih</span>
+        <span className="truncate">{km.activeSelectedKpiIds.length} KPIs selected</span>
         <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
       </button>
 

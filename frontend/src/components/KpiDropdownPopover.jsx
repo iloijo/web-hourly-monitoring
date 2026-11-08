@@ -125,7 +125,7 @@ export default function KpiDropdownPopover({
             type="button"
             onClick={onClose}
             className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-0.5"
-            title="Tutup"
+            title="Close"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -139,7 +139,7 @@ export default function KpiDropdownPopover({
           type="text"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Cari KPI (misal: PRB, Throughput, CQI)..."
+          placeholder="Search KPI (e.g. PRB, Throughput, CQI)..."
           className={`w-full pl-8 pr-7 py-1.5 text-xs rounded-lg border font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/30 ${
             darkMode ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
           }`}
@@ -184,7 +184,7 @@ export default function KpiDropdownPopover({
                 className={`flex items-center justify-between px-1.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider cursor-pointer transition select-none group ${
                   darkMode ? 'hover:bg-slate-800/80 text-blue-400' : 'hover:bg-blue-50/80 text-blue-600'
                 }`}
-                title={allCatSelected ? `Batal pilih semua ${category}` : `Pilih semua ${category}`}
+                title={allCatSelected ? `Deselect all ${category}` : `Select all ${category}`}
               >
                 <div className="flex items-center gap-1.5">
                   <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition ${
@@ -264,13 +264,13 @@ export default function KpiDropdownPopover({
 
       {/* Footer hint */}
       <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
-        <span>Klik untuk memilih/membatalkan chart</span>
+        <span>Click to select / deselect a chart</span>
         <button
           type="button"
           onClick={onClose}
           className="px-2 py-0.5 rounded bg-blue-600 text-white font-bold text-[10px] cursor-pointer hover:bg-blue-700 transition"
         >
-          Selesai
+          Done
         </button>
       </div>
     </div>

@@ -195,7 +195,7 @@ export default function MultiSelectDropdown({
           <div className="max-h-56 overflow-y-auto space-y-0.5 pr-0.5">
             {filteredOptions.length === 0 ? (
               <div className="text-center py-3 text-slate-400 text-xs italic">
-                Tidak ada data ditemukan
+                No data found
               </div>
             ) : (
               <>
@@ -237,7 +237,7 @@ export default function MultiSelectDropdown({
                 })}
                 {filteredOptions.length > 100 && (
                   <div className="text-[10px] text-center py-1 text-slate-400 italic">
-                    Menampilkan 100 dari {filteredOptions.length} — gunakan pencarian untuk memfilter
+                    Showing 100 of {filteredOptions.length} — use search to filter
                   </div>
                 )}
               </>
@@ -254,7 +254,7 @@ export default function MultiSelectDropdown({
                   darkMode ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-100'
                 }`}
               >
-                Batal
+                Cancel
               </button>
               <button
                 type="button"
@@ -262,7 +262,7 @@ export default function MultiSelectDropdown({
                 disabled={!isDirty}
                 className="px-3 py-1 rounded-lg text-[11px] font-bold transition bg-blue-600 text-white hover:bg-blue-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Terapkan ({draft.length})
+                Apply ({draft.length})
               </button>
             </div>
           )}

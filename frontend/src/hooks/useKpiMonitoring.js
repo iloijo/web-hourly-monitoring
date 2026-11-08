@@ -93,7 +93,7 @@ export default function useKpiMonitoring(activeMenu, ref) {
       .then(json => { if (id === requestId.current) onData(json); })
       .catch(err => {
         console.error(`Failed to fetch ${path}:`, err);
-        if (id === requestId.current) onData({ error: 'Gagal terhubung ke server backend API.' });
+        if (id === requestId.current) onData({ error: 'Cannot connect to the backend API server.' });
       })
       .finally(() => { if (id === requestId.current) setLoading(false); });
   };

@@ -17,7 +17,7 @@ export default function ThemePicker({ themeId, onChange, darkMode }) {
         className={`w-9 h-9 rounded-lg border transition-all duration-300 cursor-pointer flex items-center justify-center active:scale-90 ${
           darkMode ? 'bg-slate-800 border-slate-700 text-amber-400 hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100 shadow-2xs'
         }`}
-        title="Ganti tampilan palet"
+        title="Change color palette"
       >
         <Palette className="w-4 h-4" />
       </button>

@@ -336,7 +336,7 @@ export default function PacketLossView({
           start_date: curFromDate,
           end_date: curToDate
         });
-        if (json.status === 'error') throw new Error(json.message || 'Gagal memuat data');
+        if (json.status === 'error') throw new Error(json.message || 'Failed to load data');
         setData(json);
       } else {
         const params = {
@@ -357,12 +357,12 @@ export default function PacketLossView({
         }
 
         const json = await getJson('/api/packet_loss/aggregation', params);
-        if (json.status === 'error') throw new Error(json.message || 'Gagal memuat data');
+        if (json.status === 'error') throw new Error(json.message || 'Failed to load data');
         setData(json);
       }
     } catch (err) {
       console.error('Error fetching TWAMP data:', err);
-      setErrorMsg(err.message || 'Terjadi kesalahan saat memuat data');
+      setErrorMsg(err.message || 'An error occurred while loading data');
       setData(null);
     } finally {
       setLoading(false);
@@ -888,7 +888,7 @@ export default function PacketLossView({
   // Export CSV
   const handleExportCSV = () => {
     if (!data || !data.table_rows || data.table_rows.length === 0) {
-      alert('Tidak ada data tabel untuk diekspor');
+      alert('No table data to export');
       return;
     }
     const rows = data.table_rows;
@@ -1043,7 +1043,7 @@ export default function PacketLossView({
                 selectedValues={selectedNops}
                 onChange={handleNopsChange}
                 isMulti={true}
-                placeholder="Pilih NOP..."
+                placeholder="Select NOP..."
                 darkMode={darkMode}
                 minWidth="min-w-60"
               />
@@ -1080,7 +1080,7 @@ export default function PacketLossView({
                 selectedValues={selectedCities}
                 onChange={handleCitiesChange}
                 isMulti={true}
-                placeholder="Pilih City/Kabupaten..."
+                placeholder="Select City/Kabupaten..."
                 darkMode={darkMode}
                 minWidth="min-w-64"
               />
@@ -1152,7 +1152,7 @@ export default function PacketLossView({
                 selectedValues={selectedKecamatans}
                 onChange={handleKecamatansChange}
                 isMulti={true}
-                placeholder="Pilih Kecamatan..."
+                placeholder="Select Kecamatan..."
                 darkMode={darkMode}
                 minWidth="min-w-64"
               />
@@ -1340,7 +1340,7 @@ export default function PacketLossView({
                         <div className="max-h-56 overflow-y-auto space-y-0.5 text-xs">
                           {filteredSingleSites.length === 0 ? (
                             <div className="text-center py-4 text-slate-400 text-xs italic">
-                              Tidak ada site yang cocok dengan filter wilayah
+                              No site matches the area filter
                             </div>
                           ) : (
                             filteredSingleSites.map(s => (
@@ -1380,7 +1380,7 @@ export default function PacketLossView({
                     selectedValues={selectedSites}
                     onChange={handleCompareSitesChange}
                     isMulti={true}
-                    placeholder="Pilih Sites..."
+                    placeholder="Select Sites..."
                     darkMode={darkMode}
                     minWidth="min-w-80"
                   />
@@ -1603,10 +1603,10 @@ export default function PacketLossView({
           <div className="p-4 border-b flex items-center justify-between border-slate-100 dark:border-slate-800">
             <div>
               <h3 className="font-bold text-xs uppercase tracking-wider text-slate-500">
-                Data Rinci TWAMP Packet Loss ({scope.toUpperCase()}: {isSingleSite ? selectedSite : data?.entities?.join(', ') || 'Semua'})
+                TWAMP Packet Loss Details ({scope.toUpperCase()}: {isSingleSite ? selectedSite : data?.entities?.join(', ') || 'All'})
               </h3>
               <p className="text-[11px] text-slate-400">
-                Total baris: {data?.table_rows?.length || 0}
+                Total rows: {data?.table_rows?.length || 0}
               </p>
             </div>
             <button
@@ -1666,7 +1666,7 @@ export default function PacketLossView({
                 {(!data || !data.table_rows || data.table_rows.length === 0) && (
                   <tr>
                     <td colSpan={8} className="text-center py-8 text-slate-400">
-                      Tidak ada data yang sesuai dengan filter.
+                      No data matches the filter.
                     </td>
                   </tr>
                 )}
@@ -1676,7 +1676,7 @@ export default function PacketLossView({
         </div>
       )}
 
-      {loading && <DataLoadingOverlay message="Menganalisis Packet Loss Telemetry..." />}
+      {loading && <DataLoadingOverlay message="Analyzing Packet Loss Telemetry..." />}
     </div>
   );
 }

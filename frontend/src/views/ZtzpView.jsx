@@ -59,9 +59,9 @@ export default function ZtzpView({ hierarchyData, darkMode, onOpenSite, onExport
     const f = result.filters;
     onExportData(async () => {
       const full = await getJson('/api/ztzp', { ...params(f, result.category, 0), date: result.date });
-      const cols = ['Cell Name', 'Site', 'Branch', 'NOP', 'Kabupaten', 'Kecamatan', 'Kategori', 'Availability (%)', 'Payload (MB)'];
+      const cols = ['Cell Name', 'Site', 'Branch', 'NOP', 'Kabupaten', 'Kecamatan', 'Category', 'Availability (%)', 'Payload (MB)'];
       if (full.has_traffic) cols.push('TCH Traffic (Erl)');
-      cols.push('Aging (hari)');
+      cols.push('Aging (days)');
       return {
         filename: `ZTZP_${full.tech.toUpperCase()}_${full.date}`,
         sheets: [
@@ -73,7 +73,7 @@ export default function ZtzpView({ hierarchyData, darkMode, onOpenSite, onExport
               ...(full.has_traffic ? [r.traffic_erl] : []), r.aging_capped ? `>=${r.aging_days}` : r.aging_days,
             ]),
           },
-          { name: 'Ringkasan', columns: ['Kategori', 'Jumlah Cell'], rows: Object.entries(full.counts) },
+          { name: 'Summary', columns: ['Category', 'Cell Count'], rows: Object.entries(full.counts) },
         ],
       };
     });
@@ -98,22 +98,22 @@ export default function ZtzpView({ hierarchyData, darkMode, onOpenSite, onExport
         darkMode={darkMode}
       >
         <div>
-          <FilterLabel>TANGGAL</FilterLabel>
+          <FilterLabel>DATE</FilterLabel>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className={dateCls} />
         </div>
       </CellScopeFilters>
 
       {result?.error && (
         <div className={`p-4 rounded-xl border flex items-center gap-3 text-xs ${darkMode ? 'bg-rose-950/40 border-rose-800 text-rose-200' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
-          <AlertTriangle className="w-5 h-5 text-rose-500" /> Gagal memuat ZTZP: {result.error}
+          <AlertTriangle className="w-5 h-5 text-rose-500" /> Failed to load ZTZP: {result.error}
         </div>
       )}
 
       {!result && !loading && (
         <div className={`py-16 text-center border-2 border-dashed rounded-2xl ${darkMode ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'}`}>
           <MousePointerClick className="w-8 h-8 mx-auto mb-2 opacity-50 text-blue-500" />
-          <p className="font-semibold text-sm">Belum ada data</p>
-          <p className="text-xs opacity-75 mt-1">Pilih teknologi, scope dan tanggal, lalu klik Generate.</p>
+          <p className="font-semibold text-sm">No data yet</p>
+          <p className="text-xs opacity-75 mt-1">Choose technology, scope and date, then click Generate.</p>
         </div>
       )}
 
@@ -127,7 +127,7 @@ export default function ZtzpView({ hierarchyData, darkMode, onOpenSite, onExport
               <span>•</span><span>{result.date}</span>
               <span className="opacity-60">
                 • Availability ≥{result.rules.avail_ok}% & payload &lt;{result.rules.low_limit} MB{hasTraffic ? ` / traffic <${result.rules.low_limit} Erl` : ''};
-                Availability Issue &lt;{result.rules.avail_down}%; aging maks. {result.aging_window} hari
+                Availability Issue &lt;{result.rules.avail_down}%; aging max {result.aging_window} days
               </span>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -145,7 +145,7 @@ export default function ZtzpView({ hierarchyData, darkMode, onOpenSite, onExport
               ))}
               {category && (
                 <button type="button" onClick={() => pickCategory(category)} className="px-3 py-1 rounded-full text-[11px] font-bold border cursor-pointer">
-                  Tampilkan semua
+                  Show all
                 </button>
               )}
             </div>
@@ -155,16 +155,16 @@ export default function ZtzpView({ hierarchyData, darkMode, onOpenSite, onExport
             <table className="min-w-full text-[11px] whitespace-nowrap">
               <thead className="sticky top-0">
                 <tr className={head}>
-                  {['#', 'Cell Name', 'Branch', 'NOP', 'Kabupaten', 'Kecamatan', 'Kategori', 'Avail (%)', 'Payload (MB)', hasTraffic ? 'Traffic (Erl)' : null, 'Aging (hari)']
+                  {['#', 'Cell Name', 'Branch', 'NOP', 'Kabupaten', 'Kecamatan', 'Category', 'Avail (%)', 'Payload (MB)', hasTraffic ? 'Traffic (Erl)' : null, 'Aging (days)']
                     .filter(Boolean).map(h => <th key={h} className="px-3 py-1.5 text-left font-bold text-[10px] uppercase tracking-wider">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {result.rows.length === 0 && (
-                  <tr><td colSpan={11} className="px-3 py-3 opacity-60">Tidak ada cell ZTZP untuk filter ini.</td></tr>
+                  <tr><td colSpan={11} className="px-3 py-3 opacity-60">No ZTZP cells for this filter.</td></tr>
                 )}
                 {result.rows.map((r, i) => (
-                  <tr key={r.cell} onClick={() => onOpenSite(result.tech, r.site)} className={`border-t cursor-pointer ${rowCls}`} title={`Buka grafik sektor ${r.site}`}>
+                  <tr key={r.cell} onClick={() => onOpenSite(result.tech, r.site)} className={`border-t cursor-pointer ${rowCls}`} title={`Open sector charts for ${r.site}`}>
                     <td className="px-3 py-1.5 opacity-60">{i + 1}</td>
                     <td className="px-3 py-1.5 font-semibold max-w-80 truncate">{r.cell}</td>
                     <td className="px-3 py-1.5">{r.branch || '–'}</td>
@@ -187,10 +187,10 @@ export default function ZtzpView({ hierarchyData, darkMode, onOpenSite, onExport
           </div>
           {result.total > result.returned && (
             <div className="px-4 py-2 text-[11px] opacity-70 border-t border-inherit">
-              Menampilkan {result.returned.toLocaleString('id-ID')} dari {result.total.toLocaleString('id-ID')} cell (aging terlama dulu). Export Excel berisi seluruh daftar.
+              Showing {result.returned.toLocaleString('id-ID')} of {result.total.toLocaleString('id-ID')} cells (longest aging first). The Excel export has the full list.
             </div>
           )}
-          {loading && <DataLoadingOverlay message="Menganalisis Zero Traffic Zero Payload..." />}
+          {loading && <DataLoadingOverlay message="Analyzing Zero Traffic Zero Payload..." />}
     </div>
       )}
     </>

@@ -17,7 +17,7 @@ export default function PropertiesPanel({ props: p, rows, sectors, open, onOpenC
         className={`fixed bottom-5 right-5 z-40 flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold shadow-lg transition cursor-pointer ${
           open ? 'bg-slate-700 text-white' : 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-500/30'
         }`}
-        title="Tampilkan 4G Properties (CompilePowerRet)"
+        title="Show 4G Properties (CompilePowerRet)"
       >
         <Table2 className="w-4 h-4" />
         <span>4G Properties</span>
@@ -41,16 +41,16 @@ export default function PropertiesPanel({ props: p, rows, sectors, open, onOpenC
             </span>
             <span className="opacity-60">{rows.length} cell</span>
           </div>
-          <button type="button" onClick={() => onOpenChange(false)} className="p-1 rounded hover:bg-slate-500/15 cursor-pointer" title="Tutup">
+          <button type="button" onClick={() => onOpenChange(false)} className="p-1 rounded hover:bg-slate-500/15 cursor-pointer" title="Close">
             <X className="w-4 h-4" />
           </button>
         </div>
 
         <div className="flex-1 overflow-auto">
-          {p.loading && <div className="p-6 text-xs opacity-70">Memuat properties...</div>}
-          {!p.loading && p.error && <div className="p-6 text-xs text-rose-500">Gagal memuat: {p.error}</div>}
+          {p.loading && <div className="p-6 text-xs opacity-70">Loading properties...</div>}
+          {!p.loading && p.error && <div className="p-6 text-xs text-rose-500">Failed to load: {p.error}</div>}
           {!p.loading && !p.error && p.loaded && rows.length === 0 && (
-            <div className="p-6 text-xs opacity-70">Tidak ada data properties untuk sektor ini.</div>
+            <div className="p-6 text-xs opacity-70">No properties data for this sector.</div>
           )}
           {!p.loading && rows.length > 0 && (
             <table className="min-w-full text-[11px] whitespace-nowrap">

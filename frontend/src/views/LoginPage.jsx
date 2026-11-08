@@ -5,7 +5,7 @@ import DataLoadingOverlay from '../components/DataLoadingOverlay';
 
 const BG_THEMES = {
   sky: {
-    name: 'Sky Light (Terang)',
+    name: 'Sky Light',
     pageBg: 'linear-gradient(135deg, #f0f7ff 0%, #dbeafe 52%, #bae6fd 100%)',
     panelBg: 'rgba(255, 255, 255, 0.86)',
     panelBorder: 'rgba(2, 132, 199, 0.28)',
@@ -94,7 +94,7 @@ export default function LoginPage({ onLoginSuccess }) {
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [showSplash, setShowSplash] = useState(false);
   const [splashProgress, setSplashProgress] = useState(0);
-  const [splashText, setSplashText] = useState('Menginisialisasi Geodesic Core NetPulse...');
+  const [splashText, setSplashText] = useState('Initializing NetPulse Geodesic Core...');
 
   // Auth Form State
   const [authTab, setAuthTab] = useState('signin'); // 'signin' | 'signup'
@@ -182,7 +182,7 @@ export default function LoginPage({ onLoginSuccess }) {
   const runSplashIntro = () => {
     setShowSplash(true);
     setSplashProgress(0);
-    setSplashText('Menginisialisasi Geodesic Core NetPulse...');
+    setSplashText('Initializing NetPulse Geodesic Core...');
     let prog = 0;
     const timer = setInterval(() => {
       prog += 7;
@@ -190,11 +190,11 @@ export default function LoginPage({ onLoginSuccess }) {
       setSplashProgress(prog);
 
       if (prog >= 30 && prog < 60) {
-        setSplashText('Menyinkronkan Gelombang Detak Jaringan...');
+        setSplashText('Syncing the network pulse...');
       } else if (prog >= 60 && prog < 90) {
-        setSplashText('Memverifikasi Enkripsi Portal Login...');
+        setSplashText('Verifying login portal encryption...');
       } else if (prog >= 90) {
-        setSplashText('Selamat Datang di NetPulse!');
+        setSplashText('Welcome to NetPulse!');
         playPulseBeep(true);
       }
 
@@ -229,7 +229,7 @@ export default function LoginPage({ onLoginSuccess }) {
     setSuccessMsg('');
 
     if (!username.trim() || !password) {
-      setErrorMsg('Harap masukkan Username dan Kata Sandi.');
+      setErrorMsg('Please enter your username and password.');
       return;
     }
 
@@ -241,7 +241,7 @@ export default function LoginPage({ onLoginSuccess }) {
       });
 
       if (data?.success) {
-        setSuccessMsg('Otentikasi Berhasil! Mengalihkan ke Dashboard...');
+        setSuccessMsg('Signed in! Redirecting to the dashboard...');
         if (rememberMe) {
           setAuthSession(data.token, data.user);
         } else {
@@ -255,10 +255,10 @@ export default function LoginPage({ onLoginSuccess }) {
           }
         }, 600);
       } else {
-        setErrorMsg(data?.error || 'Login gagal. Periksa username dan password Anda.');
+        setErrorMsg(data?.error || 'Login failed. Check your username and password.');
       }
     } catch (err) {
-      setErrorMsg(err.message || 'Kombinasi Username dan Kata Sandi tidak cocok.');
+      setErrorMsg(err.message || 'Username and password do not match.');
     } finally {
       setLoading(false);
     }
@@ -269,7 +269,7 @@ export default function LoginPage({ onLoginSuccess }) {
     setUsername('ilo');
     setPassword('ijo');
     setErrorMsg('');
-    setSuccessMsg('Kredensial Otorisasi NOC Diisi Otomatis. Silakan Klik "Masuk".');
+    setSuccessMsg('NOC credentials filled in automatically. Click "Sign In".');
   };
 
   // Canvas Animation Loops
@@ -651,7 +651,7 @@ export default function LoginPage({ onLoginSuccess }) {
       )}
       {loading && (
         <DataLoadingOverlay
-          message="Memverifikasi Kredensial & Enkripsi Portal..."
+          message="Verifying credentials & portal encryption..."
         />
       )}
 
@@ -686,7 +686,7 @@ export default function LoginPage({ onLoginSuccess }) {
           onMouseMove={handleHeroMouseMove}
           onMouseLeave={handleHeroMouseLeave}
           className="w-full flex flex-col items-center justify-between text-center min-h-[460px] sm:min-h-[520px] lg:min-h-[580px] cursor-pointer select-none relative"
-          title="Klik untuk memicu akselerasi pulse ke kanan"
+          title="Click to speed up the pulse"
         >
           {/* Transparent open corridor for 3D Fibonacci rotating sphere & ECG laser line */}
           <div className="flex-1 w-full min-h-[160px] sm:min-h-[220px] pointer-events-none" />
@@ -737,7 +737,7 @@ export default function LoginPage({ onLoginSuccess }) {
                 Welcome
               </h1>
               <p className="text-xs sm:text-sm mt-1 text-teal-100/80">
-                Masuk ke dashboard pemantauan infrastruktur & diagnostik jaringan Anda.
+                Sign in to your network monitoring & diagnostics dashboard.
               </p>
             </div>
 
@@ -769,7 +769,7 @@ export default function LoginPage({ onLoginSuccess }) {
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Masukkan user"
+                    placeholder="Enter username"
                     required
                     className="w-full pl-3.5 pr-10 py-2.5 rounded-xl text-sm transition focus:outline-none focus:ring-2 focus:ring-teal-400 bg-slate-900/80 border border-teal-500/30 text-white placeholder-slate-400"
                   />
@@ -789,7 +789,7 @@ export default function LoginPage({ onLoginSuccess }) {
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Masukkan password"
+                    placeholder="Enter password"
                     required
                     className="w-full pl-3.5 pr-16 py-2.5 rounded-xl text-sm transition focus:outline-none focus:ring-2 focus:ring-teal-400 bg-slate-900/80 border border-teal-500/30 text-white placeholder-slate-400"
                   />
@@ -809,7 +809,7 @@ export default function LoginPage({ onLoginSuccess }) {
                 disabled={loading}
                 className="w-full mt-2 py-3 px-4 rounded-xl font-bold text-sm text-slate-950 bg-gradient-to-r from-teal-400 via-cyan-400 to-blue-500 hover:from-teal-300 hover:to-cyan-400 shadow-[0_0_25px_rgba(45,212,191,0.35)] hover:shadow-[0_0_35px_rgba(45,212,191,0.6)] transition transform active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
               >
-                <span>{loading ? 'Memverifikasi...' : 'Login'}</span>
+                <span>{loading ? 'Verifying...' : 'Login'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>

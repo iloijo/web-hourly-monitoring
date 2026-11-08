@@ -127,7 +127,7 @@ export default function ScopeFilterPanel({ km, siteNamesMap, darkMode, activeMen
             selectedValues={km.selectedNops}
             onChange={km.handleNopsChange}
             isMulti={isFull}
-            placeholder="Pilih NOP..."
+            placeholder="Select NOP..."
             darkMode={darkMode}
             minWidth="min-w-48"
           />
@@ -143,7 +143,7 @@ export default function ScopeFilterPanel({ km, siteNamesMap, darkMode, activeMen
             selectedValues={km.cityFilterNops}
             onChange={(list) => km.handleCityNopsChange(list, km.nopOptions)}
             isMulti={true}
-            placeholder="Pilih NOP..."
+            placeholder="Select NOP..."
             darkMode={darkMode}
             minWidth="min-w-44"
           />
@@ -153,7 +153,7 @@ export default function ScopeFilterPanel({ km, siteNamesMap, darkMode, activeMen
             selectedValues={km.selectedCities}
             onChange={km.handleCitiesChange}
             isMulti={isFull}
-            placeholder="Pilih City..."
+            placeholder="Select City..."
             darkMode={darkMode}
             minWidth="min-w-48"
           />
@@ -171,7 +171,7 @@ export default function ScopeFilterPanel({ km, siteNamesMap, darkMode, activeMen
             selectedValues={km.selectedKecamatans}
             onChange={km.handleKecamatansChange}
             isMulti={isFull}
-            placeholder="Pilih Kecamatan..."
+            placeholder="Select Kecamatan..."
             darkMode={darkMode}
             minWidth="min-w-48"
           />
@@ -187,7 +187,7 @@ export default function ScopeFilterPanel({ km, siteNamesMap, darkMode, activeMen
             selectedValues={km.selectedSites}
             onChange={km.handleSitesChange}
             isMulti={isFull}
-            placeholder="Pilih Site..."
+            placeholder="Select Site..."
             darkMode={darkMode}
             minWidth="min-w-64"
           />

@@ -37,13 +37,13 @@ export default function CellScopeFilters({
   return (
     <div className={`rounded-xl border p-4 shadow-2xs space-y-3 ${darkMode ? 'bg-slate-800/80 border-slate-700/80' : 'bg-white border-slate-200/90'}`}>
       <div className="flex flex-wrap items-end gap-4">
-        <SegmentedToggle label="TEKNOLOGI" options={TECH_OPTIONS} value={filters.tech} onChange={(tech) => update({ tech })} darkMode={darkMode} />
+        <SegmentedToggle label="TECHNOLOGY" options={TECH_OPTIONS} value={filters.tech} onChange={(tech) => update({ tech })} darkMode={darkMode} />
         <SegmentedToggle label="SCOPE" options={SCOPE_OPTIONS} value={filters.scope} onChange={(scope) => update({ scope })} darkMode={darkMode} />
 
         {filters.scope === 'nop' && (
           <MultiSelectDropdown
             label="NOP" options={nopOptions} selectedValues={filters.nops} isMulti
-            onChange={(nops) => update({ nops }, true)} placeholder="Pilih NOP..." darkMode={darkMode} minWidth="min-w-44"
+            onChange={(nops) => update({ nops }, true)} placeholder="Select NOP..." darkMode={darkMode} minWidth="min-w-44"
           />
         )}
 
@@ -51,11 +51,11 @@ export default function CellScopeFilters({
           <>
             <MultiSelectDropdown
               label="NOP (filter)" options={nopOptions} selectedValues={filters.nops} isMulti
-              onChange={(nops) => update({ nops })} placeholder="Semua NOP" darkMode={darkMode} minWidth="min-w-40"
+              onChange={(nops) => update({ nops })} placeholder="All NOP" darkMode={darkMode} minWidth="min-w-40"
             />
             <MultiSelectDropdown
               label="KABUPATEN" options={cityOptions} selectedValues={filters.cities} isMulti
-              onChange={(cities) => update({ cities }, true)} placeholder="Pilih Kabupaten..." darkMode={darkMode} minWidth="min-w-48"
+              onChange={(cities) => update({ cities }, true)} placeholder="Select Kabupaten..." darkMode={darkMode} minWidth="min-w-48"
             />
           </>
         )}
@@ -63,12 +63,12 @@ export default function CellScopeFilters({
         {filters.scope === 'kecamatan' && (
           <>
             <SimpleSelect
-              label="KABUPATEN" value={filters.kecKab} options={['', ...allKabs].map(k => [k, k || 'Pilih...'])}
+              label="KABUPATEN" value={filters.kecKab} options={['', ...allKabs].map(k => [k, k || 'Select...'])}
               onChange={(kecKab) => update({ kecKab, kecamatans: [] })} darkMode={darkMode} bold
             />
             <MultiSelectDropdown
               label="KECAMATAN" options={kecOptions} selectedValues={filters.kecamatans} isMulti
-              onChange={(kecamatans) => update({ kecamatans }, true)} placeholder="Pilih Kecamatan..." darkMode={darkMode} minWidth="min-w-48"
+              onChange={(kecamatans) => update({ kecamatans }, true)} placeholder="Select Kecamatan..." darkMode={darkMode} minWidth="min-w-48"
             />
           </>
         )}

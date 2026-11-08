@@ -47,7 +47,7 @@ export default function WorstCellView({ hierarchyData, darkMode, onOpenSite, onE
       filename: `WorstCell_${result.tech.toUpperCase()}_${result.start_date}_${result.end_date}`,
       sheets: result.kpis.map(k => ({
         name: `${k.title} (${k.op}${k.threshold})`,
-        columns: ['Rank', 'Cell Name', 'Site', 'Branch', 'NOP', 'Kabupaten', 'Kecamatan', 'FAIL', `${k.title} (${k.unit})`, 'Hari Melanggar', 'Hari Data'],
+        columns: ['Rank', 'Cell Name', 'Site', 'Branch', 'NOP', 'Kabupaten', 'Kecamatan', 'FAIL', `${k.title} (${k.unit})`, 'Days Failing', 'Days With Data'],
         rows: k.rows.map((r, i) => [i + 1, r.cell, r.site, r.branch, r.nop, r.kabupaten, r.kecamatan, r.fail, r.value, r.days_breach, r.days]),
       })),
     }));
@@ -72,10 +72,10 @@ export default function WorstCellView({ hierarchyData, darkMode, onOpenSite, onE
         darkMode={darkMode}
       >
         <div>
-          <FilterLabel>TANGGAL</FilterLabel>
+          <FilterLabel>DATE</FilterLabel>
           <div className="flex items-center gap-1.5">
             <input type="date" value={dates.start} onChange={e => setDates({ ...dates, start: e.target.value })} className={dateCls} />
-            <span className="text-xs opacity-60">s/d</span>
+            <span className="text-xs opacity-60">to</span>
             <input type="date" value={dates.end} onChange={e => setDates({ ...dates, end: e.target.value })} className={dateCls} />
           </div>
         </div>
@@ -84,15 +84,15 @@ export default function WorstCellView({ hierarchyData, darkMode, onOpenSite, onE
 
       {result?.error && (
         <div className={`p-4 rounded-xl border flex items-center gap-3 text-xs ${darkMode ? 'bg-rose-950/40 border-rose-800 text-rose-200' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
-          <AlertTriangle className="w-5 h-5 text-rose-500" /> Gagal memuat Worst Cell: {result.error}
+          <AlertTriangle className="w-5 h-5 text-rose-500" /> Failed to load Worst Cell: {result.error}
         </div>
       )}
 
       {!result && !loading && (
         <div className={`py-16 text-center border-2 border-dashed rounded-2xl ${darkMode ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'}`}>
           <MousePointerClick className="w-8 h-8 mx-auto mb-2 opacity-50 text-blue-500" />
-          <p className="font-semibold text-sm">Belum ada data</p>
-          <p className="text-xs opacity-75 mt-1">Pilih teknologi, scope dan tanggal, lalu klik Generate.</p>
+          <p className="font-semibold text-sm">No data yet</p>
+          <p className="text-xs opacity-75 mt-1">Choose technology, scope and date, then click Generate.</p>
         </div>
       )}
 
@@ -104,8 +104,8 @@ export default function WorstCellView({ hierarchyData, darkMode, onOpenSite, onE
             <span>•</span>
             <span>{scopeLabel(result.filters)}</span>
             <span>•</span>
-            <span>{result.start_date === result.end_date ? result.start_date : `${result.start_date} s/d ${result.end_date} (${result.days} hari)`}</span>
-            <span className="opacity-60">• klik baris untuk membuka grafik sektor</span>
+            <span>{result.start_date === result.end_date ? result.start_date : `${result.start_date} to ${result.end_date} (${result.days} days)`}</span>
+            <span className="opacity-60">• click a row to open the sector charts</span>
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -123,16 +123,16 @@ export default function WorstCellView({ hierarchyData, darkMode, onOpenSite, onE
                   <table className="min-w-full text-[11px] whitespace-nowrap">
                     <thead>
                       <tr className={head}>
-                        {['#', 'Cell Name', 'Branch', 'NOP', 'Kabupaten', k.rank_by === 'fail' ? 'FAIL' : null, k.unit ? `${k.title} (${k.unit})` : k.title, isRange ? 'Hari' : null]
+                        {['#', 'Cell Name', 'Branch', 'NOP', 'Kabupaten', k.rank_by === 'fail' ? 'FAIL' : null, k.unit ? `${k.title} (${k.unit})` : k.title, isRange ? 'Days' : null]
                           .filter(Boolean).map(h => <th key={h} className="px-3 py-1.5 text-left font-bold text-[10px] uppercase tracking-wider">{h}</th>)}
                       </tr>
                     </thead>
                     <tbody>
                       {k.rows.length === 0 && (
-                        <tr><td colSpan={8} className="px-3 py-3 opacity-60">Tidak ada cell yang melanggar threshold.</td></tr>
+                        <tr><td colSpan={8} className="px-3 py-3 opacity-60">No cell breaches the threshold.</td></tr>
                       )}
                       {k.rows.map((r, i) => (
-                        <tr key={r.cell} onClick={() => onOpenSite(result.tech, r.site)} className={`border-t cursor-pointer ${rowCls}`} title={`Buka grafik sektor ${r.site}`}>
+                        <tr key={r.cell} onClick={() => onOpenSite(result.tech, r.site)} className={`border-t cursor-pointer ${rowCls}`} title={`Open sector charts for ${r.site}`}>
                           <td className="px-3 py-1.5 opacity-60">{i + 1}</td>
                           <td className="px-3 py-1.5 font-semibold max-w-72 truncate">{r.cell}</td>
                           <td className="px-3 py-1.5">{r.branch || '–'}</td>
@@ -148,7 +148,7 @@ export default function WorstCellView({ hierarchyData, darkMode, onOpenSite, onE
                 </div>
               </div>
             ))}
-            {loading && <DataLoadingOverlay message="Memuat Data Worst Cell..." />}
+            {loading && <DataLoadingOverlay message="Loading Worst Cell data..." />}
     </div>
         </>
       )}

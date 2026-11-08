@@ -134,11 +134,11 @@ export default function TimingAdvanceView({
         cell_type: filterType
       };
       const json = await getJson(endpoint, params);
-      if (json.status === 'error') throw new Error(json.message || 'Gagal memuat data');
+      if (json.status === 'error') throw new Error(json.message || 'Failed to load data');
       setData(json);
     } catch (err) {
       console.error('Error fetching TA data:', err);
-      setErrorMsg(err.message || 'Terjadi kesalahan saat memuat data');
+      setErrorMsg(err.message || 'An error occurred while loading data');
       setData(null);
     } finally {
       setLoading(false);
@@ -162,11 +162,11 @@ export default function TimingAdvanceView({
         cell_type: filterType
       };
       const json = await getJson('/api/timing_advance/compare', params);
-      if (json.status === 'error') throw new Error(json.message || 'Gagal memuat data komparasi');
+      if (json.status === 'error') throw new Error(json.message || 'Failed to load comparison data');
       setCompareData(json);
     } catch (err) {
       console.error('Error fetching TA compare data:', err);
-      setErrorMsg(err.message || 'Terjadi kesalahan saat memuat data komparasi');
+      setErrorMsg(err.message || 'An error occurred while loading comparison data');
       setCompareData(null);
     } finally {
       setLoading(false);
@@ -502,7 +502,7 @@ export default function TimingAdvanceView({
   // Export CSV
   const handleExportCSV = () => {
     if (!activeDataSource || !activeDataSource.table_rows || activeDataSource.table_rows.length === 0) {
-      alert('Tidak ada data tabel untuk diekspor');
+      alert('No table data to export');
       return;
     }
     const rows = activeDataSource.table_rows;
@@ -962,7 +962,7 @@ export default function TimingAdvanceView({
                     ) : (
                       <div className="h-80 flex flex-col items-center justify-center text-slate-400 text-xs">
                         <Layers className="w-7 h-7 mb-2 opacity-50" />
-                        <span>Tidak ada data untuk Sektor {secKey}</span>
+                        <span>No data for Sector {secKey}</span>
                       </div>
                     )}
                   </div>
@@ -1038,7 +1038,7 @@ export default function TimingAdvanceView({
                     ) : (
                       <div className="h-60 flex flex-col items-center justify-center text-slate-400 text-xs">
                         <Layers className="w-7 h-7 mb-2 opacity-50" />
-                        <span>Tidak ada data komparasi untuk Sektor {secKey}</span>
+                        <span>No comparison data for Sector {secKey}</span>
                       </div>
                     )}
                   </div>
@@ -1058,10 +1058,10 @@ export default function TimingAdvanceView({
           <div className="p-4 border-b flex items-center justify-between border-slate-100 dark:border-slate-800">
             <div>
               <h3 className="font-bold text-xs uppercase tracking-wider text-slate-500">
-                Data Rinci Timing Advance {tech.toUpperCase()} ({selectedSite}) {compareMode ? '— Compare Before vs After' : ''}
+                Timing Advance Details {tech.toUpperCase()} ({selectedSite}) {compareMode ? '— Compare Before vs After' : ''}
               </h3>
               <p className="text-[11px] text-slate-400">
-                Total baris: {activeDataSource?.table_rows?.length || 0}
+                Total rows: {activeDataSource?.table_rows?.length || 0}
               </p>
             </div>
             <button
@@ -1129,7 +1129,7 @@ export default function TimingAdvanceView({
                 {(!activeDataSource || !activeDataSource.table_rows || activeDataSource.table_rows.length === 0) && (
                   <tr>
                     <td colSpan={compareMode ? 7 : 6} className="text-center py-8 text-slate-400">
-                      Tidak ada data yang sesuai dengan filter.
+                      No data matches the filter.
                     </td>
                   </tr>
                 )}
@@ -1139,7 +1139,7 @@ export default function TimingAdvanceView({
         </div>
       )}
 
-      {loading && <DataLoadingOverlay message="Menghitung Distribusi Timing Advance..." />}
+      {loading && <DataLoadingOverlay message="Calculating Timing Advance Distribution..." />}
     </div>
   );
 }

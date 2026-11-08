@@ -137,7 +137,7 @@ export default function AppHeader({
                     ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
                     : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
                 }`}
-                title="Keluar (Logout)"
+                title="Logout"
               >
                 <LogOut className="w-3.5 h-3.5 text-rose-500" />
               </button>

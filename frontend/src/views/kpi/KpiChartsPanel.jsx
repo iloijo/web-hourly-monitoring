@@ -106,7 +106,7 @@ export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPer
         <div className={`p-5 rounded-2xl border flex items-center gap-4 ${darkMode ? 'bg-rose-950/40 border-rose-800/80 text-rose-200' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
           <AlertTriangle className="w-6 h-6 text-rose-500 shrink-0" />
           <div className="text-xs">
-            <div className="font-bold text-sm">Gagal memuat data grafik</div>
+            <div className="font-bold text-sm">Failed to load chart data</div>
             <p>{errorText}</p>
           </div>
         </div>
@@ -115,16 +115,16 @@ export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPer
       {missingType && (
         <div className={`mb-4 p-3 rounded-xl border text-xs flex items-center gap-2 ${darkMode ? 'bg-amber-950/40 border-amber-800 text-amber-200' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
           <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-          Site {km.siteId} tidak punya cell {km.filterType === 'indoor' ? 'Indoor' : 'Macro'}. Ganti Filter Type ke All untuk melihat semua cell.
+          Site {km.siteId} has no {km.filterType === 'indoor' ? 'Indoor' : 'Macro'} cells. Set Filter Type to All to see every cell.
         </div>
       )}
 
       {!hasResult && !km.loading && (
         <div className={`py-16 text-center border-2 border-dashed rounded-2xl ${darkMode ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'}`}>
           <MousePointerClick className="w-8 h-8 mx-auto mb-2 opacity-50 text-blue-500" />
-          <p className="font-semibold text-sm">Belum ada data</p>
+          <p className="font-semibold text-sm">No data yet</p>
           <p className="text-xs opacity-75 mt-1">
-            {scope === 'sector' ? 'Pilih Target Site atau klik Generate untuk memuat grafik.' : 'Atur filter lalu klik Generate untuk memuat grafik.'}
+            {scope === 'sector' ? 'Select a Target Site or click Generate to load the charts.' : 'Set the filters, then click Generate to load the charts.'}
           </p>
         </div>
       )}
@@ -133,8 +133,8 @@ export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPer
         {hasResult && kpiIds.length === 0 && (
           <div className={`col-span-full py-16 text-center border-2 border-dashed rounded-2xl ${darkMode ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'}`}>
             <SlidersHorizontal className="w-8 h-8 mx-auto mb-2 opacity-40 text-blue-500" />
-            <p className="font-semibold text-sm">Tidak ada KPI yang dipilih</p>
-            <p className="text-xs opacity-75 mt-1">Buka menu Filter KPI di atas untuk memilih metrik yang ingin ditampilkan.</p>
+            <p className="font-semibold text-sm">No KPI selected</p>
+            <p className="text-xs opacity-75 mt-1">Open Filter KPI above to choose the metrics to show.</p>
           </div>
         )}
 

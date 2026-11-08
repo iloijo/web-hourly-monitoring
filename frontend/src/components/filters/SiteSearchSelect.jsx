@@ -40,7 +40,7 @@ export default function SiteSearchSelect({ label = 'TARGET SITE', sites, siteNam
         <div className={`absolute top-full left-0 mt-1 w-80 border rounded-xl shadow-2xl z-50 p-2 text-xs space-y-1 ${menuPanelClass(darkMode)}`}>
           <input
             type="text"
-            placeholder="Cari Site ID atau Nama Site..."
+            placeholder="Search Site ID or Site Name..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             autoFocus
