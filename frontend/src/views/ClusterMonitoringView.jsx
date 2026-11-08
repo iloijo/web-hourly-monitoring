@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, BarChart3, ChevronDown, MousePointerClick, RefreshCw, Table2 } from 'lucide-react';
+import { AlertTriangle, BarChart3, ChevronDown, LayoutGrid, MousePointerClick, RefreshCw, Table2 } from 'lucide-react';
 import DataLoadingOverlay from '../components/DataLoadingOverlay';
 import KpiDropdownPopover from '../components/KpiDropdownPopover';
 import MultiSelectDropdown from '../components/MultiSelectDropdown';
@@ -107,7 +107,7 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
 
   const [setFilter, setSetFilter] = useState({ nops: [], cities: [], kecamatans: [] });
   const [tech, setTech] = useState('4g');
-  const [viewMode, setViewMode] = useState('chart');
+  const [viewMode, setViewMode] = useState('combine');
   const [range, setRange] = useState({ start: '', end: '' }); // chart date range (not saved)
   const [latest, setLatest] = useState('');
   const [chartMode, setChartMode] = useState('cluster');
@@ -230,6 +230,9 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
   const current = results[tech];
   const result = current?.data;
   const selectedKpis = kpiSel[tech];
+  const currentCatalog = catalogs[tech] || [];
+  const totalCatalogKpis = currentCatalog.length || (result?.kpis ? Object.keys(result.kpis).length : 0);
+  const isAllKpis = totalCatalogKpis > 0 && (selectedKpis || []).length >= totalCatalogKpis;
 
   // ---- export ----
   useEffect(() => {
@@ -276,6 +279,38 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
     { start: result.before.start, end: result.before.end, label: 'Before', color: PERIOD_COLORS.before },
     { start: result.after.start, end: result.after.end, label: 'After', color: PERIOD_COLORS.after },
   ] : [];
+
+  const renderCharts = () => {
+    if (!result) return null;
+    return (
+      <div className={`grid gap-4 ${gridClass(chartsPerRow)}`}>
+        {selectedKpis.map(id => {
+          const k = result.kpis[id];
+          if (!k) return null;
+          const byBand = chartMode === 'band';
+          return (
+            <SectorPayloadChart
+              key={`cluster_${tech}_${chartMode}_${id}`}
+              title={k.title}
+              unit={k.unit}
+              timestamps={result.timestamps}
+              carrierSeries={byBand ? k.band_series : { Cluster: k.cluster_series }}
+              carrierBands={byBand ? Object.fromEntries(result.bands.map(b => [b, b])) : { Cluster: 'ENTITY' }}
+              availableBands={byBand ? result.bands : null}
+              hasTotal={byBand && k.has_total}
+              minY={k.min_y}
+              maxY={k.max_y}
+              timeMode="daily"
+              darkMode={darkMode}
+              chartsPerRow={chartsPerRow}
+              markers={draft.markers}
+              periods={periods}
+            />
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -334,8 +369,8 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
         <div className="flex flex-wrap items-end justify-between gap-3 pb-4 mb-4 border-b border-slate-100 dark:border-slate-800">
           <div className="flex flex-wrap items-end gap-3">
             <SegmentedToggle label="TECHNOLOGY" options={TECHS} value={tech} onChange={setTech} darkMode={darkMode} />
-            <SegmentedToggle label="VIEW" options={[['chart', 'Chart'], ['table', 'Table']]} value={viewMode} onChange={setViewMode} darkMode={darkMode} />
-            {viewMode === 'chart' && (
+            <SegmentedToggle label="VIEW" options={[['combine', 'Combine'], ['chart', 'Chart'], ['table', 'Table']]} value={viewMode} onChange={setViewMode} darkMode={darkMode} />
+            {(viewMode === 'chart' || viewMode === 'combine') && (
               <SegmentedToggle label="CURVE" options={[['cluster', 'Cluster'], ['band', 'Per Band']]} value={chartMode} onChange={setChartMode} darkMode={darkMode} />
             )}
             <ClusterKpiFilter
@@ -354,7 +389,13 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
           {result && (
             <div className={`text-[11px] font-semibold text-right ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>
               <div className="flex items-center gap-1.5 justify-end">
-                {viewMode === 'chart' ? <BarChart3 className="w-3.5 h-3.5 text-blue-500" /> : <Table2 className="w-3.5 h-3.5 text-blue-500" />}
+                {viewMode === 'chart' ? (
+                  <BarChart3 className="w-3.5 h-3.5 text-blue-500" />
+                ) : viewMode === 'table' ? (
+                  <Table2 className="w-3.5 h-3.5 text-blue-500" />
+                ) : (
+                  <LayoutGrid className="w-3.5 h-3.5 text-blue-500" />
+                )}
                 {draft.name || 'Custom cluster'} • {result.tech.toUpperCase()} • {result.start_date} – {result.end_date}
               </div>
               <div className="opacity-70">
@@ -387,35 +428,19 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
         )}
 
         {result && viewMode === 'table' && (
-          <ClusterTable result={result} kpiIds={selectedKpis} siteNamesMap={siteNamesMap} darkMode={darkMode} />
+          <ClusterTable result={result} kpiIds={selectedKpis} siteNamesMap={siteNamesMap} darkMode={darkMode} fullHeight={isAllKpis} />
         )}
 
-        {result && viewMode === 'chart' && (
-          <div className={`grid gap-4 ${gridClass(chartsPerRow)}`}>
-            {selectedKpis.map(id => {
-              const k = result.kpis[id];
-              if (!k) return null;
-              const byBand = chartMode === 'band';
-              return (
-                <SectorPayloadChart
-                  key={`cluster_${tech}_${chartMode}_${id}`}
-                  title={k.title}
-                  unit={k.unit}
-                  timestamps={result.timestamps}
-                  carrierSeries={byBand ? k.band_series : { Cluster: k.cluster_series }}
-                  carrierBands={byBand ? Object.fromEntries(result.bands.map(b => [b, b])) : { Cluster: 'ENTITY' }}
-                  availableBands={byBand ? result.bands : null}
-                  hasTotal={byBand && k.has_total}
-                  minY={k.min_y}
-                  maxY={k.max_y}
-                  timeMode="daily"
-                  darkMode={darkMode}
-                  chartsPerRow={chartsPerRow}
-                  markers={draft.markers}
-                  periods={periods}
-                />
-              );
-            })}
+        {result && viewMode === 'chart' && renderCharts()}
+
+        {result && viewMode === 'combine' && (
+          <div className="flex flex-col lg:flex-row gap-4 items-start">
+            <div className="w-full lg:w-[calc(65%-8px)] min-w-0">
+              {renderCharts()}
+            </div>
+            <div className={`w-full lg:w-[calc(35%-8px)] min-w-0 ${isAllKpis ? '' : 'lg:sticky lg:top-4'}`}>
+              <ClusterTable result={result} kpiIds={selectedKpis} siteNamesMap={siteNamesMap} darkMode={darkMode} compact fullHeight={isAllKpis} />
+            </div>
           </div>
         )}
 
