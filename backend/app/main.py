@@ -27,6 +27,8 @@ from .queries_properties import get_site_properties
 from .queries_scope_4g import get_scope_aggregation_data, get_hourly_scope_aggregation_data
 from .queries_worstcell import get_worst_cells, get_ztzp
 from .export_xlsx import build_workbook, safe_filename
+from .queries_cluster import get_cluster_compare, get_site_sectors
+from . import clusters as cluster_store
 
 # Short-lived result cache: switching back to a scope/site already viewed returns instantly.
 # Data only changes when the auto import runs (every 2 h), so 10 minutes is safe.
@@ -72,6 +74,7 @@ get_twamp_scope_aggregation = _cached(get_twamp_scope_aggregation)
 get_site_properties = _cached(get_site_properties)
 get_worst_cells = _cached(get_worst_cells)
 get_ztzp = _cached(get_ztzp)
+get_cluster_compare = _cached(get_cluster_compare)
 
 app = FastAPI(title="netPulse - KPI Monitoring Dashboard", version="3.8.0")
 
@@ -102,7 +105,7 @@ async def basic_auth(request: Request, call_next):
     # Return 401 JSON without WWW-Authenticate header to prevent native browser login dialog
     return JSONResponse(
         status_code=401,
-        content={"error": "Unauthorized", "message": "Autentikasi diperlukan untuk mengakses data netPulse."}
+        content={"error": "Unauthorized", "message": "Authentication is required to access netPulse data."}
     )
 
 @app.post("/api/auth/login")
@@ -121,7 +124,7 @@ def api_login(payload: LoginPayload):
 
     return JSONResponse(
         status_code=401,
-        content={"error": "Kombinasi Username dan Kata Sandi tidak cocok."}
+        content={"error": "Username and password do not match."}
     )
 
 @app.get("/api/auth/check")
@@ -718,6 +721,70 @@ def get_packet_loss_aggregation_endpoint(
         sites=sites
     )
 
+# =============================================================================
+# Cluster Monitoring: saved clusters (shared, onedb) and before/after comparison
+# =============================================================================
+def _cluster_error(e: Exception) -> JSONResponse:
+    if isinstance(e, ValueError):
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    if isinstance(e, LookupError):
+        return JSONResponse(status_code=404, content={"error": str(e)})
+    if getattr(e, "pgcode", None) == "23505":
+        return JSONResponse(status_code=409, content={"error": "That cluster name is already taken."})
+    return JSONResponse(status_code=503, content={"error": str(e)})
+
+@app.get("/api/clusters")
+def list_clusters_endpoint():
+    try:
+        return {"clusters": cluster_store.list_clusters()}
+    except Exception as e:
+        return _cluster_error(e)
+
+@app.post("/api/clusters")
+async def create_cluster_endpoint(request: Request):
+    try:
+        return cluster_store.save_cluster(await request.json())
+    except Exception as e:
+        return _cluster_error(e)
+
+@app.put("/api/clusters/{cluster_id}")
+async def update_cluster_endpoint(cluster_id: int, request: Request):
+    try:
+        return cluster_store.save_cluster(await request.json(), cluster_id)
+    except Exception as e:
+        return _cluster_error(e)
+
+@app.delete("/api/clusters/{cluster_id}")
+def delete_cluster_endpoint(cluster_id: int):
+    try:
+        if not cluster_store.delete_cluster(cluster_id):
+            raise LookupError("Cluster not found.")
+        return {"deleted": cluster_id}
+    except Exception as e:
+        return _cluster_error(e)
+
+@app.get("/api/cluster/site_sectors")
+def cluster_site_sectors_endpoint():
+    """{site_id: [sectors]} of the 4G reference, for the Site Sector picker."""
+    try:
+        return {"site_sectors": get_site_sectors()}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/api/cluster/compare")
+async def cluster_compare_endpoint(request: Request):
+    """Body: {tech, members: ["UPD012", "UPD003_1"], start_date, end_date, before_start, before_end, after_start, after_end}."""
+    body = await request.json()
+    try:
+        return get_cluster_compare(
+            tech=str(body.get("tech") or "4g"),
+            members=sorted({str(m).strip().upper() for m in body.get("members") or []}),
+            **{k: body.get(k) or None for k in
+               ("start_date", "end_date", "before_start", "before_end", "after_start", "after_end")},
+        )
+    except Exception as e:
+        return JSONResponse(status_code=400 if isinstance(e, ValueError) else 500, content={"error": str(e)})
+
 # Static file serving for React frontend production build
 DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 if DIST_DIR.exists() and (DIST_DIR / "index.html").exists():
@@ -728,7 +795,7 @@ if DIST_DIR.exists() and (DIST_DIR / "index.html").exists():
         # Unknown API paths get a clear 404 instead of the app's HTML (e.g. a server older than the frontend)
         if full_path.startswith("api/"):
             return Response(
-                content='{"error": "Endpoint tidak ada di server ini. Restart start_dashboard.bat."}',
+                content='{"error": "Endpoint not found on this server. Restart start_dashboard.bat."}',
                 status_code=404, media_type="application/json",
             )
         file_path = DIST_DIR / full_path

@@ -616,6 +616,48 @@ def get_site_payload_2g_data(
     }
 
 
+# Daily KPI select list on measDy2g (alias m), shared by the scope and cluster aggregations
+KPI_2G_SELECT = """
+    -- 1. Traffic & Payload
+    ROUND((SUM(m."GPRS Payload (Mbyte)_ono" + m."EDGE Payload (Mbyte)_ono") / 1024.0)::numeric, 3) as payload_total,
+    ROUND((SUM(m."GPRS Payload (Mbyte)_ono") / 1024.0)::numeric, 3) as payload_gprs,
+    ROUND((SUM(m."EDGE Payload (Mbyte)_ono") / 1024.0)::numeric, 3) as payload_edge,
+    ROUND(SUM(m."TCH Traffic (Erl)_ono")::numeric, 2) as tch_traffic,
+    ROUND(AVG(m."SDCCH Traffic (Erl)_ono")::numeric, 2) as sdcch_traffic,
+    ROUND(AVG(m."TCH HR Traffic (Erl)_ono")::numeric, 2) as tch_hr_traffic,
+    ROUND(AVG(m."TCH FR Traffic (Erl)_ono")::numeric, 2) as tch_fr_traffic,
+    -- 2. Accessibility
+    ROUND(AVG(m."TCH Availability (%%)_Ono" * 100)::numeric, 2) as availability,
+    ROUND(AVG(m."SDSR (%%)_ono" * 100)::numeric, 2) as sdsr,
+    ROUND(AVG(m."SD to TCH Success Rate (%%)" * 100)::numeric, 2) as sd_to_tch_sr,
+    ROUND(AVG(m."TCH Blocking Rate (%%)_ono" * 100)::numeric, 2) as tch_block_rate,
+    ROUND(AVG(m."SDCCH Blocking Rate (%%)_ono" * 100)::numeric, 2) as sdcch_block_rate,
+    ROUND(AVG(m."TBF_DL Est_SR (%%)_ono" * 100)::numeric, 2) as tbf_dl_est_sr,
+    ROUND(AVG(m."TBF_UL Est_SR (%%)_ono" * 100)::numeric, 2) as tbf_ul_est_sr,
+    -- 3. Retainability
+    ROUND(AVG(m."TCH Drop Rate (%%)_ono" * 100)::numeric, 4) as tch_drop_rate,
+    ROUND(AVG(m."TBF Completion_SR (%%)_ono" * 100)::numeric, 2) as tbf_comp_sr,
+    -- 4. Mobility
+    ROUND(AVG(m."HOSR (%%)_ono" * 100)::numeric, 2) as hosr,
+    ROUND(SUM(m."Number of fastreturn to LTE")::numeric, 0) as fastreturn_lte,
+    ROUND(SUM(m."Number of fastreturn to UTRAN")::numeric, 0) as fastreturn_utran,
+    -- 5. Throughput
+    ROUND(AVG(m."EDGE DL_Throughput (kbps)_ono")::numeric, 2) as edge_dl_thp,
+    ROUND(AVG(m."GPRS DL_Throughput (kbps)_ono")::numeric, 2) as gprs_dl_thp,
+    -- 6. Quality & Interference
+    ROUND(AVG(m."DL Qual 0-5 (%%)_Ono" * 100)::numeric, 2) as dl_qual,
+    ROUND(AVG(m."UL Qual 0-5 (%%)_Ono" * 100)::numeric, 2) as ul_qual,
+    ROUND(AVG(m."ICM_INTERFERENCE (%%)_Ono" * 100)::numeric, 2) as icm_interference,
+    ROUND(AVG(m."DL_EMI_Ono")::numeric, 2) as dl_emi,
+    ROUND(AVG(m."UL_EMI_Ono")::numeric, 2) as ul_emi,
+    -- 7. Capacity
+    ROUND(AVG(m."Number of TRX")::numeric, 0) as trx_count,
+    ROUND(AVG(m."Number of TCH")::numeric, 0) as tch_count,
+    ROUND(AVG(m."Number of SDCCH")::numeric, 0) as sdcch_count,
+    ROUND(AVG(m."Number of dynamic PDTCH")::numeric, 0) as pdtch_dynamic
+"""
+
+
 def get_scope_aggregation_2g_data(
     scope: str = "regional",
     mode: str = "full",
@@ -743,43 +785,7 @@ def get_scope_aggregation_2g_data(
         SELECT 
             m."Begin Time"::date as dt,
             {series_key_sql} as series_key,
-            -- 1. Traffic & Payload
-            ROUND((SUM(m."GPRS Payload (Mbyte)_ono" + m."EDGE Payload (Mbyte)_ono") / 1024.0)::numeric, 3) as payload_total,
-            ROUND((SUM(m."GPRS Payload (Mbyte)_ono") / 1024.0)::numeric, 3) as payload_gprs,
-            ROUND((SUM(m."EDGE Payload (Mbyte)_ono") / 1024.0)::numeric, 3) as payload_edge,
-            ROUND(SUM(m."TCH Traffic (Erl)_ono")::numeric, 2) as tch_traffic,
-            ROUND(AVG(m."SDCCH Traffic (Erl)_ono")::numeric, 2) as sdcch_traffic,
-            ROUND(AVG(m."TCH HR Traffic (Erl)_ono")::numeric, 2) as tch_hr_traffic,
-            ROUND(AVG(m."TCH FR Traffic (Erl)_ono")::numeric, 2) as tch_fr_traffic,
-            -- 2. Accessibility
-            ROUND(AVG(m."TCH Availability (%%)_Ono" * 100)::numeric, 2) as availability,
-            ROUND(AVG(m."SDSR (%%)_ono" * 100)::numeric, 2) as sdsr,
-            ROUND(AVG(m."SD to TCH Success Rate (%%)" * 100)::numeric, 2) as sd_to_tch_sr,
-            ROUND(AVG(m."TCH Blocking Rate (%%)_ono" * 100)::numeric, 2) as tch_block_rate,
-            ROUND(AVG(m."SDCCH Blocking Rate (%%)_ono" * 100)::numeric, 2) as sdcch_block_rate,
-            ROUND(AVG(m."TBF_DL Est_SR (%%)_ono" * 100)::numeric, 2) as tbf_dl_est_sr,
-            ROUND(AVG(m."TBF_UL Est_SR (%%)_ono" * 100)::numeric, 2) as tbf_ul_est_sr,
-            -- 3. Retainability
-            ROUND(AVG(m."TCH Drop Rate (%%)_ono" * 100)::numeric, 4) as tch_drop_rate,
-            ROUND(AVG(m."TBF Completion_SR (%%)_ono" * 100)::numeric, 2) as tbf_comp_sr,
-            -- 4. Mobility
-            ROUND(AVG(m."HOSR (%%)_ono" * 100)::numeric, 2) as hosr,
-            ROUND(SUM(m."Number of fastreturn to LTE")::numeric, 0) as fastreturn_lte,
-            ROUND(SUM(m."Number of fastreturn to UTRAN")::numeric, 0) as fastreturn_utran,
-            -- 5. Throughput
-            ROUND(AVG(m."EDGE DL_Throughput (kbps)_ono")::numeric, 2) as edge_dl_thp,
-            ROUND(AVG(m."GPRS DL_Throughput (kbps)_ono")::numeric, 2) as gprs_dl_thp,
-            -- 6. Quality & Interference
-            ROUND(AVG(m."DL Qual 0-5 (%%)_Ono" * 100)::numeric, 2) as dl_qual,
-            ROUND(AVG(m."UL Qual 0-5 (%%)_Ono" * 100)::numeric, 2) as ul_qual,
-            ROUND(AVG(m."ICM_INTERFERENCE (%%)_Ono" * 100)::numeric, 2) as icm_interference,
-            ROUND(AVG(m."DL_EMI_Ono")::numeric, 2) as dl_emi,
-            ROUND(AVG(m."UL_EMI_Ono")::numeric, 2) as ul_emi,
-            -- 7. Capacity
-            ROUND(AVG(m."Number of TRX")::numeric, 0) as trx_count,
-            ROUND(AVG(m."Number of TCH")::numeric, 0) as tch_count,
-            ROUND(AVG(m."Number of SDCCH")::numeric, 0) as sdcch_count,
-            ROUND(AVG(m."Number of dynamic PDTCH")::numeric, 0) as pdtch_dynamic
+            {KPI_2G_SELECT}
         FROM "measDy2g" m
         JOIN "CellList2G" c ON m."SITE Name" = c."SITE Name"
         {kec_join}

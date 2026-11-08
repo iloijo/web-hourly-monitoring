@@ -643,6 +643,49 @@ def get_site_payload_5g_data(
     }
 
 
+# Daily KPI select list on measDy5g (alias m), shared by the scope and cluster aggregations
+KPI_5G_SELECT = """
+    -- KPIs
+    ROUND(SUM(m."Payload(GB)_LW")::numeric, 2) as payload,
+    ROUND(SUM(m."Payload_DL(GB)_LW")::numeric, 2) as payload_dl,
+    ROUND(SUM(m."Payload_UL(GB)_LW")::numeric, 2) as payload_ul,
+    ROUND(AVG(m."User_Throughput_DL(Mbps)_LW")::numeric, 2) as user_dl_thp,
+    ROUND(AVG(m."User_Throughput_UL(Mbps)_LW")::numeric, 2) as user_ul_thp,
+    ROUND(AVG(m."Cell_Throughput_DL(Mbps)_LW")::numeric, 2) as cell_dl_thp,
+    ROUND(AVG(m."Cell_Throughput_UL(Mbps)_LW")::numeric, 2) as cell_ul_thp,
+    ROUND(AVG(m."Spectrum_Eff-XHJ_1646720283375")::numeric, 2) as spectrum_efficiency,
+    ROUND(AVG(m."SN_Setup_Success_Rate(%%)_LW" * 100)::numeric, 2) as sn_setup_sr,
+    ROUND(AVG(m."Availability(%%)_LW" * 100)::numeric, 2) as availability,
+    ROUND(AVG(m."NR_Retainability(%%)_LW" * 100)::numeric, 4) as retainability,
+    ROUND(AVG(m."Packet_Loss(%%)_LW" * 100)::numeric, 4) as packet_loss,
+    ROUND(AVG(m."Intra_Handover_Success_Rate(%%)_LW" * 100)::numeric, 2) as intra_ho_sr,
+    ROUND(AVG(m."Inter_Handover_Success_Rate(%%)_LW" * 100)::numeric, 2) as inter_ho_sr,
+    ROUND(AVG(m."PRB_Utilization_DL(%%)_LW" * 100)::numeric, 2) as dl_prb,
+    ROUND(AVG(m."PRB_Utilization_UL(%%)_LW" * 100)::numeric, 2) as ul_prb,
+    ROUND(AVG(m."Active_User_Number_LW")::numeric, 2) as active_users,
+    ROUND(AVG(m."RRC_User_Number_LW")::numeric, 2) as rrc_users,
+    ROUND(MAX(m."Max_RRC_User_Number-xhj")::numeric, 2) as max_rrc_users,
+    ROUND(AVG(m."Average_CQI-XHJ_1646720281179")::numeric, 2) as cqi,
+    ROUND(AVG(m."Average_CQI_256 QAM_LW")::numeric, 2) as cqi_256qam,
+    ROUND(AVG(m."Average_CQI_64 QAM_LW")::numeric, 2) as cqi_64qam,
+    ROUND(AVG(m."Latency_DL(ms)_LW")::numeric, 2) as latency_dl,
+    ROUND(AVG(m."Latency_UL(ms)_LW")::numeric, 2) as latency_ul,
+    ROUND(AVG(m."Uplink_Interference(dBm)_LW")::numeric, 2) as uplink_interference
+"""
+
+
+# BDBH KPI select list on the one-row-per-cell measBdbh5g rows (alias m)
+KPI_5G_BDBH_SELECT = """
+    ROUND((SUM(m."PRB_Utilization_DL(%%)_LW_Num") / NULLIF(SUM(m."PRB_Utilization_DL(%%)_LW_Denum"), 0) * 100)::numeric, 2) as dl_prb,
+    ROUND((SUM(m."PRB_Utilization_UL(%%)_LW_Num") / NULLIF(SUM(m."PRB_Utilization_UL(%%)_LW_Denum"), 0) * 100)::numeric, 2) as ul_prb,
+    ROUND(AVG(m."User_Throughput_DL(Mbps)_LW")::numeric, 2) as user_dl_thp,
+    ROUND(AVG(m."User_Throughput_UL(Mbps)_LW")::numeric, 2) as user_ul_thp,
+    ROUND(AVG(m."Cell_Throughput_DL(Mbps)_KML")::numeric, 2) as cell_dl_thp,
+    ROUND(AVG(m."Cell_Throughput_UL(Mbps)_KML")::numeric, 2) as cell_ul_thp,
+    ROUND((SUM(m."Num_Spectrum_Eff-xhj") / NULLIF(SUM(m."Denum_Spectrum_Eff-xhj"), 0))::numeric, 2) as spectrum_efficiency
+"""
+
+
 def get_scope_aggregation_5g_data(
     scope: str = "regional",
     mode: str = "full",
@@ -794,32 +837,7 @@ def get_scope_aggregation_5g_data(
         SELECT 
             m."Begin Time"::date as dt,
             {series_key_sql} as series_key,
-            -- KPIs
-            ROUND(SUM(m."Payload(GB)_LW")::numeric, 2) as payload,
-            ROUND(SUM(m."Payload_DL(GB)_LW")::numeric, 2) as payload_dl,
-            ROUND(SUM(m."Payload_UL(GB)_LW")::numeric, 2) as payload_ul,
-            ROUND(AVG(m."User_Throughput_DL(Mbps)_LW")::numeric, 2) as user_dl_thp,
-            ROUND(AVG(m."User_Throughput_UL(Mbps)_LW")::numeric, 2) as user_ul_thp,
-            ROUND(AVG(m."Cell_Throughput_DL(Mbps)_LW")::numeric, 2) as cell_dl_thp,
-            ROUND(AVG(m."Cell_Throughput_UL(Mbps)_LW")::numeric, 2) as cell_ul_thp,
-            ROUND(AVG(m."Spectrum_Eff-XHJ_1646720283375")::numeric, 2) as spectrum_efficiency,
-            ROUND(AVG(m."SN_Setup_Success_Rate(%%)_LW" * 100)::numeric, 2) as sn_setup_sr,
-            ROUND(AVG(m."Availability(%%)_LW" * 100)::numeric, 2) as availability,
-            ROUND(AVG(m."NR_Retainability(%%)_LW" * 100)::numeric, 4) as retainability,
-            ROUND(AVG(m."Packet_Loss(%%)_LW" * 100)::numeric, 4) as packet_loss,
-            ROUND(AVG(m."Intra_Handover_Success_Rate(%%)_LW" * 100)::numeric, 2) as intra_ho_sr,
-            ROUND(AVG(m."Inter_Handover_Success_Rate(%%)_LW" * 100)::numeric, 2) as inter_ho_sr,
-            ROUND(AVG(m."PRB_Utilization_DL(%%)_LW" * 100)::numeric, 2) as dl_prb,
-            ROUND(AVG(m."PRB_Utilization_UL(%%)_LW" * 100)::numeric, 2) as ul_prb,
-            ROUND(AVG(m."Active_User_Number_LW")::numeric, 2) as active_users,
-            ROUND(AVG(m."RRC_User_Number_LW")::numeric, 2) as rrc_users,
-            ROUND(MAX(m."Max_RRC_User_Number-xhj")::numeric, 2) as max_rrc_users,
-            ROUND(AVG(m."Average_CQI-XHJ_1646720281179")::numeric, 2) as cqi,
-            ROUND(AVG(m."Average_CQI_256 QAM_LW")::numeric, 2) as cqi_256qam,
-            ROUND(AVG(m."Average_CQI_64 QAM_LW")::numeric, 2) as cqi_64qam,
-            ROUND(AVG(m."Latency_DL(ms)_LW")::numeric, 2) as latency_dl,
-            ROUND(AVG(m."Latency_UL(ms)_LW")::numeric, 2) as latency_ul,
-            ROUND(AVG(m."Uplink_Interference(dBm)_LW")::numeric, 2) as uplink_interference
+            {KPI_5G_SELECT}
         FROM "measDy5g" m
         {join_sql}
         WHERE m."Begin Time" >= %s AND m."Begin Time" <= %s
@@ -837,13 +855,7 @@ def get_scope_aggregation_5g_data(
         SELECT
             m."Begin Time"::date as dt,
             {series_key_sql} as series_key,
-            ROUND((SUM(m."PRB_Utilization_DL(%%)_LW_Num") / NULLIF(SUM(m."PRB_Utilization_DL(%%)_LW_Denum"), 0) * 100)::numeric, 2) as dl_prb,
-            ROUND((SUM(m."PRB_Utilization_UL(%%)_LW_Num") / NULLIF(SUM(m."PRB_Utilization_UL(%%)_LW_Denum"), 0) * 100)::numeric, 2) as ul_prb,
-            ROUND(AVG(m."User_Throughput_DL(Mbps)_LW")::numeric, 2) as user_dl_thp,
-            ROUND(AVG(m."User_Throughput_UL(Mbps)_LW")::numeric, 2) as user_ul_thp,
-            ROUND(AVG(m."Cell_Throughput_DL(Mbps)_KML")::numeric, 2) as cell_dl_thp,
-            ROUND(AVG(m."Cell_Throughput_UL(Mbps)_KML")::numeric, 2) as cell_ul_thp,
-            ROUND((SUM(m."Num_Spectrum_Eff-xhj") / NULLIF(SUM(m."Denum_Spectrum_Eff-xhj"), 0))::numeric, 2) as spectrum_efficiency
+            {KPI_5G_BDBH_SELECT}
         FROM ({_bdbh_5g_rows_sql()}) m
         {join_sql}
         WHERE TRUE

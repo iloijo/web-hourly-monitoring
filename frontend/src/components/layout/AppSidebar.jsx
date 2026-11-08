@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Activity, BarChart3, Calendar, ChevronDown, ChevronLeft, Clock, Database, Moon, Radio, RadioTower, TrendingDown, Wifi,
+  Activity, BarChart3, Boxes, Calendar, ChevronDown, ChevronLeft, Clock, Database, Moon, Radio, RadioTower, TrendingDown, Wifi,
 } from 'lucide-react';
 import { APP_NAME, APP_VERSION } from '../../constants/kpis';
 
@@ -75,7 +75,7 @@ function DbStatusRow({ label, port, ok }) {
   return (
     <div className="flex items-center justify-between">
       <span className="opacity-70">{label}</span>
-      <span className={`font-bold flex items-center gap-1 ${color}`} title={ok === false ? 'Tidak terhubung' : ''}>
+      <span className={`font-bold flex items-center gap-1 ${color}`} title={ok === false ? 'Not connected' : ''}>
         <span className={`w-1.5 h-1.5 rounded-full ${dot}`}></span>
         {ok === false ? 'Offline' : port}
       </span>
@@ -145,6 +145,9 @@ export default function AppSidebar({ open, onClose, activeMenu, onSelectMenu, db
           </div>
           <MenuButton id="5g" label="5G Monitoring" Icon={Wifi} accent="cyan" tag="OneDb" {...common} />
         </Group>
+        <div className="pt-1">
+          <MenuButton id="cluster" label="Cluster Monitoring" Icon={Boxes} accent="teal" tag="2G/4G/5G" size="lg" {...common} />
+        </div>
 
         <SectionTitle>Worst Cell &amp; ZTZP</SectionTitle>
         <div className="space-y-1">

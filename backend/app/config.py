@@ -26,6 +26,9 @@ class Settings(BaseModel):
     ONEDB_DB: str = os.getenv("ONEDB_DB", "onedb")
     ONEDB_USER: str = os.getenv("ONEDB_USER", "")
     ONEDB_PASS: str = os.getenv("ONEDB_PASS", "")
+    # Role that may write the Cluster Monitoring tables (read1 is read-only)
+    ONEDB_RW_USER: str = os.getenv("ONEDB_RW_USER", "")
+    ONEDB_RW_PASS: str = os.getenv("ONEDB_RW_PASS", "")
 
     # Dashboard login (HTTP Basic). Login is required when both are set.
     DASHBOARD_USER: str = os.getenv("DASHBOARD_USER", "")

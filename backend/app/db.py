@@ -139,6 +139,19 @@ def get_onedb_connection(timeout: int = 10):
         logger.warning(f"OneDb unreachable on {settings.ONEDB_HOST}:{settings.ONEDB_PORT}: {e}")
         return None
 
+def get_onedb_rw_connection(timeout: int = 10):
+    """Connect to onedb with the write role (ONEDB_RW_USER) for the Cluster Monitoring tables. Not pooled."""
+    if not settings.ONEDB_RW_USER:
+        raise RuntimeError("ONEDB_RW_USER is not set in backend/.env, so clusters cannot be saved.")
+    return psycopg2.connect(
+        host=settings.ONEDB_HOST,
+        port=settings.ONEDB_PORT,
+        dbname=settings.ONEDB_DB,
+        user=settings.ONEDB_RW_USER,
+        password=settings.ONEDB_RW_PASS,
+        connect_timeout=timeout
+    )
+
 def check_db_health() -> Dict[str, Any]:
     """Check connectivity to TwoDb and OneDb."""
     twodb_ok = False

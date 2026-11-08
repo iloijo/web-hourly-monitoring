@@ -110,7 +110,8 @@ export default function SectorPayloadChart({
   maxY = null,
   darkMode = false,
   chartsPerRow = 3,
-  markers = []  // [{ date: 'YYYY-MM-DD', label }] activity markers drawn as vertical lines
+  markers = [],  // [{ date: 'YYYY-MM-DD', label }] activity markers drawn as vertical lines
+  periods = []   // [{ start, end, label, color }] shaded date windows (30% opacity, no border), e.g. before / after
 }) {
   const echartsRef = useRef(null);
 
@@ -264,6 +265,38 @@ export default function SectorPayloadChart({
           fontWeight: 'bold'
         },
         data: markerLines
+      }
+    });
+  }
+
+  // 4. Shaded periods (Cluster Monitoring before / after windows)
+  const periodAreas = (periods || [])
+    .map(p => {
+      const start = (timestamps || []).find(t => String(t) >= p.start);
+      const end = [...(timestamps || [])].reverse().find(t => String(t).slice(0, 10) <= p.end);
+      return start && end && start <= end ? { ...p, start, end } : null;
+    })
+    .filter(Boolean);
+  if (periodAreas.length > 0) {
+    series.push({
+      id: 'period_areas',
+      name: '__periods',
+      type: 'line',
+      data: [],
+      silent: true,
+      z: 0,
+      markArea: {
+        silent: true,
+        animation: false,
+        data: periodAreas.map(p => [
+          {
+            xAxis: p.start,
+            name: p.label,
+            itemStyle: { color: p.color, opacity: 0.3, borderWidth: 0 },
+            label: { position: 'insideTop', color: p.color, fontSize: 9, fontWeight: 'bold' }
+          },
+          { xAxis: p.end }
+        ])
       }
     });
   }
