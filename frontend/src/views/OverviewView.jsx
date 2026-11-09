@@ -45,6 +45,11 @@ const MODE_OPTIONS = [
   ['YTD', 'YTD'],
 ];
 
+const CHART_VIEW_OPTIONS = [
+  ['30days', '30-Day Productivity (Stacked)'],
+  ['yearly', 'Yearly Trend (365d)'],
+];
+
 const fmtDec = (v, digits = 2) =>
   v === null || v === undefined
     ? '–'
@@ -132,6 +137,7 @@ export default function OverviewView({ hierarchyData, darkMode, onOpenSite, onEx
   const [selectedKabupaten, setSelectedKabupaten] = useState('All');
   const [selectedKecamatan, setSelectedKecamatan] = useState('All');
   const [mode, setMode] = useState('YTD'); // 'YoY' | 'MTD' | 'YTD'
+  const [chartView, setChartView] = useState('30days'); // '30days' | 'yearly'
   const [fullscreenChart, setFullscreenChart] = useState(null); // 'payload' | 'traffic' | null
 
   // Cascading options derived from hierarchyData
@@ -536,6 +542,68 @@ export default function OverviewView({ hierarchyData, darkMode, onOpenSite, onEx
       }))
       .sort((a, b) => b.payload - a.payload);
 
+    // 3.4 Prepare 30-Day Productivity Series (Stacked per Technology)
+    const last30Dates = [];
+    const baseDate = new Date(effectiveSelectedDate);
+    for (let i = 29; i >= 0; i--) {
+      const dt = new Date(baseDate);
+      dt.setDate(dt.getDate() - i);
+      last30Dates.push(dt.toISOString().slice(0, 10));
+    }
+
+    const map30Cur = {};
+    const map30Last = {};
+    last30Dates.forEach((d) => {
+      map30Cur[d] = { p2g: 0, p4g: 0, p5g: 0, ptot: 0, t2g: 0, tvolte: 0, ttot: 0 };
+      const yoyD = safeShiftYear(d, -1);
+      map30Last[yoyD] = { ptot: 0, ttot: 0 };
+    });
+
+    rows.forEach((r) => {
+      const d = r.date;
+      const rNop = r.nop;
+      const isSelectedNop = !filterNop || rNop === selectedNop;
+      if (isSelectedNop) {
+        if (map30Cur[d]) {
+          const m = map30Cur[d];
+          m.p2g += r.p2g;
+          m.p4g += r.p4g;
+          m.p5g += r.p5g;
+          m.ptot += r.ptot;
+          m.t2g += r.t2g;
+          m.tvolte += r.tvolte;
+          m.ttot += r.ttot;
+        }
+        if (map30Last[d]) {
+          map30Last[d].ptot += r.ptot;
+          map30Last[d].ttot += r.ttot;
+        }
+      }
+    });
+
+    const labels30 = last30Dates.map((d) => {
+      const dNum = d.slice(8, 10);
+      const mName = MONTH_NAMES[Number(d.slice(5, 7)) - 1];
+      return `${dNum} ${mName}`;
+    });
+
+    const p2g_30 = last30Dates.map((d) => Number(map30Cur[d].p2g.toFixed(2)));
+    const p4g_30 = last30Dates.map((d) => Number(map30Cur[d].p4g.toFixed(2)));
+    const p5g_30 = last30Dates.map((d) => Number(map30Cur[d].p5g.toFixed(2)));
+    const ptot_30 = last30Dates.map((d) => Number(map30Cur[d].ptot.toFixed(2)));
+    const pLast_30 = last30Dates.map((d) => {
+      const yoyD = safeShiftYear(d, -1);
+      return Number((map30Last[yoyD]?.ptot || 0).toFixed(2));
+    });
+
+    const t2g_30 = last30Dates.map((d) => Number(map30Cur[d].t2g.toFixed(2)));
+    const tvolte_30 = last30Dates.map((d) => Number(map30Cur[d].tvolte.toFixed(2)));
+    const ttot_30 = last30Dates.map((d) => Number(map30Cur[d].ttot.toFixed(2)));
+    const tLast_30 = last30Dates.map((d) => {
+      const yoyD = safeShiftYear(d, -1);
+      return Number((map30Last[yoyD]?.ttot || 0).toFixed(2));
+    });
+
     return {
       kpi: {
         totalPayload: {
@@ -584,6 +652,18 @@ export default function OverviewView({ hierarchyData, darkMode, onOpenSite, onEx
         deltaPayload: deltaSeriesPayload,
         deltaTraffic: deltaSeriesTraffic,
         yearlyMap,
+      },
+      trend30: {
+        labels: labels30,
+        p2g: p2g_30,
+        p4g: p4g_30,
+        p5g: p5g_30,
+        ptot: ptot_30,
+        pLast: pLast_30,
+        t2g: t2g_30,
+        tvolte: tvolte_30,
+        ttot: ttot_30,
+        tLast: tLast_30,
       },
       nopRows,
     };
@@ -808,13 +888,91 @@ export default function OverviewView({ hierarchyData, darkMode, onOpenSite, onEx
     ? 'bg-slate-800/60 text-slate-200 border-b border-slate-800'
     : 'bg-slate-50 text-slate-700 border-b border-slate-100';
 
-  // 7. ECharts Options for Yearly Trend Charts
+  // 7. ECharts Options for Yearly & 30-Day Trend Charts
   const payloadChartOption = useMemo(() => {
     if (!computed?.chartData) return {};
     const cd = computed.chartData;
+    const t30 = computed.trend30;
 
     const textColor = darkMode ? '#94a3b8' : '#64748b';
     const splitLineColor = darkMode ? '#334155' : '#e2e8f0';
+
+    if (chartView === '30days' && t30) {
+      return {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow' },
+          backgroundColor: darkMode ? '#0f172a' : '#ffffff',
+          borderColor: darkMode ? '#334155' : '#cbd5e1',
+          textStyle: { color: darkMode ? '#f1f5f9' : '#0f172a', fontSize: 11 },
+          formatter: (params) => {
+            if (!params || !params.length) return '';
+            const idx = params[0].dataIndex;
+            return `
+              <div style="font-weight: bold; margin-bottom: 4px;">${t30.labels[idx]}</div>
+              <div style="color: #14b8a6;">● 2G: <b>${fmtDec(t30.p2g[idx])} TB</b></div>
+              <div style="color: #3b82f6;">● 4G: <b>${fmtDec(t30.p4g[idx])} TB</b></div>
+              <div style="color: #1d4ed8;">● 5G: <b>${fmtDec(t30.p5g[idx])} TB</b></div>
+              <div style="border-top: 1px dashed ${splitLineColor}; margin-top: 4px; padding-top: 4px;">Total: <b>${fmtDec(t30.ptot[idx])} TB</b></div>
+              <div style="color: #94a3b8;">● Last Yr: <b>${fmtDec(t30.pLast[idx])} TB</b></div>
+            `;
+          },
+        },
+        legend: {
+          data: ['2G', '4G', '5G', 'Last Year Total'],
+          top: 0,
+          textStyle: { color: textColor, fontSize: 11 },
+          itemWidth: 10,
+          itemHeight: 10,
+        },
+        grid: { top: 36, left: 45, right: 25, bottom: 25 },
+        xAxis: {
+          type: 'category',
+          data: t30.labels,
+          axisLine: { lineStyle: { color: splitLineColor } },
+          axisLabel: { color: textColor, fontSize: 10, interval: 2 },
+        },
+        yAxis: {
+          type: 'value',
+          name: 'TB/day',
+          nameTextStyle: { color: textColor, fontSize: 10 },
+          splitLine: { lineStyle: { color: splitLineColor, type: 'dashed' } },
+          axisLabel: { color: textColor, fontSize: 10 },
+        },
+        series: [
+          {
+            name: '2G',
+            type: 'bar',
+            stack: 'tech',
+            data: t30.p2g,
+            itemStyle: { color: '#14b8a6' },
+          },
+          {
+            name: '4G',
+            type: 'bar',
+            stack: 'tech',
+            data: t30.p4g,
+            itemStyle: { color: '#3b82f6' },
+          },
+          {
+            name: '5G',
+            type: 'bar',
+            stack: 'tech',
+            data: t30.p5g,
+            itemStyle: { color: '#1d4ed8' },
+          },
+          {
+            name: 'Last Year Total',
+            type: 'line',
+            data: t30.pLast,
+            smooth: true,
+            symbol: 'none',
+            lineStyle: { type: 'dashed', width: 1.5, color: '#94a3b8' },
+            itemStyle: { color: '#94a3b8' },
+          },
+        ],
+      };
+    }
 
     const latestIdx = cd.latestIndex >= 0 ? cd.latestIndex : cd.xLabels.length - 1;
     const latestLabel = cd.xLabels[latestIdx];
@@ -938,14 +1096,84 @@ export default function OverviewView({ hierarchyData, darkMode, onOpenSite, onEx
         },
       ],
     };
-  }, [computed, darkMode, lastYear, selectedYear, mode]);
+  }, [computed, darkMode, lastYear, selectedYear, mode, chartView]);
 
   const trafficChartOption = useMemo(() => {
     if (!computed?.chartData) return {};
     const cd = computed.chartData;
+    const t30 = computed.trend30;
 
     const textColor = darkMode ? '#94a3b8' : '#64748b';
     const splitLineColor = darkMode ? '#334155' : '#e2e8f0';
+
+    if (chartView === '30days' && t30) {
+      return {
+        tooltip: {
+          trigger: 'axis',
+          axisPointer: { type: 'shadow' },
+          backgroundColor: darkMode ? '#0f172a' : '#ffffff',
+          borderColor: darkMode ? '#334155' : '#cbd5e1',
+          textStyle: { color: darkMode ? '#f1f5f9' : '#0f172a', fontSize: 11 },
+          formatter: (params) => {
+            if (!params || !params.length) return '';
+            const idx = params[0].dataIndex;
+            return `
+              <div style="font-weight: bold; margin-bottom: 4px;">${t30.labels[idx]}</div>
+              <div style="color: #14b8a6;">● 2G: <b>${fmtDec(t30.t2g[idx])} KErl</b></div>
+              <div style="color: #3b82f6;">● 4G (VoLTE): <b>${fmtDec(t30.tvolte[idx])} KErl</b></div>
+              <div style="border-top: 1px dashed ${splitLineColor}; margin-top: 4px; padding-top: 4px;">Total: <b>${fmtDec(t30.ttot[idx])} KErl</b></div>
+              <div style="color: #94a3b8;">● Last Yr: <b>${fmtDec(t30.tLast[idx])} KErl</b></div>
+            `;
+          },
+        },
+        legend: {
+          data: ['2G', '4G (VoLTE)', 'Last Year Total'],
+          top: 0,
+          textStyle: { color: textColor, fontSize: 11 },
+          itemWidth: 10,
+          itemHeight: 10,
+        },
+        grid: { top: 36, left: 45, right: 25, bottom: 25 },
+        xAxis: {
+          type: 'category',
+          data: t30.labels,
+          axisLine: { lineStyle: { color: splitLineColor } },
+          axisLabel: { color: textColor, fontSize: 10, interval: 2 },
+        },
+        yAxis: {
+          type: 'value',
+          name: 'KErl',
+          nameTextStyle: { color: textColor, fontSize: 10 },
+          splitLine: { lineStyle: { color: splitLineColor, type: 'dashed' } },
+          axisLabel: { color: textColor, fontSize: 10 },
+        },
+        series: [
+          {
+            name: '2G',
+            type: 'bar',
+            stack: 'tech',
+            data: t30.t2g,
+            itemStyle: { color: '#14b8a6' },
+          },
+          {
+            name: '4G (VoLTE)',
+            type: 'bar',
+            stack: 'tech',
+            data: t30.tvolte,
+            itemStyle: { color: '#3b82f6' },
+          },
+          {
+            name: 'Last Year Total',
+            type: 'line',
+            data: t30.tLast,
+            smooth: true,
+            symbol: 'none',
+            lineStyle: { type: 'dashed', width: 1.5, color: '#94a3b8' },
+            itemStyle: { color: '#94a3b8' },
+          },
+        ],
+      };
+    }
 
     const latestIdx = cd.latestIndex >= 0 ? cd.latestIndex : cd.xLabels.length - 1;
     const latestLabel = cd.xLabels[latestIdx];
@@ -1069,7 +1297,7 @@ export default function OverviewView({ hierarchyData, darkMode, onOpenSite, onEx
         },
       ],
     };
-  }, [computed, darkMode, lastYear, selectedYear, mode]);
+  }, [computed, darkMode, lastYear, selectedYear, mode, chartView]);
 
   const checkFreshnessLag = (isoDate) => {
     if (!isoDate) return { isLag: true, days: null };
@@ -1427,73 +1655,102 @@ export default function OverviewView({ hierarchyData, darkMode, onOpenSite, onEx
         </div>
       </div>
 
-      {/* 3. Yearly Trend Charts (Side-by-side 1 Jan - 31 Dec) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Payload Yearly Trend */}
-        <div className={`p-4 rounded-xl ${cardCls} relative`}>
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-blue-500" />
-              <h2 className="text-xs font-bold uppercase tracking-wider">Payload Trend (TB)</h2>
-            </div>
-            <button
-              type="button"
-              onClick={() => setFullscreenChart('payload')}
-              className="p-1 rounded text-slate-400 hover:text-blue-500 transition cursor-pointer"
-              title="Expand full screen"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-            </button>
+      {/* 3. Trend Charts */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-blue-500" />
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+              {chartView === '30days' ? '30-Day Productivity Trend' : `Full-Year Network Trend (${selectedYear})`}
+            </h2>
           </div>
-          <p className="text-[11px] text-slate-400 mb-2">
-            1 Jan – 31 Dec · {lastYear} vs {selectedYear} · Dashed: {mode} Δ%
-          </p>
-          <div className="h-80">
-            {computed?.chartData ? (
-              <ReactECharts
-                option={payloadChartOption}
-                style={{ height: '100%', width: '100%' }}
-                notMerge
-              />
-            ) : (
-              <div className="h-full flex items-center justify-center text-xs text-slate-400">
-                Loading yearly payload trend...
-              </div>
-            )}
-          </div>
+          <SegmentedToggle
+            options={CHART_VIEW_OPTIONS}
+            value={chartView}
+            onChange={setChartView}
+            darkMode={darkMode}
+          />
         </div>
 
-        {/* Traffic Yearly Trend */}
-        <div className={`p-4 rounded-xl ${cardCls} relative`}>
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-emerald-500" />
-              <h2 className="text-xs font-bold uppercase tracking-wider">Traffic Trend (KErl)</h2>
-            </div>
-            <button
-              type="button"
-              onClick={() => setFullscreenChart('traffic')}
-              className="p-1 rounded text-slate-400 hover:text-blue-500 transition cursor-pointer"
-              title="Expand full screen"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <p className="text-[11px] text-slate-400 mb-2">
-            1 Jan – 31 Dec · {lastYear} vs {selectedYear} · Dashed: {mode} Δ%
-          </p>
-          <div className="h-80">
-            {computed?.chartData ? (
-              <ReactECharts
-                option={trafficChartOption}
-                style={{ height: '100%', width: '100%' }}
-                notMerge
-              />
-            ) : (
-              <div className="h-full flex items-center justify-center text-xs text-slate-400">
-                Loading yearly traffic trend...
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Payload Trend */}
+          <div className={`p-4 rounded-xl ${cardCls} relative`}>
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-blue-500" />
+                <h2 className="text-xs font-bold uppercase tracking-wider">
+                  {chartView === '30days' ? 'Payload Trend' : 'Payload Trend (TB)'}
+                </h2>
               </div>
-            )}
+              <button
+                type="button"
+                onClick={() => setFullscreenChart('payload')}
+                className="p-1 rounded text-slate-400 hover:text-blue-500 transition cursor-pointer"
+                title="Expand full screen"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-400 mb-2">
+              {chartView === '30days'
+                ? 'Stacked per Technology (TB/day) — last 30 days'
+                : `1 Jan – 31 Dec · ${lastYear} vs ${selectedYear} · Dashed: ${mode} Δ%`}
+            </p>
+            <div className="h-80">
+              {computed?.chartData ? (
+                <ReactECharts
+                  key={`payload_${chartView}_${selectedYear}_${selectedNop}_${selectedKabupaten}_${selectedKecamatan}_${selectedDate}_${mode}_${darkMode}`}
+                  option={payloadChartOption}
+                  style={{ height: '100%', width: '100%' }}
+                  notMerge={true}
+                  lazyUpdate={false}
+                />
+              ) : (
+                <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                  Loading payload trend...
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Traffic Trend */}
+          <div className={`p-4 rounded-xl ${cardCls} relative`}>
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-emerald-500" />
+                <h2 className="text-xs font-bold uppercase tracking-wider">
+                  {chartView === '30days' ? 'Traffic Trend' : 'Traffic Trend (KErl)'}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFullscreenChart('traffic')}
+                className="p-1 rounded text-slate-400 hover:text-blue-500 transition cursor-pointer"
+                title="Expand full screen"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-400 mb-2">
+              {chartView === '30days'
+                ? 'Stacked per Technology (KErl) — last 30 days'
+                : `1 Jan – 31 Dec · ${lastYear} vs ${selectedYear} · Dashed: ${mode} Δ%`}
+            </p>
+            <div className="h-80">
+              {computed?.chartData ? (
+                <ReactECharts
+                  key={`traffic_${chartView}_${selectedYear}_${selectedNop}_${selectedKabupaten}_${selectedKecamatan}_${selectedDate}_${mode}_${darkMode}`}
+                  option={trafficChartOption}
+                  style={{ height: '100%', width: '100%' }}
+                  notMerge={true}
+                  lazyUpdate={false}
+                />
+              ) : (
+                <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                  Loading traffic trend...
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -1818,9 +2075,11 @@ export default function OverviewView({ hierarchyData, darkMode, onOpenSite, onEx
             </div>
             <div className="grow w-full">
               <ReactECharts
+                key={`fullscreen_${fullscreenChart}_${chartView}_${selectedYear}_${selectedNop}_${selectedKabupaten}_${selectedKecamatan}_${selectedDate}_${mode}`}
                 option={fullscreenChart === 'payload' ? payloadChartOption : trafficChartOption}
                 style={{ height: '100%', width: '100%' }}
-                notMerge
+                notMerge={true}
+                lazyUpdate={false}
               />
             </div>
           </div>

@@ -58,6 +58,12 @@ def safe_shift_year(d: date, delta_years: int = -1) -> date:
         return d.replace(year=d.year + delta_years, day=28)
 
 
+def _clean_str(val: Any) -> Optional[str]:
+    if isinstance(val, str) and val.strip() and val.strip().lower() not in ("all", "all branch", "all nop", "none", "null", ""):
+        return val.strip()
+    return None
+
+
 def get_overview_dataset(
     year: int = 2026,
     nop: Optional[str] = None,
@@ -73,9 +79,9 @@ def get_overview_dataset(
     """
     latest_date = get_latest_overview_date()
 
-    n_val = nop.strip() if nop and nop.strip() not in ("All", "all", "") else None
-    k_val = kabupaten.strip() if kabupaten and kabupaten.strip() not in ("All", "all", "") else None
-    c_val = kecamatan.strip() if kecamatan and kecamatan.strip() not in ("All", "all", "") else None
+    n_val = _clean_str(nop)
+    k_val = _clean_str(kabupaten)
+    c_val = _clean_str(kecamatan)
 
     cache_key = (year, n_val or "All", k_val or "All", c_val or "All", latest_date)
 
@@ -248,9 +254,9 @@ def get_overview_inventory(
         max_week_row = cur.fetchone()
         latest_week = max_week_row[0] if max_week_row and max_week_row[0] else "Unknown"
 
-        n_val = nop.strip() if nop and nop.strip() not in ("All", "all", "") else None
-        k_val = kabupaten.strip() if kabupaten and kabupaten.strip() not in ("All", "all", "") else None
-        c_val = kecamatan.strip() if kecamatan and kecamatan.strip() not in ("All", "all", "") else None
+        n_val = _clean_str(nop)
+        k_val = _clean_str(kabupaten)
+        c_val = _clean_str(kecamatan)
 
         cache_key = (latest_week, n_val or "All", k_val or "All", c_val or "All")
         if not refresh and cache_key in _INVENTORY_CACHE:
@@ -484,31 +490,32 @@ def get_overview_drill(
 
         if lvl == "kabupaten":
             col_expr = "lk.kab"
-            active_nop = parent or nop
-            if active_nop and active_nop.strip().lower() not in ("all", "all branch", "all nop", ""):
-                if active_nop.strip().lower() == "unmapped":
+            active_nop = _clean_str(parent) or _clean_str(nop)
+            if active_nop:
+                if active_nop.lower() == "unmapped":
                     filter_clause = "WHERE lk.nop IS NULL OR lk.nop = 'Unmapped'"
                 else:
                     filter_clause = "WHERE lk.nop = %s"
-                    params_filter.append(active_nop.strip())
+                    params_filter.append(active_nop)
         elif lvl == "kecamatan":
             col_expr = "lk.kec"
-            active_kab = parent or kabupaten
+            active_kab = _clean_str(parent) or _clean_str(kabupaten)
             if active_kab:
-                if active_kab.strip().lower() == "unmapped":
+                if active_kab.lower() == "unmapped":
                     filter_clause = "WHERE lk.kab IS NULL OR lk.kab = 'Unmapped'"
                 else:
                     filter_clause = "WHERE lk.kab = %s"
-                    params_filter.append(active_kab.strip())
+                    params_filter.append(active_kab)
         else:
             # Level is site: parent is Kecamatan
             col_expr = "m.prefix_site_id"
-            if parent:
-                if parent.strip().lower() == "unmapped":
+            active_kec = _clean_str(parent)
+            if active_kec:
+                if active_kec.lower() == "unmapped":
                     filter_clause = "WHERE lk.kec IS NULL OR lk.kec = 'Unmapped'"
                 else:
                     filter_clause = "WHERE lk.kec = %s"
-                    params_filter.append(parent.strip())
+                    params_filter.append(active_kec)
 
         query = f'''
             WITH lk AS (
@@ -603,9 +610,9 @@ def get_overview_top_decline(
 
     cur_start, cur_end, yoy_start, yoy_end = _get_mode_ranges(target_date_str, mode)
 
-    n_val = nop.strip() if nop and nop.strip() not in ("All", "all", "") else None
-    k_val = kabupaten.strip() if kabupaten and kabupaten.strip() not in ("All", "all", "") else None
-    c_val = kecamatan.strip() if kecamatan and kecamatan.strip() not in ("All", "all", "") else None
+    n_val = _clean_str(nop)
+    k_val = _clean_str(kabupaten)
+    c_val = _clean_str(kecamatan)
 
     cache_key = ("top_decline", target_date_str, mode, n_val or "", k_val or "", c_val or "", safe_top_n, latest_date)
     if cache_key in _LRU_CACHE:
