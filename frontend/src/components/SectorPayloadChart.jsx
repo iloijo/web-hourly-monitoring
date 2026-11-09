@@ -142,7 +142,6 @@ export default function SectorPayloadChart({
   markers = [],  // [{ date: 'YYYY-MM-DD', label }] activity markers drawn as vertical lines
   periods = [],  // [{ start, end, label, color }] shaded date windows (30% opacity, no border), e.g. before / after
   threshold = null, // { value: number, unit?: string }
-  tooltipOrder = 'desc', // 'desc' (High -> Low) or 'asc' (Low -> High)
 }) {
   const echartsRef = useRef(null);
 
@@ -497,10 +496,10 @@ export default function SectorPayloadChart({
   const option = {
     backgroundColor: darkMode ? 'transparent' : '#ffffff',
     animation: true,
-    animationDuration: 500,
-    animationDurationUpdate: 0,
-    animationEasing: 'cubicInOut',
-    animationEasingUpdate: 'cubicInOut',
+    animationDuration: 300,
+    animationDurationUpdate: 300,
+    animationEasing: 'cubicOut',
+    animationEasingUpdate: 'cubicOut',
     title: [
       {
         text: `{bold|${cleanTitle}}`,
@@ -547,8 +546,9 @@ export default function SectorPayloadChart({
     // Tooltip strictly styled with standard band colors (Image 2 requirement)
     tooltip: {
       trigger: 'axis',
+      confine: true, // "Tidak Terpotong": ensures tooltip is never clipped outside chart boundaries
       className: 'echarts-tooltip',
-      transitionDuration: 0,
+      transitionDuration: 0.1,
       axisPointer: {
         type: 'line',
         animation: false,
@@ -566,59 +566,63 @@ export default function SectorPayloadChart({
         color: '#ffffff',
         fontSize: 12
       },
-      padding: [10, 14],
-      extraCssText: 'pointer-events: none !important; user-select: none; z-index: 50;',
+      padding: [8, 12],
+      extraCssText: 'pointer-events: none !important; user-select: none; z-index: 50; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);',
       formatter: function (params) {
         if (!params || !params.length) return '';
         const rawTime = params[0].axisValue;
         const formattedTime = formatAxisDate(rawTime, timeMode);
-        let html = `<div style="font-weight: 700; color: #f8fafc; margin-bottom: 8px; border-bottom: 1px solid #334155; padding-bottom: 4px; font-size: 11px;">${formattedTime}</div>`;
+        let html = `<div style="font-weight: 700; color: #f8fafc; margin-bottom: 6px; border-bottom: 1px solid #334155; padding-bottom: 3px; font-size: 11px;">${formattedTime}</div>`;
         
         // Filter out pseudo-series like markers or threshold
         const validParams = params.filter(p => p && p.seriesName !== '__markers' && p.seriesName !== '__threshold' && p.seriesName !== '__periods');
         
-        // Separate Total Payload from carrier series
+        // Separate Total Payload from carrier series so Total Payload stays at the bottom
         const totalItems = validParams.filter(p => p.seriesName === 'Total Payload' || p.seriesId === 'total_payload');
         const carrierItems = validParams.filter(p => p.seriesName !== 'Total Payload' && p.seriesId !== 'total_payload');
         
-        const parseVal = (v) => {
-          if (v === null || v === undefined) return NaN;
-          if (Array.isArray(v)) return typeof v[1] === 'number' ? v[1] : parseFloat(v[1]);
-          return typeof v === 'number' ? v : parseFloat(v);
-        };
+        // NO SORTING: Keep natural series order as requested!
 
-        // Sort carriers by value: High -> Low (desc) or Low -> High (asc)
-        carrierItems.sort((a, b) => {
-          const valA = parseVal(a.value);
-          const valB = parseVal(b.value);
-          const hasA = !isNaN(valA);
-          const hasB = !isNaN(valB);
-          if (!hasA && !hasB) return 0;
-          if (!hasA) return 1;  // empty / NaN always at bottom
-          if (!hasB) return -1;
-          return tooltipOrder === 'asc' ? valA - valB : valB - valA;
-        });
+        // "Tidak Terpotong": 2-column layout when more than 6 carriers so height remains compact (~120px) and fits comfortably inside chart
+        const isMultiCol = carrierItems.length > 6;
+        if (isMultiCol) {
+          html += '<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; row-gap: 2px;">';
+        } else {
+          html += '<div style="display: flex; flex-direction: column; gap: 2px;">';
+        }
 
-        const displayItems = [...carrierItems, ...totalItems];
-
-        displayItems.forEach((p, pIdx) => {
-          const isTotal = p.seriesName === 'Total Payload' || p.seriesId === 'total_payload';
-          const bandColor = isTotal
-            ? '#f43f5e'
-            : (carrierColorMap[p.seriesName] || p.color || getColorForCarrier(p.seriesName, carrierBands, p.seriesIndex ?? pIdx));
+        carrierItems.forEach((p, pIdx) => {
+          const bandColor = carrierColorMap[p.seriesName] || p.color || getColorForCarrier(p.seriesName, carrierBands, p.seriesIndex ?? pIdx);
           const displayName = p.seriesName;
-          const num = parseVal(p.value);
-          const valStr = !isNaN(num) ? num : '–';
+          const val = (p.value !== null && p.value !== undefined && !isNaN(p.value)) ? p.value : '–';
           html += `
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 20px; font-size: 11px; padding: 2px 0;">
-              <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="display: inline-block; width: 8px; height: 8px; border-radius: 2px; background-color: ${bandColor};"></span>
-                <span style="color: ${bandColor}; font-weight: 700;">${displayName}:</span>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 14px; font-size: 11px; padding: 1px 0;">
+              <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+                <span style="display: inline-block; width: 8px; height: 8px; border-radius: 2px; background-color: ${bandColor}; shrink: 0;"></span>
+                <span style="color: ${bandColor}; font-weight: 700; white-space: nowrap;">${displayName}:</span>
               </div>
-              <span style="font-weight: 700; font-family: monospace; color: #ffffff;">${valStr} ${unit}</span>
+              <span style="font-weight: 700; font-family: monospace; color: #ffffff; white-space: nowrap;">${val} ${unit}</span>
             </div>
           `;
         });
+        html += '</div>';
+
+        // Render Total Payload at bottom (full width)
+        if (totalItems.length > 0) {
+          totalItems.forEach(p => {
+            const val = (p.value !== null && p.value !== undefined && !isNaN(p.value)) ? p.value : '–';
+            html += `
+              <div style="margin-top: 6px; padding-top: 4px; border-top: 1px solid #334155; display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 11px;">
+                <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+                  <span style="display: inline-block; width: 8px; height: 8px; border-radius: 2px; background-color: #f43f5e; shrink: 0;"></span>
+                  <span style="color: #f43f5e; font-weight: 700; white-space: nowrap;">Total Payload:</span>
+                </div>
+                <span style="font-weight: 700; font-family: monospace; color: #ffffff; white-space: nowrap;">${val} ${unit}</span>
+              </div>
+            `;
+          });
+        }
+
         return html;
       }
     },

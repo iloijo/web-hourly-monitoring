@@ -8,7 +8,6 @@ export const DEFAULT_THRESHOLDS = {
   showThp: true,
   thpValue4g: 1.5,
   thpValue5g: 20,
-  tooltipOrder: 'desc', // 'desc' (High -> Low) or 'asc' (Low -> High)
 };
 
 export const THRESHOLD_STORAGE_KEY = 'netpulse_thresholds';
@@ -24,7 +23,6 @@ export function loadThresholdSettings() {
       showThp: typeof parsed.showThp === 'boolean' ? parsed.showThp : DEFAULT_THRESHOLDS.showThp,
       thpValue4g: (typeof parsed.thpValue4g === 'number' && parsed.thpValue4g > 0) ? parsed.thpValue4g : DEFAULT_THRESHOLDS.thpValue4g,
       thpValue5g: (typeof parsed.thpValue5g === 'number' && parsed.thpValue5g > 0) ? parsed.thpValue5g : DEFAULT_THRESHOLDS.thpValue5g,
-      tooltipOrder: parsed.tooltipOrder === 'asc' ? 'asc' : 'desc',
     };
   } catch {
     return { ...DEFAULT_THRESHOLDS };
@@ -100,7 +98,7 @@ export default function ThresholdControl({
               ? 'bg-slate-800 border-slate-700 text-blue-400 hover:bg-slate-700'
               : 'bg-white border-slate-200 text-blue-600 hover:bg-blue-50'
         }`}
-        title="Configure chart thresholds and tooltip display"
+        title="Configure chart thresholds"
       >
         <SlidersHorizontal className="w-3.5 h-3.5" />
         <span>Threshold</span>
@@ -195,41 +193,7 @@ export default function ThresholdControl({
             </div>
           </div>
 
-          {/* Tooltip Order Toggle */}
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-xs">Tooltip Order:</span>
-              <div className={`inline-flex rounded-lg p-0.5 border text-[11px] font-bold ${
-                darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'
-              }`}>
-                <button
-                  type="button"
-                  onClick={() => update({ tooltipOrder: 'desc' })}
-                  className={`px-2 py-0.5 rounded-md cursor-pointer transition ${
-                    settings.tooltipOrder === 'desc'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                  }`}
-                >
-                  High → Low
-                </button>
-                <button
-                  type="button"
-                  onClick={() => update({ tooltipOrder: 'asc' })}
-                  className={`px-2 py-0.5 rounded-md cursor-pointer transition ${
-                    settings.tooltipOrder === 'asc'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                  }`}
-                >
-                  Low → High
-                </button>
-              </div>
-            </div>
-            <div className="text-[10px] text-slate-400">
-              Total Payload is always kept at the bottom of the tooltip.
-            </div>
-          </div>
+
 
           {/* Reset Footer */}
           <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -237,7 +201,7 @@ export default function ThresholdControl({
               type="button"
               onClick={handleReset}
               className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
-              title="Reset all thresholds and tooltip order to defaults"
+              title="Reset all thresholds to defaults"
             >
               <RotateCcw className="w-3 h-3" />
               <span>Reset defaults</span>

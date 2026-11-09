@@ -93,7 +93,6 @@ export default function KpiChartsPanel({
       chartsPerRow,
       markers,
       threshold,
-      tooltipOrder: thresholdSettings?.tooltipOrder || 'desc',
     };
   };
 
