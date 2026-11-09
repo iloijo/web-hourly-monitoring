@@ -140,7 +140,8 @@ export default function SectorPayloadChart({
   darkMode = false,
   chartsPerRow = 3,
   markers = [],  // [{ date: 'YYYY-MM-DD', label }] activity markers drawn as vertical lines
-  periods = []   // [{ start, end, label, color }] shaded date windows (30% opacity, no border), e.g. before / after
+  periods = [],  // [{ start, end, label, color }] shaded date windows (30% opacity, no border), e.g. before / after
+  threshold = null, // { value: number, unit?: string }
 }) {
   const echartsRef = useRef(null);
 
@@ -351,6 +352,41 @@ export default function SectorPayloadChart({
     });
   }
 
+  // 5. Threshold line (PRB % or User Throughput Mbps)
+  if (threshold && typeof threshold.value === 'number') {
+    series.push({
+      id: 'threshold_markline',
+      name: '__threshold',
+      type: 'line',
+      data: [],
+      silent: true,
+      z: 15,
+      markLine: {
+        symbol: ['none', 'none'],
+        silent: true,
+        animation: false,
+        lineStyle: {
+          type: 'dashed',
+          color: '#ef4444',
+          opacity: 0.35,
+          width: 1.5
+        },
+        label: {
+          show: true,
+          position: 'insideEndTop',
+          formatter: `${threshold.value}${threshold.unit ? ` ${threshold.unit}` : ''}`,
+          color: darkMode ? '#f87171' : '#ef4444',
+          fontSize: 9,
+          fontWeight: 'bold',
+          padding: [2, 4]
+        },
+        data: [
+          { yAxis: threshold.value }
+        ]
+      }
+    });
+  }
+
   // Legend data at bottom: hollow colored square matching Image 7 ([ ] L1800 ML-21)
   const legendData = [
     ...carrierKeys.map((cName) => {
@@ -394,7 +430,11 @@ export default function SectorPayloadChart({
       },
       scale: true, // Axis does not always start from 0; auto-scales to data bounds (Gambar 1 Fix)
       min: (minY !== null && minY !== undefined && minY !== 0) ? minY : undefined,
-      max: maxY !== null && maxY !== undefined ? maxY : undefined,
+      max: (threshold && typeof threshold.value === 'number')
+        ? (maxY !== null && maxY !== undefined
+            ? Math.max(maxY, threshold.value)
+            : (val) => Math.max(val.max, threshold.value))
+        : (maxY !== null && maxY !== undefined ? maxY : undefined),
       axisLine: { show: true, lineStyle: { color: darkMode ? '#475569' : '#cbd5e1' } },
       axisTick: { show: true },
       axisLabel: {

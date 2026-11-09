@@ -17,7 +17,16 @@ const gridClass = (perRow) =>
 const plural = (list, many, one) => (list.length > 1 ? `${list.length} ${many}` : one);
 
 // Chart container for the KPI monitoring menus (sector, sectoral and higher-scope charts)
-export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPerRow, darkMode, markers = [], headerExtra = null }) {
+export default function KpiChartsPanel({
+  km,
+  activeMenu,
+  siteNamesMap,
+  chartsPerRow,
+  darkMode,
+  markers = [],
+  headerExtra = null,
+  thresholdSettings = null,
+}) {
   const scope = km.aggregationScope;
   const ScopeIcon = SCOPE_ICON[scope] || Radio;
   const sectorData = km.data;
@@ -55,19 +64,38 @@ export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPer
     ? (sectorData?.available_bands || [])
     : (aggData?.available_bands || sectorData?.available_bands || []);
 
-  const chartProps = (kpiData) => ({
-    unit: kpiData.unit,
-    carrierSeries: kpiData.carrier_series,
-    totalSeries: kpiData.total_series,
-    carrierBands: kpiData.carrier_bands || {},
-    availableBands: currentAvailableBands,
-    hasTotal: kpiData.has_total || kpiData.has_tot,
-    minY: kpiData.min_y,
-    maxY: kpiData.max_y,
-    darkMode,
-    chartsPerRow,
-    markers,
-  });
+  const chartProps = (kpiData, kpiId) => {
+    let threshold = null;
+    const is5G = activeMenu === '5g';
+    const effectiveId = kpiId || kpiData.id;
+    if (effectiveId === 'dl_prb' || effectiveId === 'ul_prb') {
+      if (thresholdSettings?.showPrb) {
+        threshold = { value: Number(thresholdSettings.prbValue) || 90, unit: '%' };
+      }
+    } else if (effectiveId === 'user_dl_thp' || effectiveId === 'user_ul_thp') {
+      if (thresholdSettings?.showThp) {
+        const val = is5G
+          ? (Number(thresholdSettings.thpValue5g) || 20)
+          : (Number(thresholdSettings.thpValue4g) || 1.5);
+        threshold = { value: val, unit: 'Mbps' };
+      }
+    }
+    return {
+      unit: kpiData.unit,
+      carrierSeries: kpiData.carrier_series,
+      totalSeries: kpiData.total_series,
+      carrierBands: kpiData.carrier_bands || {},
+      availableBands: currentAvailableBands,
+      hasTotal: kpiData.has_total || kpiData.has_tot,
+      minY: kpiData.min_y,
+      maxY: kpiData.max_y,
+      darkMode,
+      chartsPerRow,
+      markers,
+      threshold,
+      tooltipOrder: thresholdSettings?.tooltipOrder || 'desc',
+    };
+  };
 
   const kpiIds = km.activeSelectedKpiIds;
 
@@ -157,7 +185,7 @@ export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPer
                 timestamps={secData.timestamps || sectorData.timestamps || []}
                 bandFilter={km.selectedBands}
                 timeMode={km.timeMode}
-                {...chartProps(kpiData)}
+                {...chartProps(kpiData, kpiId)}
               />
             );
           })];
@@ -173,7 +201,7 @@ export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPer
               timestamps={currentSectorData.timestamps || sectorData?.timestamps || []}
               bandFilter={km.selectedBands}
               timeMode={km.timeMode}
-              {...chartProps(kpiData)}
+              {...chartProps(kpiData, kpiId)}
             />
           );
         })}
@@ -197,7 +225,7 @@ export default function KpiChartsPanel({ km, activeMenu, siteNamesMap, chartsPer
               timestamps={aggData.timestamps}
               bandFilter={km.aggregationMode === 'band' ? km.selectedBands : 'all'}
               timeMode={km.timeMode}
-              {...chartProps(kpiData)}
+              {...chartProps(kpiData, kpiId)}
             />
           );
         })}

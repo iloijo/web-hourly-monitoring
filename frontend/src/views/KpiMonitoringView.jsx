@@ -3,6 +3,7 @@ import ScopeFilterPanel from './kpi/ScopeFilterPanel';
 import KpiChartsPanel from './kpi/KpiChartsPanel';
 import PropertiesPanel from './kpi/PropertiesPanel';
 import MarkerControl from './kpi/MarkerControl';
+import ThresholdControl, { loadThresholdSettings } from './kpi/ThresholdControl';
 import { buildKpiExport } from './kpi/kpiExport';
 import useSiteProperties from '../hooks/useSiteProperties';
 
@@ -12,7 +13,9 @@ export default function KpiMonitoringView({
 }) {
   const [propsOpen, setPropsOpen] = useState(false);
   const [sortedPropertyRows, setSortedPropertyRows] = useState([]);
+  const [thresholdSettings, setThresholdSettings] = useState(loadThresholdSettings);
   const showProperties = (activeMenu === '4g-daily' || activeMenu === '4g-hourly') && km.aggregationScope === 'sector';
+  const hasThresholds = activeMenu === '4g-hourly' || activeMenu === '4g-daily' || activeMenu === '5g';
   const props = useSiteProperties(showProperties && propsOpen, km.siteId);
   const sectors = km.sectorViewMode === 'sectoral' ? (km.sectoralSectors || []).map(Number) : [Number(km.selectedSector)];
   const propertyRows = props.rows.filter(r => sectors.includes(r.sector));
@@ -44,7 +47,20 @@ export default function KpiMonitoringView({
         chartsPerRow={chartsPerRow}
         darkMode={darkMode}
         markers={markers}
-        headerExtra={<MarkerControl markers={markers} setMarkers={setMarkers} defaultDate={km.endDate} darkMode={darkMode} />}
+        thresholdSettings={thresholdSettings}
+        headerExtra={
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <MarkerControl markers={markers} setMarkers={setMarkers} defaultDate={km.endDate} darkMode={darkMode} />
+            {hasThresholds && (
+              <ThresholdControl
+                activeMenu={activeMenu}
+                settings={thresholdSettings}
+                onUpdateSettings={setThresholdSettings}
+                darkMode={darkMode}
+              />
+            )}
+          </div>
+        }
       />
       {showProperties && (
         <>
