@@ -361,11 +361,11 @@ export default function TimingAdvanceView({
         bottom: 4,
         left: 'center',
         icon: 'rect',
-        itemWidth: 12,
-        itemHeight: 12,
+        itemWidth: 11,
+        itemHeight: 11,
         textStyle: {
           color: darkMode ? '#94a3b8' : '#475569',
-          fontSize: 11
+          fontSize: 10
         }
       },
       grid: {
@@ -537,11 +537,11 @@ export default function TimingAdvanceView({
         bottom: 4,
         left: 'center',
         icon: 'rect',
-        itemWidth: 12,
-        itemHeight: 12,
+        itemWidth: 11,
+        itemHeight: 11,
         textStyle: {
           color: darkMode ? '#94a3b8' : '#475569',
-          fontSize: 11
+          fontSize: 10
         }
       },
       grid: {
