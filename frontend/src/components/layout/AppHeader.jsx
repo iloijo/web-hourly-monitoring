@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { CheckCircle2, Menu, RefreshCw, LogOut } from 'lucide-react';
 import { MENU_META } from '../../constants/menus';
 
@@ -17,17 +16,6 @@ export default function AppHeader({
   activeMenu, sidebarOpen, onOpenSidebar, km, isKpiMenu, onSwitchMenu,
   chartsPerRow, setChartsPerRow, darkMode, authUser, onLogout, children,
 }) {
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 24);
-    };
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    handleScroll();
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
   const meta = MENU_META[activeMenu] || { title: activeMenu, crumbGroup: '', crumb: '', db: 'onedb' };
   const isTwoDb = meta.db === 'twodb';
   const isDaily = activeMenu === '4g-daily';
@@ -38,9 +26,7 @@ export default function AppHeader({
   const pillBox = `flex items-center p-0.5 rounded-lg border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'}`;
 
   return (
-    <header className={`gap-2 flex-wrap border-b px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 transition-all duration-200 ${
-      scrolled ? 'min-h-10 py-1 shadow-sm' : 'min-h-14 py-2'
-    } ${
+    <header className={`min-h-14 py-2 gap-2 flex-wrap border-b px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 transition-colors duration-300 ${
       darkMode ? 'bg-slate-900/95 border-slate-800 backdrop-blur' : 'bg-white/95 border-slate-200 backdrop-blur'
     }`}>
       <div className="flex items-center gap-3">
@@ -58,15 +44,11 @@ export default function AppHeader({
         )}
 
         <div className="flex items-center gap-2">
-          <h1 className={`font-black tracking-tight transition-all duration-200 ${
-            scrolled ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'
-          } ${darkMode ? 'text-white' : 'text-slate-900'}`}>{meta.title}</h1>
-          <div className={`hidden md:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border transition-all duration-300 overflow-hidden ${
-            scrolled ? 'max-w-0 opacity-0 px-0 py-0 border-0 pointer-events-none' : `max-w-xs opacity-100 ${BADGE[crumbColor(activeMenu)]}`
-          }`}>
-            <span className="opacity-70 font-medium whitespace-nowrap">{meta.crumbGroup}</span>
+          <h1 className={`text-sm sm:text-base font-black tracking-tight ${darkMode ? 'text-white' : 'text-slate-900'}`}>{meta.title}</h1>
+          <div className={`hidden md:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${BADGE[crumbColor(activeMenu)]}`}>
+            <span className="opacity-70 font-medium">{meta.crumbGroup}</span>
             <span className="opacity-40">/</span>
-            <span className="font-bold whitespace-nowrap">{meta.crumb}</span>
+            <span className="font-bold">{meta.crumb}</span>
           </div>
         </div>
 
