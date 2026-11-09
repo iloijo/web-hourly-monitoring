@@ -10,6 +10,7 @@ import KpiMonitoringView from './views/KpiMonitoringView';
 import LoginPage from './views/LoginPage';
 import useReferenceData from './hooks/useReferenceData';
 import useKpiMonitoring from './hooks/useKpiMonitoring';
+import useIdleLogout from './hooks/useIdleLogout';
 import { KPI_MENUS } from './constants/kpis';
 import { getAuthToken, getStoredAuthUser, setAuthSession, getJson } from './api/client';
 
@@ -74,6 +75,7 @@ export default function App() {
       try {
         sessionStorage.removeItem('netpulse_auth_token');
         sessionStorage.removeItem('netpulse_auth_user');
+        sessionStorage.removeItem('netpulse_last_activity');
       } catch {
         // Ignore storage errors
       }
@@ -96,11 +98,15 @@ export default function App() {
     try {
       sessionStorage.removeItem('netpulse_auth_token');
       sessionStorage.removeItem('netpulse_auth_user');
+      sessionStorage.removeItem('netpulse_last_activity');
     } catch {
       // Ignore storage errors
     }
     setIsAuthenticated(false);
   };
+
+  // Auto logout after 30 minutes without mouse/keyboard/touch/scroll activity
+  useIdleLogout(isAuthenticated, handleLogout, 30 * 60 * 1000);
 
   // Opening a menu never queries KPI data; the user picks a site or clicks Generate
   const handleSwitchMenu = (menu) => {
