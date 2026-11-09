@@ -7,6 +7,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Optional, List
 from fastapi import FastAPI, Query, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response, JSONResponse
 from pydantic import BaseModel
@@ -29,11 +30,12 @@ from .queries_worstcell import get_worst_cells, get_ztzp
 from .export_xlsx import build_workbook, safe_filename
 from .queries_cluster import get_cluster_compare, get_site_sectors
 from .queries_overview import (
-    get_overview_summary,
-    get_overview_trend,
-    get_overview_branches,
+    get_overview_dataset,
+    get_overview_inventory,
+    get_overview_drill,
     get_overview_top_decline,
-    get_latest_overview_date
+    get_latest_overview_date,
+    prewarm_overview_cache
 )
 from . import clusters as cluster_store
 
@@ -82,12 +84,12 @@ get_site_properties = _cached(get_site_properties)
 get_worst_cells = _cached(get_worst_cells)
 get_ztzp = _cached(get_ztzp)
 get_cluster_compare = _cached(get_cluster_compare)
-get_overview_summary = _cached(get_overview_summary)
-get_overview_trend = _cached(get_overview_trend)
-get_overview_branches = _cached(get_overview_branches)
-get_overview_top_decline = _cached(get_overview_top_decline)
-
 app = FastAPI(title="netPulse - KPI Monitoring Dashboard", version="3.8.0")
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+@app.on_event("startup")
+def startup_event():
+    threading.Thread(target=prewarm_overview_cache, daemon=True).start()
 
 class LoginPayload(BaseModel):
     username: str
@@ -330,50 +332,51 @@ async def export_xlsx(request: Request):
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
-@app.get("/api/overview/summary")
-def get_overview_summary_endpoint(
-    date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD)"),
-    branch: Optional[str] = Query(None, description="Branch filter (All, MAKASSAR, etc.)")
+@app.get("/api/overview/dataset")
+def get_overview_dataset_endpoint(
+    year: int = Query(2026, description="Year to fetch (includes year and year-1)"),
+    refresh: bool = Query(False, description="Force refresh cache")
 ):
-    """Overview KPI tiles and inventory site counts with YoY comparison."""
+    """Daily x NOP aggregated dataset for the specified year and previous year."""
     try:
-        return get_overview_summary(date=date, branch=branch)
+        return get_overview_dataset(year=year, refresh=refresh)
     except Exception as e:
-        return {"error": str(e), "kpi": {}, "inventory": {}}
+        return {"error": str(e), "year": year, "rows": []}
 
-@app.get("/api/overview/trend")
-def get_overview_trend_endpoint(
-    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
-    days: int = Query(30, description="Number of days (default 30)"),
-    branch: Optional[str] = Query(None, description="Branch filter")
+@app.get("/api/overview/inventory")
+def get_overview_inventory_endpoint(
+    refresh: bool = Query(False, description="Force refresh cache")
 ):
-    """30-day productivity trend: stacked bar payload and traffic with YoY baseline."""
+    """Registered 2G/4G/5G site inventory counts grouped by NOP."""
     try:
-        return get_overview_trend(end_date=end_date, days=days, branch=branch)
+        return get_overview_inventory(refresh=refresh)
     except Exception as e:
-        return {"error": str(e), "trend": []}
+        return {"error": str(e), "week": "Unknown", "nops": {}}
 
-@app.get("/api/overview/branches")
-def get_overview_branches_endpoint(
-    date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD)"),
-    level: str = Query("branch", description="Hierarchy level: branch, sales_cluster, rtpo"),
-    parent: Optional[str] = Query(None, description="Parent name for drill-down")
+@app.get("/api/overview/drill")
+def get_overview_drill_endpoint(
+    date: Optional[str] = Query(None, description="Selected date (YYYY-MM-DD)"),
+    mode: str = Query("YTD", description="Analysis mode: YoY, MTD, YTD"),
+    level: str = Query("kabupaten", description="Hierarchy level: kabupaten, kecamatan"),
+    parent: Optional[str] = Query(None, description="Parent name (NOP or Kabupaten)"),
+    nop: Optional[str] = Query(None, description="NOP filter")
 ):
-    """Branch ranking table with drill-down (branch -> sales_cluster -> rtpo)."""
+    """Geographic drill-down ranking (NOP -> Kabupaten -> Kecamatan) under YoY/MTD/YTD modes."""
     try:
-        return get_overview_branches(date=date, level=level, parent=parent)
+        return get_overview_drill(date=date, mode=mode, level=level, parent=parent, nop=nop)
     except Exception as e:
         return {"error": str(e), "items": []}
 
 @app.get("/api/overview/top_decline")
 def get_overview_top_decline_endpoint(
     date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD)"),
-    branch: Optional[str] = Query(None, description="Branch filter"),
+    mode: str = Query("YTD", description="Analysis mode: YoY, MTD, YTD"),
+    nop: Optional[str] = Query(None, description="NOP filter"),
     top_n: int = Query(10, description="Top N sites (default 10)")
 ):
-    """Top sites with largest YoY payload decline."""
+    """Top sites with largest payload decline vs same period last year."""
     try:
-        return get_overview_top_decline(date=date, branch=branch, top_n=top_n)
+        return get_overview_top_decline(date=date, mode=mode, nop=nop, top_n=top_n)
     except Exception as e:
         return {"error": str(e), "sites": []}
 

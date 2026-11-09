@@ -101,22 +101,24 @@ export default function AppHeader({
           </>
         )}
 
-        <div className={`hidden lg:flex ${pillBox}`}>
-          {[1, 2, 3].map(num => (
-            <button
-              key={num}
-              type="button"
-              onClick={() => setChartsPerRow(num)}
-              className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all duration-200 cursor-pointer ${
-                chartsPerRow === num
-                  ? darkMode ? 'bg-blue-600 text-white shadow-xs' : 'bg-white text-blue-700 shadow-xs ring-1 ring-slate-200/50'
-                  : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {num}
-            </button>
-          ))}
-        </div>
+        {activeMenu !== 'overview' && (
+          <div className={`hidden lg:flex ${pillBox}`}>
+            {[1, 2, 3].map(num => (
+              <button
+                key={num}
+                type="button"
+                onClick={() => setChartsPerRow(num)}
+                className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all duration-200 cursor-pointer ${
+                  chartsPerRow === num
+                    ? darkMode ? 'bg-blue-600 text-white shadow-xs' : 'bg-white text-blue-700 shadow-xs ring-1 ring-slate-200/50'
+                    : darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {num}
+              </button>
+            ))}
+          </div>
+        )}
 
         {children}
 

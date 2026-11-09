@@ -13,17 +13,21 @@ import {
   ExternalLink,
   Layers,
   MapPin,
+  Maximize2,
+  Minimize2,
   Radio,
   RefreshCw,
   TrendingDown,
   Wifi,
+  X,
 } from 'lucide-react';
 import ReactECharts from '../lib/echarts';
 import { getJson } from '../api/client';
 import { latestDates, loadLatestDates } from '../constants/dates';
 import DataLoadingOverlay from '../components/DataLoadingOverlay';
+import SegmentedToggle from '../components/filters/SegmentedToggle';
 
-const BRANCH_OPTIONS = [
+const NOP_OPTIONS = [
   'All',
   'BONE',
   'KENDARI',
@@ -35,19 +39,47 @@ const BRANCH_OPTIONS = [
   'Unmapped',
 ];
 
-const fmtDec = (v) =>
+const MODE_OPTIONS = [
+  ['YoY', 'YoY'],
+  ['MTD', 'MTD'],
+  ['YTD', 'YTD'],
+];
+
+const fmtDec = (v, digits = 2) =>
   v === null || v === undefined
     ? '–'
-    : Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    : Number(v).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
 const fmtInt = (v) =>
   v === null || v === undefined ? '–' : Number(v).toLocaleString('en-US');
 
-function DeltaBadge({ val, label = 'YoY' }) {
+// Formatter for Payload: auto convert TB -> PB if >= 1000 TB
+function formatPayloadUnit(tbVal) {
+  if (tbVal === null || tbVal === undefined) return { val: '–', unit: 'TB' };
+  const num = Number(tbVal);
+  if (Math.abs(num) >= 1000) {
+    return { val: fmtDec(num / 1000, 2), unit: 'PB' };
+  }
+  return { val: fmtDec(num, 2), unit: 'TB' };
+}
+
+// Formatter for Traffic: auto convert KErl -> Mio Erl if >= 1000 KErl
+function formatTrafficUnit(kerlVal) {
+  if (kerlVal === null || kerlVal === undefined) return { val: '–', unit: 'KErl' };
+  const num = Number(kerlVal);
+  if (Math.abs(num) >= 1000) {
+    return { val: fmtDec(num / 1000, 2), unit: 'Mio Erl' };
+  }
+  return { val: fmtDec(num, 2), unit: 'KErl' };
+}
+
+// Delta Badge with mode label
+function DeltaBadge({ val, mode = 'YoY' }) {
   if (val === null || val === undefined) {
     return <span className="text-xs text-slate-400 font-medium">–</span>;
   }
-  const isUp = val >= 0;
+  const num = Number(val);
+  const isUp = num >= 0;
   return (
     <span
       className={`inline-flex items-center gap-0.5 text-xs font-bold px-1.5 py-0.5 rounded ${
@@ -61,34 +93,70 @@ function DeltaBadge({ val, label = 'YoY' }) {
       ) : (
         <ArrowDownRight className="w-3.5 h-3.5" />
       )}
-      {isUp ? `+${val.toFixed(2)}%` : `${val.toFixed(2)}%`} {label}
+      {isUp ? `+${num.toFixed(2)}%` : `${num.toFixed(2)}%`} {mode}
     </span>
   );
 }
 
+// Helper to safely shift year, handling Feb 29
+function safeShiftYear(dateStr, deltaYears = -1) {
+  const parts = dateStr.split('-');
+  const y = Number(parts[0]) + deltaYears;
+  const m = parts[1];
+  let d = parts[2];
+  if (m === '02' && d === '29') {
+    d = '28';
+  }
+  return `${y}-${m}-${d}`;
+}
+
+// Generate the 365 MM-DD calendar labels (excluding 02-29 for alignment)
+const CALENDAR_MM_DD = (() => {
+  const dates = [];
+  const daysInMonths = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  for (let m = 1; m <= 12; m++) {
+    const mStr = String(m).padStart(2, '0');
+    for (let d = 1; d <= daysInMonths[m - 1]; d++) {
+      const dStr = String(d).padStart(2, '0');
+      dates.push(`${mStr}-${dStr}`);
+    }
+  }
+  return dates;
+})();
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
   const [selectedDate, setSelectedDate] = useState(latestDates['overview'] || '2026-11-07');
-  const [selectedBranch, setSelectedBranch] = useState('All');
-  const [loading, setLoading] = useState(false);
+  const [selectedNop, setSelectedNop] = useState('All');
+  const [mode, setMode] = useState('YTD'); // 'YoY' | 'MTD' | 'YTD'
+  const [fullscreenChart, setFullscreenChart] = useState(null); // 'payload' | 'traffic' | null
+
+  // Global dataset cache: year -> { year, latest_date, rows }
+  const [dataset, setDataset] = useState(null);
+  const [inventory, setInventory] = useState(null);
+  const [freshnessDates, setFreshnessDates] = useState({});
+  const [loadingDataset, setLoadingDataset] = useState(false);
   const [error, setError] = useState(null);
 
-  // Data states
-  const [summaryData, setSummaryData] = useState(null);
-  const [trendData, setTrendData] = useState([]);
-  const [branchRows, setBranchRows] = useState([]);
+  // Hierarchy drill state: { level: 'nop' | 'kabupaten' | 'kecamatan', parent: null, parentNop: null }
+  const [drill, setDrill] = useState({ level: 'nop', parent: null, parentNop: null });
+  const [drillRows, setDrillRows] = useState([]);
+  const [loadingDrill, setLoadingDrill] = useState(false);
+
+  // Top decline sites state
   const [topDeclineSites, setTopDeclineSites] = useState([]);
-  const [freshnessDates, setFreshnessDates] = useState({});
+  const [loadingDecline, setLoadingDecline] = useState(false);
 
-  // Drill hierarchy state: { level: 'branch' | 'sales_cluster' | 'rtpo', parent: string | null, parentBranch: string | null }
-  const [drill, setDrill] = useState({
-    level: 'branch',
-    parent: null,
-    parentBranch: null,
-  });
+  // Local caches to prevent re-querying drill/decline
+  const drillCacheRef = useRef(new Map());
+  const declineCacheRef = useRef(new Map());
+  const datasetCacheRef = useRef({});
 
-  const requestId = useRef(0);
+  const selectedYear = Number(selectedDate.slice(0, 4)) || 2026;
+  const lastYear = selectedYear - 1;
 
-  // Initial load of latest dates
+  // 1. Initial load of latest dates & inventory
   useEffect(() => {
     loadLatestDates().then((dates) => {
       setFreshnessDates(dates);
@@ -96,140 +164,491 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
         setSelectedDate(dates.overview);
       }
     });
+
+    getJson('/api/overview/inventory')
+      .then((inv) => {
+        if (inv?.nops) setInventory(inv);
+      })
+      .catch((err) => loggerWarning('Failed to load inventory', err));
   }, []);
 
-  // Fetch overview data
-  const fetchData = (targetDate = selectedDate, targetBranch = selectedBranch, targetDrill = drill) => {
-    const curId = ++requestId.current;
-    setLoading(true);
+  // 2. Fetch dataset when year changes or on forced reload
+  const fetchDataset = (year = selectedYear, forceRefresh = false) => {
+    if (!forceRefresh && datasetCacheRef.current[year]) {
+      setDataset(datasetCacheRef.current[year]);
+      return;
+    }
+
+    setLoadingDataset(true);
     setError(null);
 
-    const bParam = targetBranch === 'All' ? '' : targetBranch;
-
-    Promise.all([
-      getJson('/api/overview/summary', { date: targetDate, branch: bParam }),
-      getJson('/api/overview/trend', { end_date: targetDate, days: 30, branch: bParam }),
-      getJson('/api/overview/branches', {
-        date: targetDate,
-        level: targetDrill.level,
-        parent: targetDrill.parent || '',
-      }),
-      getJson('/api/overview/top_decline', { date: targetDate, branch: bParam, top_n: 10 }),
-      getJson('/api/latest_dates'),
-    ])
-      .then(([summary, trend, branches, decline, latest]) => {
-        if (curId !== requestId.current) return;
-        if (summary?.error) {
-          setError(summary.error);
+    getJson('/api/overview/dataset', { year, refresh: forceRefresh ? 1 : 0 })
+      .then((data) => {
+        if (data?.error) {
+          setError(data.error);
         } else {
-          setSummaryData(summary);
+          datasetCacheRef.current[year] = data;
+          setDataset(data);
         }
-        if (trend?.trend) setTrendData(trend.trend);
-        if (branches?.items) setBranchRows(branches.items);
-        if (decline?.sites) setTopDeclineSites(decline.sites);
-        if (latest) setFreshnessDates(latest);
       })
-      .catch((err) => {
-        if (curId !== requestId.current) return;
-        setError(String(err));
-      })
-      .finally(() => {
-        if (curId === requestId.current) setLoading(false);
-      });
+      .catch((err) => setError(String(err)))
+      .finally(() => setLoadingDataset(false));
   };
 
-  // Reload when date or branch changes
   useEffect(() => {
-    // Reset drill-down when branch filter changes
-    setDrill({ level: 'branch', parent: null, parentBranch: null });
-    fetchData(selectedDate, selectedBranch, { level: 'branch', parent: null, parentBranch: null });
-  }, [selectedDate, selectedBranch]); // eslint-disable-line react-hooks/exhaustive-deps
+    fetchDataset(selectedYear);
+  }, [selectedYear]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle Drill Down click in Branch Ranking table
+  // Manual reload button
+  const handleReload = () => {
+    drillCacheRef.current.clear();
+    declineCacheRef.current.clear();
+    fetchDataset(selectedYear, true);
+    getJson('/api/overview/inventory', { refresh: 1 }).then((inv) => {
+      if (inv?.nops) setInventory(inv);
+    });
+    getJson('/api/latest_dates').then((dates) => {
+      if (dates) setFreshnessDates(dates);
+    });
+  };
+
+  // 3. Client-Side Aggregation for KPI Tiles, Yearly Charts, and NOP Ranking
+  const computed = useMemo(() => {
+    if (!dataset?.rows?.length) return null;
+
+    const rows = dataset.rows;
+    const latestDate = dataset.latest_date || selectedDate;
+    const effectiveSelectedDate = selectedDate > latestDate ? latestDate : selectedDate;
+
+    // Determine current period dates and last year period dates
+    const selParts = effectiveSelectedDate.split('-');
+    const mStr = selParts[1];
+    const dStr = selParts[2];
+
+    const curY = selectedYear;
+    const prevY = lastYear;
+
+    let curStartDate, curEndDate, yoyStartDate, yoyEndDate;
+
+    if (mode === 'YoY') {
+      curStartDate = effectiveSelectedDate;
+      curEndDate = effectiveSelectedDate;
+      yoyStartDate = safeShiftYear(effectiveSelectedDate, -1);
+      yoyEndDate = yoyStartDate;
+    } else if (mode === 'MTD') {
+      curStartDate = `${curY}-${mStr}-01`;
+      curEndDate = effectiveSelectedDate;
+      yoyStartDate = `${prevY}-${mStr}-01`;
+      yoyEndDate = safeShiftYear(effectiveSelectedDate, -1);
+    } else {
+      // YTD
+      curStartDate = `${curY}-01-01`;
+      curEndDate = effectiveSelectedDate;
+      yoyStartDate = `${prevY}-01-01`;
+      yoyEndDate = safeShiftYear(effectiveSelectedDate, -1);
+    }
+
+    // Filter by NOP
+    const filterNop = selectedNop !== 'All';
+
+    // 3.1 Compute KPI Tiles Totals
+    let totPayloadCur = 0;
+    let totPayloadYoy = 0;
+    let p4gCur = 0;
+    let p4gYoy = 0;
+    let p5gCur = 0;
+    let p5gYoy = 0;
+    let totTrafficCur = 0;
+    let totTrafficYoy = 0;
+
+    // Daily sums in current period for Peak Daily Payload
+    const dailySumsCur = {};
+
+    // Map for Yearly Trend Chart: (MM-DD) -> { cur: { ptot, p2g, p4g, p5g, ttot, t2g, tvolte }, last: { ... } }
+    const yearlyMap = {};
+    CALENDAR_MM_DD.forEach((mmdd) => {
+      yearlyMap[mmdd] = {
+        cur: { ptot: 0, p2g: 0, p4g: 0, p5g: 0, ttot: 0, t2g: 0, tvolte: 0, count: 0 },
+        last: { ptot: 0, p2g: 0, p4g: 0, p5g: 0, ttot: 0, t2g: 0, tvolte: 0, count: 0 },
+      };
+    });
+
+    // Map for NOP Ranking Level 1
+    const nopAgg = {};
+    NOP_OPTIONS.filter((n) => n !== 'All').forEach((n) => {
+      nopAgg[n] = { payloadCur: 0, payloadYoy: 0, trafficCur: 0, trafficYoy: 0 };
+    });
+
+    rows.forEach((r) => {
+      const d = r.date;
+      const rNop = r.nop;
+      const isSelectedNop = !filterNop || rNop === selectedNop;
+
+      // Check NOP Ranking accumulation
+      if (d >= curStartDate && d <= curEndDate) {
+        if (nopAgg[rNop]) {
+          nopAgg[rNop].payloadCur += r.ptot;
+          nopAgg[rNop].trafficCur += r.ttot;
+        }
+      }
+      if (d >= yoyStartDate && d <= yoyEndDate) {
+        if (nopAgg[rNop]) {
+          nopAgg[rNop].payloadYoy += r.ptot;
+          nopAgg[rNop].trafficYoy += r.ttot;
+        }
+      }
+
+      // Check KPI Totals accumulation
+      if (isSelectedNop) {
+        if (d >= curStartDate && d <= curEndDate) {
+          totPayloadCur += r.ptot;
+          p4gCur += r.p4g;
+          p5gCur += r.p5g;
+          totTrafficCur += r.ttot;
+
+          dailySumsCur[d] = (dailySumsCur[d] || 0) + r.ptot;
+        }
+        if (d >= yoyStartDate && d <= yoyEndDate) {
+          totPayloadYoy += r.ptot;
+          p4gYoy += r.p4g;
+          p5gYoy += r.p5g;
+          totTrafficYoy += r.ttot;
+        }
+
+        // Yearly chart distribution
+        const rYear = Number(d.slice(0, 4));
+        const mmdd = d.slice(5, 10);
+        if (yearlyMap[mmdd]) {
+          if (rYear === curY && d <= latestDate) {
+            const c = yearlyMap[mmdd].cur;
+            c.ptot += r.ptot;
+            c.p2g += r.p2g;
+            c.p4g += r.p4g;
+            c.p5g += r.p5g;
+            c.ttot += r.ttot;
+            c.t2g += r.t2g;
+            c.tvolte += r.tvolte;
+            c.count++;
+          } else if (rYear === prevY) {
+            const l = yearlyMap[mmdd].last;
+            l.ptot += r.ptot;
+            l.p2g += r.p2g;
+            l.p4g += r.p4g;
+            l.p5g += r.p5g;
+            l.ttot += r.ttot;
+            l.t2g += r.t2g;
+            l.tvolte += r.tvolte;
+            l.count++;
+          }
+        }
+      }
+    });
+
+    // Peak Daily Payload calculation
+    let peakVal = 0;
+    let peakDate = null;
+    Object.entries(dailySumsCur).forEach(([day, val]) => {
+      if (val > peakVal) {
+        peakVal = val;
+        peakDate = day;
+      }
+    });
+
+    // Peak formatted date: e.g. "21 Mar"
+    let peakDateFormatted = '–';
+    if (peakDate) {
+      const pD = peakDate.slice(8, 10);
+      const pM = MONTH_NAMES[Number(peakDate.slice(5, 7)) - 1];
+      peakDateFormatted = `${pD} ${pM}`;
+    }
+
+    // Delta calculation helpers
+    const calcDelta = (cur, yoy) => (yoy > 0 ? ((cur - yoy) / yoy) * 100 : null);
+
+    // 3.2 Prepare Yearly Trend Chart Series Arrays
+    const latestMmDd = latestDate.slice(5, 10);
+    const selectedMmDd = effectiveSelectedDate.slice(5, 10);
+
+    const xLabels = [];
+    const payloadSeriesLast = [];
+    const payloadSeriesCur = [];
+    const trafficSeriesLast = [];
+    const trafficSeriesCur = [];
+    const deltaSeriesPayload = [];
+    const deltaSeriesTraffic = [];
+
+    // Running cumulative trackers for MTD / YTD
+    let cumCurPayload = 0;
+    let cumLastPayload = 0;
+    let cumCurTraffic = 0;
+    let cumLastTraffic = 0;
+
+    let curMonthTrack = '';
+
+    CALENDAR_MM_DD.forEach((mmdd, idx) => {
+      const mNum = Number(mmdd.slice(0, 2));
+      const dNum = Number(mmdd.slice(3, 5));
+      const mName = MONTH_NAMES[mNum - 1];
+      const label = `${String(dNum).padStart(2, '0')} ${mName}`;
+      xLabels.push(label);
+
+      const cell = yearlyMap[mmdd];
+      const hasCurData = mmdd <= latestMmDd && cell.cur.count > 0;
+
+      const pCurVal = hasCurData ? cell.cur.ptot : null;
+      const pLastVal = cell.last.count > 0 ? cell.last.ptot : null;
+      const tCurVal = hasCurData ? cell.cur.ttot : null;
+      const tLastVal = cell.last.count > 0 ? cell.last.ttot : null;
+
+      payloadSeriesCur.push(pCurVal !== null ? Number(pCurVal.toFixed(2)) : null);
+      payloadSeriesLast.push(pLastVal !== null ? Number(pLastVal.toFixed(2)) : null);
+      trafficSeriesCur.push(tCurVal !== null ? Number(tCurVal.toFixed(2)) : null);
+      trafficSeriesLast.push(tLastVal !== null ? Number(tLastVal.toFixed(2)) : null);
+
+      // Delta calculation according to mode
+      let pDelta = null;
+      let tDelta = null;
+
+      if (hasCurData && pLastVal !== null) {
+        if (mode === 'YoY') {
+          pDelta = calcDelta(pCurVal, pLastVal);
+          tDelta = calcDelta(tCurVal, tLastVal);
+        } else if (mode === 'MTD') {
+          // Reset cumulative on 1st of month
+          if (curMonthTrack !== mmdd.slice(0, 2)) {
+            curMonthTrack = mmdd.slice(0, 2);
+            cumCurPayload = 0;
+            cumLastPayload = 0;
+            cumCurTraffic = 0;
+            cumLastTraffic = 0;
+          }
+          cumCurPayload += pCurVal;
+          cumLastPayload += pLastVal;
+          cumCurTraffic += tCurVal;
+          cumLastTraffic += tLastVal;
+          pDelta = calcDelta(cumCurPayload, cumLastPayload);
+          tDelta = calcDelta(cumCurTraffic, cumLastTraffic);
+        } else {
+          // YTD
+          cumCurPayload += pCurVal;
+          cumLastPayload += pLastVal;
+          cumCurTraffic += tCurVal;
+          cumLastTraffic += tLastVal;
+          pDelta = calcDelta(cumCurPayload, cumLastPayload);
+          tDelta = calcDelta(cumCurTraffic, cumLastTraffic);
+        }
+      }
+
+      deltaSeriesPayload.push(pDelta !== null ? Number(pDelta.toFixed(2)) : null);
+      deltaSeriesTraffic.push(tDelta !== null ? Number(tDelta.toFixed(2)) : null);
+    });
+
+    // 3.3 Prepare NOP Ranking Rows (Level 1)
+    const nopRows = Object.entries(nopAgg)
+      .map(([n, data]) => ({
+        name: n,
+        payload: data.payloadCur,
+        payload_yoy_pct: calcDelta(data.payloadCur, data.payloadYoy),
+        traffic: data.trafficCur,
+        traffic_yoy_pct: calcDelta(data.trafficCur, data.trafficYoy),
+        site_count: inventory?.nops?.[n]?.sites_4g || 0,
+      }))
+      .sort((a, b) => b.payload - a.payload);
+
+    return {
+      kpi: {
+        totalPayload: {
+          ...formatPayloadUnit(totPayloadCur),
+          raw: totPayloadCur,
+          yoyRaw: totPayloadYoy,
+          yoyFormatted: formatPayloadUnit(totPayloadYoy),
+          deltaPct: calcDelta(totPayloadCur, totPayloadYoy),
+        },
+        payload4g: {
+          val: fmtDec(p4gCur),
+          raw: p4gCur,
+          yoyRaw: p4gYoy,
+          yoyVal: fmtDec(p4gYoy),
+          deltaPct: calcDelta(p4gCur, p4gYoy),
+        },
+        payload5g: {
+          val: fmtDec(p5gCur),
+          raw: p5gCur,
+          sharePct: totPayloadCur > 0 ? ((p5gCur / totPayloadCur) * 100).toFixed(2) : '0.00',
+          yoyRaw: p5gYoy,
+          yoyVal: fmtDec(p5gYoy),
+          deltaPct: calcDelta(p5gCur, p5gYoy),
+        },
+        totalTraffic: {
+          ...formatTrafficUnit(totTrafficCur),
+          raw: totTrafficCur,
+          yoyRaw: totTrafficYoy,
+          yoyFormatted: formatTrafficUnit(totTrafficYoy),
+          deltaPct: calcDelta(totTrafficCur, totTrafficYoy),
+        },
+        peakDaily: {
+          ...formatPayloadUnit(peakVal),
+          raw: peakVal,
+          dateFormatted: peakDateFormatted,
+        },
+      },
+      chartData: {
+        xLabels,
+        latestIndex: CALENDAR_MM_DD.indexOf(latestMmDd),
+        selectedIndex: CALENDAR_MM_DD.indexOf(selectedMmDd),
+        payloadCur: payloadSeriesCur,
+        payloadLast: payloadSeriesLast,
+        trafficCur: trafficSeriesCur,
+        trafficLast: trafficSeriesLast,
+        deltaPayload: deltaSeriesPayload,
+        deltaTraffic: deltaSeriesTraffic,
+        yearlyMap,
+      },
+      nopRows,
+    };
+  }, [dataset, selectedDate, selectedNop, mode, selectedYear, lastYear, inventory]);
+
+  // 4. Fetch Drill-Down Rows when level is 'kabupaten' or 'kecamatan'
+  useEffect(() => {
+    if (drill.level === 'nop') {
+      return;
+    }
+
+    const cacheKey = `${drill.level}_${drill.parent}_${mode}_${selectedDate}_${selectedNop}`;
+    if (drillCacheRef.current.has(cacheKey)) {
+      setDrillRows(drillCacheRef.current.get(cacheKey));
+      return;
+    }
+
+    setLoadingDrill(true);
+    getJson('/api/overview/drill', {
+      date: selectedDate,
+      mode,
+      level: drill.level,
+      parent: drill.parent || '',
+      nop: selectedNop === 'All' ? '' : selectedNop,
+    })
+      .then((res) => {
+        if (res?.items) {
+          drillCacheRef.current.set(cacheKey, res.items);
+          setDrillRows(res.items);
+        }
+      })
+      .catch((err) => console.error('Drill query failed', err))
+      .finally(() => setLoadingDrill(false));
+  }, [drill, mode, selectedDate, selectedNop]);
+
+  // 5. Fetch Top Decline Sites
+  useEffect(() => {
+    const cacheKey = `${selectedDate}_${mode}_${selectedNop}_10`;
+    if (declineCacheRef.current.has(cacheKey)) {
+      setTopDeclineSites(declineCacheRef.current.get(cacheKey));
+      return;
+    }
+
+    setLoadingDecline(true);
+    getJson('/api/overview/top_decline', {
+      date: selectedDate,
+      mode,
+      nop: selectedNop === 'All' ? '' : selectedNop,
+      top_n: 10,
+    })
+      .then((res) => {
+        if (res?.sites) {
+          declineCacheRef.current.set(cacheKey, res.sites);
+          setTopDeclineSites(res.sites);
+        }
+      })
+      .catch((err) => console.error('Decline query failed', err))
+      .finally(() => setLoadingDecline(false));
+  }, [selectedDate, mode, selectedNop]);
+
+  // Table rows to display
+  const activeTableRows = drill.level === 'nop' ? computed?.nopRows || [] : drillRows;
+
+  // Handle row click in Ranking Table
   const handleDrillRow = (rowName) => {
-    if (drill.level === 'branch') {
-      const nextDrill = {
-        level: 'sales_cluster',
+    if (drill.level === 'nop') {
+      setDrill({
+        level: 'kabupaten',
         parent: rowName,
-        parentBranch: rowName,
-      };
-      setDrill(nextDrill);
-      getJson('/api/overview/branches', {
-        date: selectedDate,
-        level: 'sales_cluster',
-        parent: rowName,
-      }).then((res) => {
-        if (res?.items) setBranchRows(res.items);
+        parentNop: rowName,
       });
-    } else if (drill.level === 'sales_cluster') {
-      const nextDrill = {
-        level: 'rtpo',
+    } else if (drill.level === 'kabupaten') {
+      setDrill({
+        level: 'kecamatan',
         parent: rowName,
-        parentBranch: drill.parentBranch,
-      };
-      setDrill(nextDrill);
-      getJson('/api/overview/branches', {
-        date: selectedDate,
-        level: 'rtpo',
-        parent: rowName,
-      }).then((res) => {
-        if (res?.items) setBranchRows(res.items);
+        parentNop: drill.parentNop,
       });
     }
   };
 
-  // Handle Breadcrumb navigation
+  // Breadcrumb navigation
   const handleBreadcrumbClick = (targetLevel) => {
-    if (targetLevel === 'branch') {
-      const nextDrill = { level: 'branch', parent: null, parentBranch: null };
-      setDrill(nextDrill);
-      getJson('/api/overview/branches', { date: selectedDate, level: 'branch' }).then((res) => {
-        if (res?.items) setBranchRows(res.items);
-      });
-    } else if (targetLevel === 'sales_cluster') {
-      const nextDrill = {
-        level: 'sales_cluster',
-        parent: drill.parentBranch,
-        parentBranch: drill.parentBranch,
-      };
-      setDrill(nextDrill);
-      getJson('/api/overview/branches', {
-        date: selectedDate,
-        level: 'sales_cluster',
-        parent: drill.parentBranch,
-      }).then((res) => {
-        if (res?.items) setBranchRows(res.items);
+    if (targetLevel === 'nop') {
+      setDrill({ level: 'nop', parent: null, parentNop: null });
+    } else if (targetLevel === 'kabupaten') {
+      setDrill({
+        level: 'kabupaten',
+        parent: drill.parentNop,
+        parentNop: drill.parentNop,
       });
     }
   };
 
-  // Excel Export Registration
+  // 6. Excel Export Registration
   useEffect(() => {
-    if (!summaryData?.kpi) {
+    if (!computed?.kpi) {
       onExportData(null);
       return;
     }
 
+    const { kpi } = computed;
+    const inv = inventory?.nops?.[selectedNop] || {};
+
     onExportData(() => ({
-      filename: `netPulse_Overview_${selectedDate}_${selectedBranch}`,
+      filename: `netPulse_Overview_${mode}_${selectedDate}_${selectedNop}`,
       sheets: [
         {
-          name: 'Summary KPI',
-          columns: ['Metric', 'Current Value', 'Unit', 'YoY Value', 'YoY (%)'],
+          name: 'Summary',
+          columns: ['Metric', 'Current Period', 'Unit', 'Last Year Period', 'Delta (%)'],
           rows: [
-            ['Total Payload', summaryData.kpi.total_payload.value, 'TB', summaryData.kpi.total_payload.yoy_val, summaryData.kpi.total_payload.yoy_pct],
-            ['4G Payload', summaryData.kpi.payload_4g.value, 'TB', summaryData.kpi.payload_4g.yoy_val, summaryData.kpi.payload_4g.yoy_pct],
-            ['5G Payload', summaryData.kpi.payload_5g.value, 'TB', summaryData.kpi.payload_5g.yoy_val, summaryData.kpi.payload_5g.yoy_pct],
-            ['Total Traffic', summaryData.kpi.total_traffic.value, 'KErl', summaryData.kpi.total_traffic.yoy_val, summaryData.kpi.total_traffic.yoy_pct],
-            ['2G Sites (Inventory)', summaryData.inventory.sites_2g, 'Sites', '-', '-'],
-            ['4G Sites (Inventory)', summaryData.inventory.sites_4g, 'Sites', '-', '-'],
-            ['5G Sites (Inventory)', summaryData.inventory.sites_5g, 'Sites', '-', '-'],
+            ['Total Payload', kpi.totalPayload.val, kpi.totalPayload.unit, kpi.totalPayload.yoyFormatted.val, kpi.totalPayload.deltaPct],
+            ['4G Payload', kpi.payload4g.val, 'TB', kpi.payload4g.yoyVal, kpi.payload4g.deltaPct],
+            ['5G Payload', kpi.payload5g.val, 'TB', kpi.payload5g.yoyVal, kpi.payload5g.deltaPct],
+            ['5G Share', kpi.payload5g.sharePct, '%', '–', '–'],
+            ['Total Traffic', kpi.totalTraffic.val, kpi.totalTraffic.unit, kpi.totalTraffic.yoyFormatted.val, kpi.totalTraffic.deltaPct],
+            ['Peak Daily Payload', kpi.peakDaily.val, kpi.peakDaily.unit, kpi.peakDaily.dateFormatted, '–'],
+            ['2G Sites (Inventory)', inv.sites_2g || 0, 'Sites', '–', '–'],
+            ['4G Sites (Inventory)', inv.sites_4g || 0, 'Sites', '–', '–'],
+            ['5G Sites (Inventory)', inv.sites_5g || 0, 'Sites', '–', '–'],
           ],
         },
         {
-          name: 'Branch Ranking',
-          columns: ['Name', 'Level', 'Payload (TB)', 'YoY (%)', 'Traffic (KErl)', 'YoY (%)', 'Sites'],
-          rows: branchRows.map((b) => [
+          name: 'Daily Trend',
+          columns: [
+            'Day',
+            `Payload ${lastYear} (TB)`,
+            `Payload ${selectedYear} (TB)`,
+            `Payload ${mode} Delta (%)`,
+            `Traffic ${lastYear} (KErl)`,
+            `Traffic ${selectedYear} (KErl)`,
+            `Traffic ${mode} Delta (%)`,
+          ],
+          rows: CALENDAR_MM_DD.map((mmdd, i) => [
+            mmdd,
+            computed.chartData.payloadLast[i],
+            computed.chartData.payloadCur[i],
+            computed.chartData.deltaPayload[i],
+            computed.chartData.trafficLast[i],
+            computed.chartData.trafficCur[i],
+            computed.chartData.deltaTraffic[i],
+          ]),
+        },
+        {
+          name: 'Ranking',
+          columns: ['Name', 'Level', 'Payload (TB)', `${mode} Delta (%)`, 'Traffic (KErl)', `${mode} Delta (%)`, 'Sites'],
+          rows: activeTableRows.map((b) => [
             b.name,
             drill.level,
             b.payload,
@@ -241,49 +660,22 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
         },
         {
           name: 'Top Decline Sites',
-          columns: ['Site ID', 'Kabupaten', 'Branch', 'Payload Now (TB)', 'Payload Last Year (TB)', 'Delta (TB)', 'Delta (%)'],
+          columns: ['Site ID', 'Kabupaten', 'NOP', 'Payload Now (TB)', 'Payload Last Year (TB)', 'Delta (TB)', 'Delta (%)'],
           rows: topDeclineSites.map((s) => [
             s.site,
             s.kabupaten,
-            s.branch,
+            s.nop,
             s.payload_cur,
             s.payload_yoy,
             s.diff,
             s.diff_pct,
           ]),
         },
-        {
-          name: '30-Day Trend',
-          columns: [
-            'Date',
-            '2G Payload (TB)',
-            '4G Payload (TB)',
-            '5G Payload (TB)',
-            'Total Payload (TB)',
-            'YoY Total Payload (TB)',
-            '2G Traffic (KErl)',
-            'VoLTE Traffic (KErl)',
-            'Total Traffic (KErl)',
-            'YoY Total Traffic (KErl)',
-          ],
-          rows: trendData.map((t) => [
-            t.date,
-            t.payload_2g,
-            t.payload_4g,
-            t.payload_5g,
-            t.total_payload,
-            t.total_payload_yoy,
-            t.traffic_2g,
-            t.traffic_volte,
-            t.total_traffic,
-            t.total_traffic_yoy,
-          ]),
-        },
       ],
     }));
 
     return () => onExportData(null);
-  }, [summaryData, branchRows, topDeclineSites, trendData, selectedDate, selectedBranch, drill.level, onExportData]);
+  }, [computed, inventory, selectedDate, selectedNop, mode, selectedYear, lastYear, drill.level, activeTableRows, topDeclineSites, onExportData]);
 
   // Common card styles
   const cardCls = darkMode
@@ -293,205 +685,269 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
     ? 'bg-slate-800/60 text-slate-200 border-b border-slate-800'
     : 'bg-slate-50 text-slate-700 border-b border-slate-100';
 
-  // 30-Day Productivity Trend Chart Options
+  // 7. ECharts Options for Yearly Trend Charts
   const payloadChartOption = useMemo(() => {
-    if (!trendData.length) return {};
-    const dates = trendData.map((d) => d.date_label || d.date);
-    const p2g = trendData.map((d) => d.payload_2g);
-    const p4g = trendData.map((d) => d.payload_4g);
-    const p5g = trendData.map((d) => d.payload_5g);
-    const pYoy = trendData.map((d) => d.total_payload_yoy);
+    if (!computed?.chartData) return {};
+    const cd = computed.chartData;
 
     const textColor = darkMode ? '#94a3b8' : '#64748b';
     const splitLineColor = darkMode ? '#334155' : '#e2e8f0';
 
+    const latestIdx = cd.latestIndex >= 0 ? cd.latestIndex : cd.xLabels.length - 1;
+    const latestLabel = cd.xLabels[latestIdx];
+    const lastLabel = cd.xLabels[cd.xLabels.length - 1];
+
     return {
       tooltip: {
         trigger: 'axis',
-        axisPointer: { type: 'shadow' },
+        axisPointer: { type: 'cross' },
         backgroundColor: darkMode ? '#0f172a' : '#ffffff',
         borderColor: darkMode ? '#334155' : '#cbd5e1',
         textStyle: { color: darkMode ? '#f1f5f9' : '#0f172a', fontSize: 11 },
         formatter: (params) => {
           if (!params || !params.length) return '';
           const idx = params[0].dataIndex;
-          const item = trendData[idx];
-          const yoyDiff =
-            item.total_payload_yoy > 0
-              ? (((item.total_payload - item.total_payload_yoy) / item.total_payload_yoy) * 100).toFixed(2)
-              : null;
+          const mmdd = CALENDAR_MM_DD[idx];
+          const cell = cd.yearlyMap[mmdd];
+          const curVal = cd.payloadCur[idx];
+          const lastVal = cd.payloadLast[idx];
+          const deltaVal = cd.deltaPayload[idx];
+
           return `
-            <div style="font-weight: bold; margin-bottom: 4px;">${item.date} (${item.date_label})</div>
-            <div style="display: flex; justify-content: space-between; gap: 12px;"><span style="color: #2dd4bf;">● 2G:</span><b>${fmtDec(item.payload_2g)} TB</b></div>
-            <div style="display: flex; justify-content: space-between; gap: 12px;"><span style="color: #60a5fa;">● 4G:</span><b>${fmtDec(item.payload_4g)} TB</b></div>
-            <div style="display: flex; justify-content: space-between; gap: 12px;"><span style="color: #818cf8;">● 5G:</span><b>${fmtDec(item.payload_5g)} TB</b></div>
-            <div style="border-top: 1px dashed ${splitLineColor}; margin: 4px 0; padding-top: 4px; display: flex; justify-content: space-between; gap: 12px;">
-              <b>Total:</b> <b>${fmtDec(item.total_payload)} TB</b>
+            <div style="font-weight: bold; margin-bottom: 4px;">${cd.xLabels[idx]}</div>
+            <div style="display: flex; justify-content: space-between; gap: 14px; color: #94a3b8;">
+              <span>● ${lastYear} Total:</span><b>${lastVal !== null ? fmtDec(lastVal) + ' TB' : '–'}</b>
             </div>
-            <div style="display: flex; justify-content: space-between; gap: 12px; color: #f59e0b;">
-              <span>YoY Baseline:</span> <b>${item.total_payload_yoy !== null ? fmtDec(item.total_payload_yoy) + ' TB' : '–'}</b>
+            <div style="display: flex; justify-content: space-between; gap: 14px; color: #3b82f6;">
+              <span>● ${selectedYear} Total:</span><b>${curVal !== null ? fmtDec(curVal) + ' TB' : '–'}</b>
             </div>
-            ${yoyDiff !== null ? `<div style="text-align: right; font-size: 10px; color: ${Number(yoyDiff) >= 0 ? '#10b981' : '#f43f5e'}; font-weight: bold;">(${Number(yoyDiff) >= 0 ? '+' : ''}${yoyDiff}% YoY)</div>` : ''}
+            ${
+              hasData(cell.cur)
+                ? `
+            <div style="padding-left: 10px; font-size: 10px; opacity: 0.85; margin: 2px 0;">
+              <div>2G: ${fmtDec(cell.cur.p2g)} TB · 4G: ${fmtDec(cell.cur.p4g)} TB · 5G: ${fmtDec(cell.cur.p5g)} TB</div>
+            </div>`
+                : ''
+            }
+            <div style="border-top: 1px dashed ${splitLineColor}; margin: 4px 0; padding-top: 4px; display: flex; justify-content: space-between; gap: 14px; color: #f59e0b;">
+              <span>${mode} Δ:</span><b>${deltaVal !== null ? `${deltaVal >= 0 ? '+' : ''}${deltaVal}%` : '–'}</b>
+            </div>
           `;
         },
       },
       legend: {
-        data: ['2G', '4G', '5G', 'Last Year (YoY)'],
+        data: [`${lastYear} (TB)`, `${selectedYear} (TB)`, `${mode} Δ (%)`],
         top: 0,
         textStyle: { color: textColor, fontSize: 11 },
         itemWidth: 10,
         itemHeight: 10,
-        icon: 'circle',
       },
       grid: {
         top: 36,
         left: 45,
-        right: 15,
-        bottom: 30,
+        right: 45,
+        bottom: 25,
       },
       xAxis: {
         type: 'category',
-        data: dates,
+        data: cd.xLabels,
         axisLine: { lineStyle: { color: splitLineColor } },
-        axisLabel: { color: textColor, fontSize: 10, interval: 2 },
+        axisLabel: {
+          color: textColor,
+          fontSize: 10,
+          interval: 34, // ~5 weeks intervals (approx 35 days)
+        },
       },
-      yAxis: {
-        type: 'value',
-        name: 'TB/day',
-        nameTextStyle: { color: textColor, fontSize: 10 },
-        splitLine: { lineStyle: { color: splitLineColor, type: 'dashed' } },
-        axisLabel: { color: textColor, fontSize: 10 },
-      },
+      yAxis: [
+        {
+          type: 'value',
+          name: 'TB/day',
+          scale: true, // does not start at 0
+          nameTextStyle: { color: textColor, fontSize: 10 },
+          splitLine: { lineStyle: { color: splitLineColor, type: 'dashed' } },
+          axisLabel: { color: textColor, fontSize: 10 },
+        },
+        {
+          type: 'value',
+          name: `${mode} Δ (%)`,
+          nameTextStyle: { color: '#f59e0b', fontSize: 10 },
+          splitLine: { show: false },
+          axisLabel: { color: '#f59e0b', fontSize: 10, formatter: '{value}%' },
+        },
+      ],
       series: [
         {
-          name: '2G',
-          type: 'bar',
-          stack: 'payload',
-          data: p2g,
-          itemStyle: { color: darkMode ? '#14b8a6' : '#0d9488' },
-        },
-        {
-          name: '4G',
-          type: 'bar',
-          stack: 'payload',
-          data: p4g,
-          itemStyle: { color: darkMode ? '#3b82f6' : '#2563eb' },
-        },
-        {
-          name: '5G',
-          type: 'bar',
-          stack: 'payload',
-          data: p5g,
-          itemStyle: { color: darkMode ? '#1e3a8a' : '#1e40af' },
-        },
-        {
-          name: 'Last Year (YoY)',
+          name: `${lastYear} (TB)`,
           type: 'line',
-          data: pYoy,
-          smooth: false,
+          data: cd.payloadLast,
+          smooth: true,
           symbol: 'none',
-          lineStyle: { type: 'dashed', width: 2, color: '#f59e0b' },
+          lineStyle: { width: 1.5, color: '#94a3b8' },
+          areaStyle: { color: 'rgba(148, 163, 184, 0.08)' },
+          itemStyle: { color: '#94a3b8' },
+        },
+        {
+          name: `${selectedYear} (TB)`,
+          type: 'line',
+          data: cd.payloadCur,
+          smooth: true,
+          symbol: 'none',
+          lineStyle: { width: 2, color: '#3b82f6' },
+          areaStyle: { color: 'rgba(59, 130, 246, 0.15)' },
+          itemStyle: { color: '#3b82f6' },
+          markArea: {
+            silent: true,
+            itemStyle: {
+              color: darkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)',
+            },
+            data: [[{ coord: [latestLabel] }, { coord: [lastLabel] }]],
+          },
+        },
+        {
+          name: `${mode} Δ (%)`,
+          type: 'line',
+          yAxisIndex: 1,
+          data: cd.deltaPayload,
+          smooth: true,
+          symbol: 'none',
+          lineStyle: { type: 'dashed', width: 1.5, color: '#f59e0b' },
           itemStyle: { color: '#f59e0b' },
         },
       ],
     };
-  }, [trendData, darkMode]);
+  }, [computed, darkMode, lastYear, selectedYear, mode]);
 
   const trafficChartOption = useMemo(() => {
-    if (!trendData.length) return {};
-    const dates = trendData.map((d) => d.date_label || d.date);
-    const t2g = trendData.map((d) => d.traffic_2g);
-    const tVolte = trendData.map((d) => d.traffic_volte);
-    const tYoy = trendData.map((d) => d.total_traffic_yoy);
+    if (!computed?.chartData) return {};
+    const cd = computed.chartData;
 
     const textColor = darkMode ? '#94a3b8' : '#64748b';
     const splitLineColor = darkMode ? '#334155' : '#e2e8f0';
 
+    const latestIdx = cd.latestIndex >= 0 ? cd.latestIndex : cd.xLabels.length - 1;
+    const latestLabel = cd.xLabels[latestIdx];
+    const lastLabel = cd.xLabels[cd.xLabels.length - 1];
+
     return {
       tooltip: {
         trigger: 'axis',
-        axisPointer: { type: 'shadow' },
+        axisPointer: { type: 'cross' },
         backgroundColor: darkMode ? '#0f172a' : '#ffffff',
         borderColor: darkMode ? '#334155' : '#cbd5e1',
         textStyle: { color: darkMode ? '#f1f5f9' : '#0f172a', fontSize: 11 },
         formatter: (params) => {
           if (!params || !params.length) return '';
           const idx = params[0].dataIndex;
-          const item = trendData[idx];
-          const yoyDiff =
-            item.total_traffic_yoy > 0
-              ? (((item.total_traffic - item.total_traffic_yoy) / item.total_traffic_yoy) * 100).toFixed(2)
-              : null;
+          const mmdd = CALENDAR_MM_DD[idx];
+          const cell = cd.yearlyMap[mmdd];
+          const curVal = cd.trafficCur[idx];
+          const lastVal = cd.trafficLast[idx];
+          const deltaVal = cd.deltaTraffic[idx];
+
           return `
-            <div style="font-weight: bold; margin-bottom: 4px;">${item.date} (${item.date_label})</div>
-            <div style="display: flex; justify-content: space-between; gap: 12px;"><span style="color: #2dd4bf;">● 2G Traffic:</span><b>${fmtDec(item.traffic_2g)} KErl</b></div>
-            <div style="display: flex; justify-content: space-between; gap: 12px;"><span style="color: #60a5fa;">● VoLTE Traffic:</span><b>${fmtDec(item.traffic_volte)} KErl</b></div>
-            <div style="border-top: 1px dashed ${splitLineColor}; margin: 4px 0; padding-top: 4px; display: flex; justify-content: space-between; gap: 12px;">
-              <b>Total Traffic:</b> <b>${fmtDec(item.total_traffic)} KErl</b>
+            <div style="font-weight: bold; margin-bottom: 4px;">${cd.xLabels[idx]}</div>
+            <div style="display: flex; justify-content: space-between; gap: 14px; color: #94a3b8;">
+              <span>● ${lastYear} Traffic:</span><b>${lastVal !== null ? fmtDec(lastVal) + ' KErl' : '–'}</b>
             </div>
-            <div style="display: flex; justify-content: space-between; gap: 12px; color: #f59e0b;">
-              <span>YoY Baseline:</span> <b>${item.total_traffic_yoy !== null ? fmtDec(item.total_traffic_yoy) + ' KErl' : '–'}</b>
+            <div style="display: flex; justify-content: space-between; gap: 14px; color: #10b981;">
+              <span>● ${selectedYear} Traffic:</span><b>${curVal !== null ? fmtDec(curVal) + ' KErl' : '–'}</b>
             </div>
-            ${yoyDiff !== null ? `<div style="text-align: right; font-size: 10px; color: ${Number(yoyDiff) >= 0 ? '#10b981' : '#f43f5e'}; font-weight: bold;">(${Number(yoyDiff) >= 0 ? '+' : ''}${yoyDiff}% YoY)</div>` : ''}
+            ${
+              hasData(cell.cur)
+                ? `
+            <div style="padding-left: 10px; font-size: 10px; opacity: 0.85; margin: 2px 0;">
+              <div>2G: ${fmtDec(cell.cur.t2g)} KErl · VoLTE: ${fmtDec(cell.cur.tvolte)} KErl</div>
+            </div>`
+                : ''
+            }
+            <div style="border-top: 1px dashed ${splitLineColor}; margin: 4px 0; padding-top: 4px; display: flex; justify-content: space-between; gap: 14px; color: #f59e0b;">
+              <span>${mode} Δ:</span><b>${deltaVal !== null ? `${deltaVal >= 0 ? '+' : ''}${deltaVal}%` : '–'}</b>
+            </div>
           `;
         },
       },
       legend: {
-        data: ['2G', 'VoLTE', 'Last Year (YoY)'],
+        data: [`${lastYear} (KErl)`, `${selectedYear} (KErl)`, `${mode} Δ (%)`],
         top: 0,
         textStyle: { color: textColor, fontSize: 11 },
         itemWidth: 10,
         itemHeight: 10,
-        icon: 'circle',
       },
       grid: {
         top: 36,
         left: 45,
-        right: 15,
-        bottom: 30,
+        right: 45,
+        bottom: 25,
       },
       xAxis: {
         type: 'category',
-        data: dates,
+        data: cd.xLabels,
         axisLine: { lineStyle: { color: splitLineColor } },
-        axisLabel: { color: textColor, fontSize: 10, interval: 2 },
+        axisLabel: {
+          color: textColor,
+          fontSize: 10,
+          interval: 34,
+        },
       },
-      yAxis: {
-        type: 'value',
-        name: 'KErl',
-        nameTextStyle: { color: textColor, fontSize: 10 },
-        splitLine: { lineStyle: { color: splitLineColor, type: 'dashed' } },
-        axisLabel: { color: textColor, fontSize: 10 },
-      },
+      yAxis: [
+        {
+          type: 'value',
+          name: 'KErl',
+          scale: true,
+          nameTextStyle: { color: textColor, fontSize: 10 },
+          splitLine: { lineStyle: { color: splitLineColor, type: 'dashed' } },
+          axisLabel: { color: textColor, fontSize: 10 },
+        },
+        {
+          type: 'value',
+          name: `${mode} Δ (%)`,
+          nameTextStyle: { color: '#f59e0b', fontSize: 10 },
+          splitLine: { show: false },
+          axisLabel: { color: '#f59e0b', fontSize: 10, formatter: '{value}%' },
+        },
+      ],
       series: [
         {
-          name: '2G',
-          type: 'bar',
-          stack: 'traffic',
-          data: t2g,
-          itemStyle: { color: darkMode ? '#14b8a6' : '#0d9488' },
-        },
-        {
-          name: 'VoLTE',
-          type: 'bar',
-          stack: 'traffic',
-          data: tVolte,
-          itemStyle: { color: darkMode ? '#3b82f6' : '#2563eb' },
-        },
-        {
-          name: 'Last Year (YoY)',
+          name: `${lastYear} (KErl)`,
           type: 'line',
-          data: tYoy,
-          smooth: false,
+          data: cd.trafficLast,
+          smooth: true,
           symbol: 'none',
-          lineStyle: { type: 'dashed', width: 2, color: '#f59e0b' },
+          lineStyle: { width: 1.5, color: '#94a3b8' },
+          areaStyle: { color: 'rgba(148, 163, 184, 0.08)' },
+          itemStyle: { color: '#94a3b8' },
+        },
+        {
+          name: `${selectedYear} (KErl)`,
+          type: 'line',
+          data: cd.trafficCur,
+          smooth: true,
+          symbol: 'none',
+          lineStyle: { width: 2, color: '#10b981' },
+          areaStyle: { color: 'rgba(16, 185, 129, 0.15)' },
+          itemStyle: { color: '#10b981' },
+          markArea: {
+            silent: true,
+            itemStyle: {
+              color: darkMode ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)',
+            },
+            data: [[{ coord: [latestLabel] }, { coord: [lastLabel] }]],
+          },
+        },
+        {
+          name: `${mode} Δ (%)`,
+          type: 'line',
+          yAxisIndex: 1,
+          data: cd.deltaTraffic,
+          smooth: true,
+          symbol: 'none',
+          lineStyle: { type: 'dashed', width: 1.5, color: '#f59e0b' },
           itemStyle: { color: '#f59e0b' },
         },
       ],
     };
-  }, [trendData, darkMode]);
+  }, [computed, darkMode, lastYear, selectedYear, mode]);
 
-  // Helper to determine if a data source date is lagging > 2 days
   const checkFreshnessLag = (isoDate) => {
     if (!isoDate) return { isLag: true, days: null };
     try {
@@ -505,14 +961,15 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
     }
   };
 
-  const kpis = summaryData?.kpi || {};
-  const inv = summaryData?.inventory || {};
+  const kpis = computed?.kpi || {};
+  const inv = inventory?.nops?.[selectedNop] || {};
 
   return (
     <div className="space-y-4 relative">
-      {loading && <DataLoadingOverlay />}
+      {/* Full-screen Loading Overlay ONLY on initial dataset fetch */}
+      {loadingDataset && <DataLoadingOverlay />}
 
-      {/* Header Controls */}
+      {/* Header Controls Card */}
       <div
         className={`p-3.5 rounded-xl flex flex-wrap items-center justify-between gap-3 ${cardCls}`}
       >
@@ -523,27 +980,38 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
           <div>
             <h1 className="text-base font-extrabold tracking-tight">Network Overview</h1>
             <p className="text-xs text-slate-500">
-              Daily payload &amp; traffic performance across 2G, 4G, and 5G with YoY benchmarks
+              Full-year network performance with instant multi-mode benchmarks ({mode})
             </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Branch Filter */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Segmented Mode Toggle: YoY | MTD | YTD */}
+          <SegmentedToggle
+            options={MODE_OPTIONS}
+            value={mode}
+            onChange={setMode}
+            darkMode={darkMode}
+          />
+
+          {/* NOP Filter */}
           <div className="flex items-center gap-1.5 text-xs">
-            <span className="text-slate-500 font-semibold">Branch:</span>
+            <span className="text-slate-500 font-semibold">NOP:</span>
             <select
-              value={selectedBranch}
-              onChange={(e) => setSelectedBranch(e.target.value)}
+              value={selectedNop}
+              onChange={(e) => {
+                setSelectedNop(e.target.value);
+                setDrill({ level: 'nop', parent: null, parentNop: null });
+              }}
               className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition cursor-pointer outline-none ${
                 darkMode
                   ? 'bg-slate-800 border-slate-700 text-slate-200 focus:border-blue-500'
                   : 'bg-white border-slate-300 text-slate-800 focus:border-blue-500 shadow-xs'
               }`}
             >
-              {BRANCH_OPTIONS.map((b) => (
-                <option key={b} value={b}>
-                  {b}
+              {NOP_OPTIONS.map((n) => (
+                <option key={n} value={n}>
+                  {n}
                 </option>
               ))}
             </select>
@@ -566,9 +1034,9 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
 
           <button
             type="button"
-            onClick={() => fetchData()}
+            onClick={handleReload}
             className="p-1.5 rounded-lg border text-slate-400 hover:text-blue-500 hover:border-blue-400 transition cursor-pointer"
-            title="Reload overview"
+            title="Force refresh data from database"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -582,22 +1050,28 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
         </div>
       )}
 
-      {/* 1. Summary KPI Tiles */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* 1. Summary KPI Tiles (5 tiles in 1 row on large screen) */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {/* Total Payload */}
         <div className={`p-4 rounded-xl ${cardCls}`}>
           <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-            <span className="font-bold uppercase tracking-wider">Total Payload</span>
+            <span className="font-bold uppercase tracking-wider">
+              Total Payload ({selectedYear})
+            </span>
             <BarChart3 className="w-4 h-4 text-blue-500" />
           </div>
           <div className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">
-            {fmtDec(kpis.total_payload?.value)}{' '}
-            <span className="text-sm font-semibold text-slate-400">TB</span>
+            {kpis.totalPayload?.val}{' '}
+            <span className="text-sm font-semibold text-slate-400">
+              {kpis.totalPayload?.unit}
+            </span>
           </div>
-          <div className="mt-2 flex items-center justify-between text-xs">
-            <DeltaBadge val={kpis.total_payload?.yoy_pct} />
-            <span className="text-slate-400 text-[11px]">
-              Last yr: {fmtDec(kpis.total_payload?.yoy_val)} TB
+          <div className="mt-2 flex flex-col gap-0.5">
+            <div className="flex items-center justify-between text-xs">
+              <DeltaBadge val={kpis.totalPayload?.deltaPct} mode={mode} />
+            </div>
+            <span className="text-slate-400 text-[11px] truncate">
+              Last yr: {kpis.totalPayload?.yoyFormatted?.val} {kpis.totalPayload?.yoyFormatted?.unit}
             </span>
           </div>
         </div>
@@ -609,13 +1083,15 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
             <BarChart3 className="w-4 h-4 text-blue-400" />
           </div>
           <div className="text-2xl font-black tracking-tight text-blue-600 dark:text-blue-400">
-            {fmtDec(kpis.payload_4g?.value)}{' '}
+            {kpis.payload4g?.val}{' '}
             <span className="text-sm font-semibold text-slate-400">TB</span>
           </div>
-          <div className="mt-2 flex items-center justify-between text-xs">
-            <DeltaBadge val={kpis.payload_4g?.yoy_pct} />
-            <span className="text-slate-400 text-[11px]">
-              Last yr: {fmtDec(kpis.payload_4g?.yoy_val)} TB
+          <div className="mt-2 flex flex-col gap-0.5">
+            <div className="flex items-center justify-between text-xs">
+              <DeltaBadge val={kpis.payload4g?.deltaPct} mode={mode} />
+            </div>
+            <span className="text-slate-400 text-[11px] truncate">
+              Last yr: {kpis.payload4g?.yoyVal} TB
             </span>
           </div>
         </div>
@@ -625,17 +1101,19 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
           <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
             <span className="font-bold uppercase tracking-wider">5G Payload</span>
             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-600 dark:text-cyan-400">
-              {kpis.payload_5g?.share_pct || 0}% share
+              {kpis.payload5g?.sharePct || 0}% share
             </span>
           </div>
           <div className="text-2xl font-black tracking-tight text-cyan-600 dark:text-cyan-400">
-            {fmtDec(kpis.payload_5g?.value)}{' '}
+            {kpis.payload5g?.val}{' '}
             <span className="text-sm font-semibold text-slate-400">TB</span>
           </div>
-          <div className="mt-2 flex items-center justify-between text-xs">
-            <DeltaBadge val={kpis.payload_5g?.yoy_pct} />
-            <span className="text-slate-400 text-[11px]">
-              Last yr: {fmtDec(kpis.payload_5g?.yoy_val)} TB
+          <div className="mt-2 flex flex-col gap-0.5">
+            <div className="flex items-center justify-between text-xs">
+              <DeltaBadge val={kpis.payload5g?.deltaPct} mode={mode} />
+            </div>
+            <span className="text-slate-400 text-[11px] truncate">
+              Last yr: {kpis.payload5g?.yoyVal} TB
             </span>
           </div>
         </div>
@@ -647,29 +1125,57 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
             <Activity className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="text-2xl font-black tracking-tight text-emerald-600 dark:text-emerald-400">
-            {fmtDec(kpis.total_traffic?.value)}{' '}
-            <span className="text-sm font-semibold text-slate-400">KErl</span>
+            {kpis.totalTraffic?.val}{' '}
+            <span className="text-sm font-semibold text-slate-400">
+              {kpis.totalTraffic?.unit}
+            </span>
+          </div>
+          <div className="mt-2 flex flex-col gap-0.5">
+            <div className="flex items-center justify-between text-xs">
+              <DeltaBadge val={kpis.totalTraffic?.deltaPct} mode={mode} />
+            </div>
+            <span className="text-slate-400 text-[11px] truncate">
+              Last yr: {kpis.totalTraffic?.yoyFormatted?.val} {kpis.totalTraffic?.yoyFormatted?.unit}
+            </span>
+          </div>
+        </div>
+
+        {/* Peak Daily Payload */}
+        <div className={`p-4 rounded-xl ${cardCls} col-span-2 lg:col-span-1`}>
+          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+            <span className="font-bold uppercase tracking-wider">
+              Peak Daily Payload ({selectedYear})
+            </span>
+            <TrendingDown className="w-4 h-4 text-amber-500 rotate-180" />
+          </div>
+          <div className="text-2xl font-black tracking-tight text-amber-500">
+            {kpis.peakDaily?.val}{' '}
+            <span className="text-sm font-semibold text-slate-400">
+              {kpis.peakDaily?.unit}
+            </span>
           </div>
           <div className="mt-2 flex items-center justify-between text-xs">
-            <DeltaBadge val={kpis.total_traffic?.yoy_pct} />
-            <span className="text-slate-400 text-[11px]">
-              Last yr: {fmtDec(kpis.total_traffic?.yoy_val)} KErl
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+              Highest Day
+            </span>
+            <span className="text-amber-500 font-bold text-xs">
+              → {kpis.peakDaily?.dateFormatted}
             </span>
           </div>
         </div>
       </div>
 
-      {/* 2. Inventory Site Count Tiles */}
+      {/* 2. Registered Site Inventory Ubin */}
       <div className={`p-4 rounded-xl ${cardCls}`}>
         <div className="flex items-center justify-between mb-3 border-b pb-2 border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-2">
             <Radio className="w-4 h-4 text-blue-500" />
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-              Registered Site Inventory
+              Registered Site Inventory ({selectedNop})
             </h2>
           </div>
           <span className="text-[11px] font-semibold text-slate-400">
-            Master Data · Week {inv.week || '–'}
+            Week {inventory?.week || '–'}
           </span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -705,112 +1211,126 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
         </div>
       </div>
 
-      {/* 3. Two 30-Day Productivity Trend Charts (Reference Image) */}
-      <div className={`p-4 rounded-xl ${cardCls}`}>
-        <div className="flex items-center gap-2 mb-3">
-          <TrendingDown className="w-4 h-4 text-blue-500 rotate-180" />
-          <h2 className="text-sm font-bold tracking-tight">30-Day Productivity Trend</h2>
+      {/* 3. Yearly Trend Charts (Side-by-side 1 Jan - 31 Dec) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Payload Yearly Trend */}
+        <div className={`p-4 rounded-xl ${cardCls} relative`}>
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-blue-500" />
+              <h2 className="text-xs font-bold uppercase tracking-wider">Payload Trend (TB)</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFullscreenChart('payload')}
+              className="p-1 rounded text-slate-400 hover:text-blue-500 transition cursor-pointer"
+              title="Expand full screen"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-400 mb-2">
+            1 Jan – 31 Dec · {lastYear} vs {selectedYear} · Dashed: {mode} Δ%
+          </p>
+          <div className="h-80">
+            {computed?.chartData ? (
+              <ReactECharts
+                option={payloadChartOption}
+                style={{ height: '100%', width: '100%' }}
+                notMerge
+              />
+            ) : (
+              <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                Loading yearly payload trend...
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Payload Trend Chart */}
-          <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-blue-500" />
-                <h3 className="text-xs font-bold">Payload Trend</h3>
-              </div>
+        {/* Traffic Yearly Trend */}
+        <div className={`p-4 rounded-xl ${cardCls} relative`}>
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-emerald-500" />
+              <h2 className="text-xs font-bold uppercase tracking-wider">Traffic Trend (KErl)</h2>
             </div>
-            <p className="text-[11px] text-slate-400 mb-2">
-              Stacked per Technology (TB/day) — last 30 days
-            </p>
-            <div className="h-64">
-              {trendData.length > 0 ? (
-                <ReactECharts
-                  option={payloadChartOption}
-                  style={{ height: '100%', width: '100%' }}
-                  notMerge
-                />
-              ) : (
-                <div className="h-full flex items-center justify-center text-xs text-slate-400">
-                  No trend data available
-                </div>
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={() => setFullscreenChart('traffic')}
+              className="p-1 rounded text-slate-400 hover:text-blue-500 transition cursor-pointer"
+              title="Expand full screen"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
           </div>
-
-          {/* Traffic Trend Chart */}
-          <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-emerald-500" />
-                <h3 className="text-xs font-bold">Traffic Trend</h3>
+          <p className="text-[11px] text-slate-400 mb-2">
+            1 Jan – 31 Dec · {lastYear} vs {selectedYear} · Dashed: {mode} Δ%
+          </p>
+          <div className="h-80">
+            {computed?.chartData ? (
+              <ReactECharts
+                option={trafficChartOption}
+                style={{ height: '100%', width: '100%' }}
+                notMerge
+              />
+            ) : (
+              <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                Loading yearly traffic trend...
               </div>
-            </div>
-            <p className="text-[11px] text-slate-400 mb-2">
-              Stacked per Technology (KErl) — last 30 days
-            </p>
-            <div className="h-64">
-              {trendData.length > 0 ? (
-                <ReactECharts
-                  option={trafficChartOption}
-                  style={{ height: '100%', width: '100%' }}
-                  notMerge
-                />
-              ) : (
-                <div className="h-full flex items-center justify-center text-xs text-slate-400">
-                  No trend data available
-                </div>
-              )}
-            </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* 4 & 5: Bottom 2-Column Grid (Branch Ranking Drill-down + Top 10 Decline Sites) */}
+      {/* 4 & 5: Bottom 2-Column Grid (NOP Ranking Drill-down + Top 10 Decline Sites) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* 4. Branch Ranking with Drill-Down */}
-        <div className={`p-4 rounded-xl flex flex-col ${cardCls}`}>
+        {/* 4. Ranking & Hierarchy Drill-down: NOP -> Kabupaten -> Kecamatan */}
+        <div className={`p-4 rounded-xl flex flex-col ${cardCls} relative`}>
+          {loadingDrill && (
+            <div className="absolute top-4 right-4 flex items-center gap-1.5 text-xs text-blue-500">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <span>Loading drill...</span>
+            </div>
+          )}
+
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-blue-500" />
               <h2 className="text-xs font-bold uppercase tracking-wider">
-                Ranking &amp; Hierarchy Drill-down
+                Ranking &amp; Hierarchy ({mode})
               </h2>
             </div>
-            <span className="text-[10px] text-slate-400">Click row to drill</span>
+            <span className="text-[10px] text-slate-400">
+              {drill.level === 'kecamatan' ? 'Leaf level' : 'Click row to drill'}
+            </span>
           </div>
 
           {/* Breadcrumbs */}
           <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-3 bg-slate-100 dark:bg-slate-800/60 px-2.5 py-1.5 rounded-lg">
             <button
               type="button"
-              onClick={() => handleBreadcrumbClick('branch')}
+              onClick={() => handleBreadcrumbClick('nop')}
               className={`font-semibold cursor-pointer ${
-                drill.level === 'branch'
-                  ? 'text-blue-500 font-bold'
-                  : 'hover:text-blue-400'
+                drill.level === 'nop' ? 'text-blue-500 font-bold' : 'hover:text-blue-400'
               }`}
             >
-              All Branches
+              All NOPs
             </button>
-            {drill.parentBranch && (
+            {drill.parentNop && (
               <>
                 <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
                 <button
                   type="button"
-                  onClick={() => handleBreadcrumbClick('sales_cluster')}
+                  onClick={() => handleBreadcrumbClick('kabupaten')}
                   className={`font-semibold cursor-pointer ${
-                    drill.level === 'sales_cluster'
-                      ? 'text-blue-500 font-bold'
-                      : 'hover:text-blue-400'
+                    drill.level === 'kabupaten' ? 'text-blue-500 font-bold' : 'hover:text-blue-400'
                   }`}
                 >
-                  {drill.parentBranch}
+                  {drill.parentNop}
                 </button>
               </>
             )}
-            {drill.level === 'rtpo' && drill.parent && (
+            {drill.level === 'kecamatan' && drill.parent && (
               <>
                 <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
                 <span className="font-bold text-blue-500">{drill.parent}</span>
@@ -824,23 +1344,23 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
               <thead>
                 <tr className={headerCls}>
                   <th className="p-2.5 font-bold uppercase tracking-wider text-[11px]">
-                    {drill.level === 'branch'
-                      ? 'Branch'
-                      : drill.level === 'sales_cluster'
-                      ? 'Sales Cluster'
-                      : 'RTPO'}
+                    {drill.level === 'nop'
+                      ? 'NOP'
+                      : drill.level === 'kabupaten'
+                      ? 'Kabupaten'
+                      : 'Kecamatan'}
                   </th>
                   <th className="p-2.5 font-bold uppercase tracking-wider text-[11px] text-right">
                     Payload (TB)
                   </th>
                   <th className="p-2.5 font-bold uppercase tracking-wider text-[11px] text-right">
-                    YoY
+                    {mode} Δ
                   </th>
                   <th className="p-2.5 font-bold uppercase tracking-wider text-[11px] text-right">
                     Traffic (KErl)
                   </th>
                   <th className="p-2.5 font-bold uppercase tracking-wider text-[11px] text-right">
-                    YoY
+                    {mode} Δ
                   </th>
                   <th className="p-2.5 font-bold uppercase tracking-wider text-[11px] text-right">
                     Sites
@@ -848,17 +1368,15 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {branchRows.length > 0 ? (
-                  branchRows.map((row) => {
-                    const isLeaf = drill.level === 'rtpo';
+                {activeTableRows.length > 0 ? (
+                  activeTableRows.map((row) => {
+                    const isLeaf = drill.level === 'kecamatan';
                     return (
                       <tr
                         key={row.name}
                         onClick={() => !isLeaf && handleDrillRow(row.name)}
                         className={`transition ${
-                          isLeaf
-                            ? ''
-                            : 'cursor-pointer hover:bg-blue-50 dark:hover:bg-slate-800/70'
+                          isLeaf ? '' : 'cursor-pointer hover:bg-blue-50 dark:hover:bg-slate-800/70'
                         }`}
                       >
                         <td className="p-2.5 font-bold text-slate-900 dark:text-slate-100 flex items-center justify-between">
@@ -869,11 +1387,11 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
                         </td>
                         <td className="p-2.5 text-right font-medium">{fmtDec(row.payload)}</td>
                         <td className="p-2.5 text-right">
-                          <DeltaBadge val={row.payload_yoy_pct} />
+                          <DeltaBadge val={row.payload_yoy_pct} mode={mode} />
                         </td>
                         <td className="p-2.5 text-right font-medium">{fmtDec(row.traffic)}</td>
                         <td className="p-2.5 text-right">
-                          <DeltaBadge val={row.traffic_yoy_pct} />
+                          <DeltaBadge val={row.traffic_yoy_pct} mode={mode} />
                         </td>
                         <td className="p-2.5 text-right font-mono text-slate-500">
                           {fmtInt(row.site_count)}
@@ -884,7 +1402,7 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
                 ) : (
                   <tr>
                     <td colSpan="6" className="p-4 text-center text-slate-400 text-xs">
-                      No hierarchy data available
+                      No ranking data available
                     </td>
                   </tr>
                 )}
@@ -894,12 +1412,19 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
         </div>
 
         {/* 5. Top 10 Payload Decline Sites */}
-        <div className={`p-4 rounded-xl flex flex-col ${cardCls}`}>
+        <div className={`p-4 rounded-xl flex flex-col ${cardCls} relative`}>
+          {loadingDecline && (
+            <div className="absolute top-4 right-4 flex items-center gap-1.5 text-xs text-rose-500">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <span>Updating...</span>
+            </div>
+          )}
+
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <TrendingDown className="w-4 h-4 text-rose-500" />
               <h2 className="text-xs font-bold uppercase tracking-wider">
-                Top 10 Payload Decline Sites (vs YoY)
+                Top 10 Payload Decline Sites ({mode})
               </h2>
             </div>
             <span className="text-[10px] text-slate-400">Click site to open 4G Daily</span>
@@ -911,12 +1436,12 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
                 <tr className={headerCls}>
                   <th className="p-2.5 font-bold uppercase tracking-wider text-[11px]">Site</th>
                   <th className="p-2.5 font-bold uppercase tracking-wider text-[11px]">Kabupaten</th>
-                  <th className="p-2.5 font-bold uppercase tracking-wider text-[11px]">Branch</th>
+                  <th className="p-2.5 font-bold uppercase tracking-wider text-[11px]">NOP</th>
                   <th className="p-2.5 font-bold uppercase tracking-wider text-[11px] text-right">
                     Current (TB)
                   </th>
                   <th className="p-2.5 font-bold uppercase tracking-wider text-[11px] text-right">
-                    YoY (TB)
+                    Last Yr (TB)
                   </th>
                   <th className="p-2.5 font-bold uppercase tracking-wider text-[11px] text-right">
                     Δ (TB)
@@ -939,10 +1464,10 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
                         {site.site}
                         <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition" />
                       </td>
-                      <td className="p-2.5 text-slate-600 dark:text-slate-300">
+                      <td className="p-2.5 text-slate-600 dark:text-slate-300 truncate max-w-[120px]">
                         {site.kabupaten}
                       </td>
-                      <td className="p-2.5 text-slate-500 font-medium">{site.branch}</td>
+                      <td className="p-2.5 text-slate-500 font-medium">{site.nop}</td>
                       <td className="p-2.5 text-right font-medium">{fmtDec(site.payload_cur)}</td>
                       <td className="p-2.5 text-right text-slate-500 font-medium">
                         {fmtDec(site.payload_yoy)}
@@ -958,7 +1483,7 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
                 ) : (
                   <tr>
                     <td colSpan="7" className="p-4 text-center text-slate-400 text-xs">
-                      No declining sites found for this date
+                      No declining sites found for this period
                     </td>
                   </tr>
                 )}
@@ -1029,6 +1554,48 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
           })}
         </div>
       </div>
+
+      {/* Modal Dialog for Fullscreen Chart */}
+      {fullscreenChart && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div
+            className={`w-full max-w-6xl h-[85vh] rounded-2xl flex flex-col p-5 shadow-2xl border ${
+              darkMode ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-3 border-b pb-3 border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                {fullscreenChart === 'payload' ? (
+                  <BarChart3 className="w-5 h-5 text-blue-500" />
+                ) : (
+                  <Activity className="w-5 h-5 text-emerald-500" />
+                )}
+                <h3 className="font-extrabold text-base">
+                  {fullscreenChart === 'payload' ? 'Payload Yearly Trend (TB)' : 'Traffic Yearly Trend (KErl)'} — {selectedNop} ({mode})
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFullscreenChart(null)}
+                className="p-1.5 rounded-lg border text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="grow w-full">
+              <ReactECharts
+                option={fullscreenChart === 'payload' ? payloadChartOption : trafficChartOption}
+                style={{ height: '100%', width: '100%' }}
+                notMerge
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function hasData(c) {
+  return c && (c.p2g > 0 || c.p4g > 0 || c.p5g > 0 || c.t2g > 0 || c.tvolte > 0);
 }
