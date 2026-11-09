@@ -16,22 +16,10 @@ import {
   GitCompare,
   ArrowRight
 } from 'lucide-react';
-import { BAND_COLORS } from './SectorPayloadChart';
+import { BAND_COLORS, BAND_COLOR_VARIANTS } from './SectorPayloadChart';
 import { loadLatestDates, shiftDate } from '../constants/dates';
 import { objectRowsSheet } from '../api/export';
 import { getJson } from '../api/client';
-
-// Color variants for multiple CIs sharing the same band in a sector
-const BAND_COLOR_VARIANTS = {
-  'L1800': ['#3b82f6', '#1d4ed8', '#60a5fa', '#1e3a8a'],
-  'L2100': ['#c084fc', '#9333ea', '#e879f9', '#6b21a8'],
-  'L900':  ['#f97316', '#c2410c', '#fb923c', '#7c2d12'],
-  'L2300_1': ['#22c55e', '#15803d', '#4ade80', '#14532d'],
-  'L2300_2': ['#14b8a6', '#0f766e', '#2dd4bf', '#134e4a'],
-  'L2300_3': ['#06b6d4', '#0e7490', '#22d3ee', '#164e63'],
-  'L700':  ['#eab308', '#a16207', '#fde047', '#713f12'],
-  'L2600': ['#ec4899', '#be185d', '#f472b6', '#831843'],
-};
 
 const BAND_ORDER = {
   'L700': 1, 'L900': 2, 'L1800': 3, 'L2100': 4,
@@ -51,8 +39,8 @@ function getTaSeriesName(key, entry, fallbackSiteId) {
 
 function getTaSeriesColor(band, idxInBand) {
   const variants = BAND_COLOR_VARIANTS[band];
-  if (variants && variants[idxInBand]) {
-    return variants[idxInBand];
+  if (variants && variants.length > 0) {
+    return variants[idxInBand % variants.length];
   }
   const base = BAND_COLORS[band] || '#60a5fa';
   if (idxInBand === 0) return base;
