@@ -1,13 +1,67 @@
-import { ChevronDown, Table2, X } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Table2, X } from 'lucide-react';
 
 const fmt = (v) => (v === null || v === undefined || v === '' ? '–' : v);
 
+function compareValues(a, b, dir = 'asc') {
+  const emptyA = a === null || a === undefined || a === '';
+  const emptyB = b === null || b === undefined || b === '';
+  if (emptyA && emptyB) return 0;
+  if (emptyA) return 1;  // Empty values always at bottom
+  if (emptyB) return -1; // Empty values always at bottom
+
+  let cmp = 0;
+  if (typeof a === 'number' && typeof b === 'number') {
+    cmp = a - b;
+  } else {
+    const numA = Number(a);
+    const numB = Number(b);
+    if (!isNaN(numA) && !isNaN(numB) && typeof a !== 'boolean' && typeof b !== 'boolean') {
+      cmp = numA - numB;
+    } else {
+      cmp = String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+    }
+  }
+  return dir === 'desc' ? -cmp : cmp;
+}
+
 // 4G Daily, sector scope: bottom sheet with the site's cell properties (CompilePowerRet + lte_cell_config).
 // `rows` are already limited to the page's sector filter.
-export default function PropertiesPanel({ props: p, rows, sectors, open, onOpenChange, darkMode, sidebarOpen }) {
+export default function PropertiesPanel({
+  props: p,
+  rows = [],
+  sectors = [],
+  open,
+  onOpenChange,
+  darkMode,
+  sidebarOpen,
+  onSortedRowsChange
+}) {
+  const [sortConfig, setSortConfig] = useState({ key: 'siteid_ci', direction: 'asc' });
+
   const panel = darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800';
-  const headCell = darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600';
+  const headCell = darkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700/80' : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80';
   const rowClass = darkMode ? 'border-slate-800 hover:bg-slate-800/60' : 'border-slate-100 hover:bg-blue-50/60';
+
+  const handleSort = (columnKey) => {
+    setSortConfig((prev) => {
+      if (prev.key === columnKey) {
+        return { key: columnKey, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      }
+      return { key: columnKey, direction: 'asc' };
+    });
+  };
+
+  const sortedRows = useMemo(() => {
+    if (!rows || rows.length === 0) return [];
+    const list = [...rows];
+    list.sort((a, b) => compareValues(a[sortConfig.key], b[sortConfig.key], sortConfig.direction));
+    return list;
+  }, [rows, sortConfig]);
+
+  useEffect(() => {
+    onSortedRowsChange?.(sortedRows);
+  }, [sortedRows, onSortedRowsChange]);
 
   return (
     <>
@@ -39,7 +93,7 @@ export default function PropertiesPanel({ props: p, rows, sectors, open, onOpenC
             <span className={`px-2 py-0.5 rounded-md font-semibold ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
               Sector {sectors.join(', ')}
             </span>
-            <span className="opacity-60">{rows.length} cell</span>
+            <span className="opacity-60">{sortedRows.length} cell{sortedRows.length === 1 ? '' : 's'}</span>
           </div>
           <button type="button" onClick={() => onOpenChange(false)} className="p-1 rounded hover:bg-slate-500/15 cursor-pointer" title="Close">
             <X className="w-4 h-4" />
@@ -49,23 +103,46 @@ export default function PropertiesPanel({ props: p, rows, sectors, open, onOpenC
         <div className="flex-1 overflow-auto">
           {p.loading && <div className="p-6 text-xs opacity-70">Loading properties...</div>}
           {!p.loading && p.error && <div className="p-6 text-xs text-rose-500">Failed to load: {p.error}</div>}
-          {!p.loading && !p.error && p.loaded && rows.length === 0 && (
+          {!p.loading && !p.error && p.loaded && sortedRows.length === 0 && (
             <div className="p-6 text-xs opacity-70">No properties data for this sector.</div>
           )}
-          {!p.loading && rows.length > 0 && (
+          {!p.loading && sortedRows.length > 0 && (
             <table className="min-w-full text-[11px] whitespace-nowrap">
-              <thead className="sticky top-0 z-10">
+              <thead className="sticky top-0 z-10 select-none">
                 <tr>
-                  {p.columns.map(c => (
-                    <th key={c.key} className={`px-3 py-2 text-left font-bold uppercase tracking-wider text-[10px] ${headCell}`}>{c.label}</th>
-                  ))}
+                  {p.columns.map(c => {
+                    const isActive = sortConfig.key === c.key;
+                    return (
+                      <th
+                        key={c.key}
+                        onClick={() => handleSort(c.key)}
+                        className={`px-3 py-2 text-left font-bold uppercase tracking-wider text-[10px] cursor-pointer transition-colors group ${headCell}`}
+                        title={`Click to sort by ${c.label}`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>{c.label}</span>
+                          {isActive ? (
+                            sortConfig.direction === 'asc' ? (
+                              <ArrowUp className="w-3 h-3 text-amber-500 shrink-0" />
+                            ) : (
+                              <ArrowDown className="w-3 h-3 text-amber-500 shrink-0" />
+                            )
+                          ) : (
+                            <ArrowUpDown className="w-2.5 h-2.5 opacity-0 group-hover:opacity-40 shrink-0 transition-opacity" />
+                          )}
+                        </div>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
-                {rows.map(r => (
-                  <tr key={r.cell_name} className={`border-b ${rowClass}`}>
+                {sortedRows.map(r => (
+                  <tr key={r.siteid_ci || r.cell_name} className={`border-b ${rowClass}`}>
                     {p.columns.map(c => (
-                      <td key={c.key} className={`px-3 py-1.5 ${c.key === 'cell_name' ? 'font-semibold' : ''}`}>{fmt(r[c.key])}</td>
+                      <td key={c.key} className={`px-3 py-1.5 ${c.key === 'siteid_ci' || c.key === 'cell_name' ? 'font-semibold' : ''}`}>
+                        {fmt(r[c.key])}
+                      </td>
                     ))}
                   </tr>
                 ))}

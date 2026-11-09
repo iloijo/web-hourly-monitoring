@@ -11,9 +11,10 @@ export default function KpiMonitoringView({
   km, activeMenu, siteNamesMap, chartsPerRow, darkMode, sidebarOpen, markers, setMarkers, onExportData,
 }) {
   const [propsOpen, setPropsOpen] = useState(false);
+  const [sortedPropertyRows, setSortedPropertyRows] = useState([]);
   const showProperties = (activeMenu === '4g-daily' || activeMenu === '4g-hourly') && km.aggregationScope === 'sector';
   const props = useSiteProperties(showProperties && propsOpen, km.siteId);
-  const sectors = km.sectorViewMode === 'sectoral' ? km.sectoralSectors.map(Number) : [Number(km.selectedSector)];
+  const sectors = km.sectorViewMode === 'sectoral' ? (km.sectoralSectors || []).map(Number) : [Number(km.selectedSector)];
   const propertyRows = props.rows.filter(r => sectors.includes(r.sector));
   const hasData = km.aggregationScope === 'sector' ? !!km.data?.sectors : !!km.aggregationData?.kpis;
 
@@ -23,7 +24,7 @@ export default function KpiMonitoringView({
   useEffect(() => {
     exportInput.current = {
       km, activeMenu, sectors,
-      propertyRows: showProperties && propsOpen ? propertyRows : [],
+      propertyRows: showProperties && propsOpen ? (sortedPropertyRows.length ? sortedPropertyRows : propertyRows) : [],
       propertyColumns: props.columns,
     };
   });
@@ -57,6 +58,7 @@ export default function KpiMonitoringView({
             onOpenChange={setPropsOpen}
             darkMode={darkMode}
             sidebarOpen={sidebarOpen}
+            onSortedRowsChange={setSortedPropertyRows}
           />
         </>
       )}
