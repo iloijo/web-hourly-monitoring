@@ -61,18 +61,18 @@ export function adjustBrightness(hex, percent) {
 
 // Color variants for carriers sharing a band (shades within the same hue)
 export const BAND_COLOR_VARIANTS = {
-  'L1800': ['#4e79a7', adjustBrightness('#4e79a7', -0.15), adjustBrightness('#4e79a7', 0.15), '#4e79a7', adjustBrightness('#4e79a7', -0.25), adjustBrightness('#4e79a7', 0.25)],
-  'L900': ['#f28e2b', adjustBrightness('#f28e2b', -0.15), adjustBrightness('#f28e2b', 0.15), '#f28e2b', adjustBrightness('#f28e2b', -0.25), adjustBrightness('#f28e2b', 0.25)],
-  'L2100': ['#e15759', adjustBrightness('#e15759', -0.15), adjustBrightness('#e15759', 0.15), '#e15759', adjustBrightness('#e15759', -0.25), adjustBrightness('#e15759', 0.25)],
-  'L2300_1': ['#59a14f', adjustBrightness('#59a14f', -0.15), adjustBrightness('#59a14f', 0.15), '#59a14f', adjustBrightness('#59a14f', -0.25), adjustBrightness('#59a14f', 0.25)],
-  'L2300_2': ['#76b7b2', adjustBrightness('#76b7b2', -0.15), adjustBrightness('#76b7b2', 0.15), '#76b7b2', adjustBrightness('#76b7b2', -0.25), adjustBrightness('#76b7b2', 0.25)],
-  'L2300_3': ['#9c755f', adjustBrightness('#9c755f', -0.15), adjustBrightness('#9c755f', 0.15), '#9c755f', adjustBrightness('#9c755f', -0.25), adjustBrightness('#9c755f', 0.25)],
-  'L700': ['#edc948', adjustBrightness('#edc948', -0.15), adjustBrightness('#edc948', 0.15), '#edc948', adjustBrightness('#edc948', -0.25), adjustBrightness('#edc948', 0.25)],
-  'L2600': ['#b07aa1', adjustBrightness('#b07aa1', -0.15), adjustBrightness('#b07aa1', 0.15), '#b07aa1', adjustBrightness('#b07aa1', -0.25), adjustBrightness('#b07aa1', 0.25)],
-  'L2600_1': ['#b07aa1', adjustBrightness('#b07aa1', -0.15), adjustBrightness('#b07aa1', 0.15), '#b07aa1'],
-  'L2600_2': ['#b07aa1', adjustBrightness('#b07aa1', -0.15), adjustBrightness('#b07aa1', 0.15), '#b07aa1'],
-  'L2600_3': ['#b07aa1', adjustBrightness('#b07aa1', -0.15), adjustBrightness('#b07aa1', 0.15), '#b07aa1'],
-  'L2600_4': ['#b07aa1', adjustBrightness('#b07aa1', -0.15), adjustBrightness('#b07aa1', 0.15), '#b07aa1'],
+  'L1800': ['#4e79a7', '#1d4ed8', '#60a5fa', '#1e3a8a', '#38bdf8', '#93c5fd'],
+  'L900': ['#f28e2b', '#c2410c', '#fb923c', '#7c2d12', '#fdba74', '#ea580c'],
+  'L2100': ['#e15759', '#991b1b', '#f87171', '#be123c', '#fca5a5', '#b91c1c'],
+  'L2300_1': ['#59a14f', '#15803d', '#4ade80', '#14532d', '#86efac', '#16a34a'],
+  'L2300_2': ['#76b7b2', '#0f766e', '#2dd4bf', '#134e4a', '#99f6e4', '#0d9488'],
+  'L2300_3': ['#9c755f', '#78350f', '#d97706', '#451a03', '#fde68a', '#92400e'],
+  'L700': ['#edc948', '#a16207', '#fde047', '#713f12', '#fef08a', '#ca8a04'],
+  'L2600': ['#b07aa1', '#7e22ce', '#c084fc', '#581c87', '#e9d5ff', '#a855f7'],
+  'L2600_1': ['#b07aa1', '#7e22ce', '#c084fc', '#581c87'],
+  'L2600_2': ['#7e22ce', '#581c87', '#b07aa1', '#c084fc'],
+  'L2600_3': ['#c084fc', '#581c87', '#b07aa1', '#7e22ce'],
+  'L2600_4': ['#581c87', '#b07aa1', '#c084fc', '#7e22ce'],
   // 5G Bands & Carriers (Unchanged)
   'NR2300': ['#06b6d4', '#0e7490', '#22d3ee', '#164e63'],
   'NR2600': ['#8b5cf6', '#6d28d9', '#a78bfa', '#4c1d95'],
@@ -136,7 +136,7 @@ export const ENTITY_PALETTE = [
   '#e11d48'  // Rose
 ];
 
-// Returns { color, lineType } for a carrier within its band
+// Returns { color, lineType } for a carrier within its band (all lines solid, distinct shade per carrier)
 export function getCarrierStyle(cName, carrierBands = {}, idxInBand = 0) {
   if (carrierBands && carrierBands[cName] === 'ENTITY') {
     return {
@@ -148,40 +148,15 @@ export function getCarrierStyle(cName, carrierBands = {}, idxInBand = 0) {
   const rawBand = (carrierBands && carrierBands[cName]) ? carrierBands[cName] : getBandForCarrier(cName, carrierBands);
   const band = (rawBand && rawBand.startsWith('L2600')) ? 'L2600' : rawBand;
 
-  // 5G or 2G check: preserve solid lines and standard palettes
-  const is5Gor2G = band?.startsWith('NR') || band?.startsWith('VP') || band?.startsWith('VQ') ||
-    band?.startsWith('MK') || band?.startsWith('QP') || band === 'GSM' || band === 'DCS' ||
-    band?.startsWith('G900') || band?.startsWith('G1800') || band === 'MD1' || band === 'MG1';
-
-  if (is5Gor2G) {
-    const variants = BAND_COLOR_VARIANTS[band];
-    const color = (variants && variants.length > 0)
-      ? variants[idxInBand % variants.length]
-      : (BAND_COLORS[band] || BAND_COLORS[cName] || '#3b82f6');
-    return { color, lineType: 'solid' };
+  const variants = BAND_COLOR_VARIANTS[band] || BAND_COLOR_VARIANTS[rawBand];
+  let color;
+  if (variants && variants.length > 0) {
+    color = variants[idxInBand % variants.length];
+  } else {
+    color = BAND_COLORS[band] || BAND_COLORS[rawBand] || BAND_COLORS[cName] || '#4e79a7';
   }
 
-  const baseColor = BAND_COLORS[band] || BAND_COLORS[rawBand] || BAND_COLORS[cName] || '#4e79a7';
-
-  // Distinct line pattern sequence for carriers sharing a band:
-  // n=1 (idx=0): 'solid'
-  // n=2 (idx=1): 'dashed'
-  // n=3 (idx=2): 'dotted'
-  // n=4 (idx=3): [8, 3, 2, 3] (dash-dot)
-  const LINE_TYPES = ['solid', 'dashed', 'dotted', [8, 3, 2, 3]];
-  const lineType = LINE_TYPES[idxInBand % LINE_TYPES.length];
-
-  // Brightness variation sequence within the same hue:
-  // n=1: 0% (base)
-  // n=2: -15% (slightly darker)
-  // n=3: +15% (slightly lighter)
-  // n=4: 0% (base with dash-dot)
-  // n=5+: ±25%
-  const BRIGHTNESS_STEPS = [0, -0.15, 0.15, 0, -0.25, 0.25, -0.15, 0.15];
-  const brightness = BRIGHTNESS_STEPS[idxInBand % BRIGHTNESS_STEPS.length];
-  const color = adjustBrightness(baseColor, brightness);
-
-  return { color, lineType };
+  return { color, lineType: 'solid' };
 }
 
 export function getColorForCarrier(cName, carrierBands = {}, idxInBand = 0) {
