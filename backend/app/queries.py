@@ -19,17 +19,36 @@ def normalize_cell_key(name: str) -> str:
         n = n[2:]
     return re.sub(r'[^A-Z0-9]', '', n.upper())
 
-def get_clean_carrier_label(cell_name: str, sector: int, band: str) -> str:
+def get_clean_carrier_label(cell_name: str, sector: int, band: str, ci: Optional[Any] = None) -> str:
+    sec_num = None
+    if ci is not None:
+        try:
+            ci_int = int(float(ci))
+            s = str(ci_int)
+            if len(s) > 1:
+                sec_num = s[:-1]
+        except (ValueError, TypeError):
+            sec_num = None
+
     parts = re.split(r'[-_]', cell_name.strip())
     suffix = parts[-1].upper() if parts else ""
-    m = re.match(r'^([A-Z]{2})\d*(\d)$', suffix)
+    m = re.match(r'^([A-Z]{2})\d*(\d+)$', suffix)
+
+    if sec_num is None:
+        if m:
+            sec_num = str(int(m.group(2)))
+        else:
+            sec_num = str(sector)
+
     if m:
         code = m.group(1)
-        return f"{code}{sector}"
+        return f"{code}{sec_num}"
+
     m2 = re.search(r'([A-Z]{2})\d', cell_name)
     if m2:
-        return f"{m2.group(1)}{sector}"
-    return f"{band}_{sector}"
+        return f"{m2.group(1)}{sec_num}"
+
+    return f"{band}_{sec_num}"
 
 def get_site_payload_data(
     site_id: str = "MRW002",
@@ -63,6 +82,7 @@ def get_site_payload_data(
     cell_rows = cur.fetchall()
 
     cell_map = {}
+    raw_cells = []
     enodebs = set()
     found_sectors = set()
     found_bands = set()
@@ -108,19 +128,32 @@ def get_site_payload_data(
                 sector = int(p2[1])
 
         band = get_band_from_ci(r['ci'], cname)
-        carrier = get_clean_carrier_label(cname, sector, band)
-
-        found_sectors.add(sector)
-        found_bands.add(band)
-
-        meta = {
+        carrier = get_clean_carrier_label(cname, sector, band, r['ci'])
+        raw_cells.append({
             "cell_name": cname,
             "sector": sector,
             "band": band,
             "carrier": carrier,
             "ci": r['ci'],
             "type": row_type
-        }
+        })
+
+    # Collision safety net per (sector, carrier)
+    sec_carrier_counts = defaultdict(int)
+    for c in raw_cells:
+        sec_carrier_counts[(c['sector'], c['carrier'])] += 1
+
+    for meta in raw_cells:
+        if sec_carrier_counts[(meta['sector'], meta['carrier'])] > 1 and meta['ci'] is not None:
+            try:
+                meta['carrier'] = f"{meta['carrier']}_{int(float(meta['ci']))}"
+            except Exception:
+                pass
+
+        cname = meta['cell_name']
+        found_sectors.add(meta['sector'])
+        found_bands.add(meta['band'])
+
         cell_map[cname.upper()] = meta
         cell_map[normalize_cell_key(cname)] = meta
         if (cname.startswith("E_") or cname.startswith("C_")) and len(cname) > 2:
@@ -129,6 +162,7 @@ def get_site_payload_data(
 
     # Fallback if filter resulted in 0 cells
     if not cell_map and cell_rows:
+        fb_cells = []
         for r in cell_rows:
             cname = r['cell_name'].strip()
             sec_type = r['sec new type'] or ""
@@ -140,17 +174,27 @@ def get_site_payload_data(
                 except ValueError:
                     sector = 1
             band = get_band_from_ci(r['ci'], cname)
-            carrier = get_clean_carrier_label(cname, sector, band)
-            found_sectors.add(sector)
-            found_bands.add(band)
-            meta = {
+            carrier = get_clean_carrier_label(cname, sector, band, r['ci'])
+            fb_cells.append({
                 "cell_name": cname,
                 "sector": sector,
                 "band": band,
                 "carrier": carrier,
                 "ci": r['ci'],
                 "type": "Macro"
-            }
+            })
+        fb_counts = defaultdict(int)
+        for c in fb_cells:
+            fb_counts[(c['sector'], c['carrier'])] += 1
+        for meta in fb_cells:
+            if fb_counts[(meta['sector'], meta['carrier'])] > 1 and meta['ci'] is not None:
+                try:
+                    meta['carrier'] = f"{meta['carrier']}_{int(float(meta['ci']))}"
+                except Exception:
+                    pass
+            cname = meta['cell_name']
+            found_sectors.add(meta['sector'])
+            found_bands.add(meta['band'])
             cell_map[cname.upper()] = meta
             cell_map[normalize_cell_key(cname)] = meta
 
@@ -314,7 +358,7 @@ def get_site_payload_data(
         else:
             sec = 1
             band = get_band_from_ci(None, cname)
-            carrier = get_clean_carrier_label(cname, sec, band)
+            carrier = get_clean_carrier_label(cname, sec, band, None)
 
         sb = sector_buckets[sec]
         sb["bands"][carrier] = band

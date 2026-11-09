@@ -810,6 +810,7 @@ def get_site_payload_daily_data(
     enodeb_names = set()
     cell_map_by_name = {}
     cell_map_by_ci = {}
+    raw_cells = []
     found_sectors = set()
     found_bands = set()
     found_types = set()
@@ -854,33 +855,47 @@ def get_site_payload_daily_data(
                 sector = int(p2[1])
 
         band = get_band_from_ci(r['ci'], cname)
-        carrier = get_clean_carrier_label(cname, sector, band)
-
-        found_sectors.add(sector)
-        found_bands.add(band)
-
-        meta = {
+        carrier = get_clean_carrier_label(cname, sector, band, r['ci'])
+        raw_cells.append({
             "cell_name": cname,
             "sector": sector,
             "band": band,
             "carrier": carrier,
             "ci": r['ci'],
             "type": row_type
-        }
+        })
+
+    # Collision safety net per (sector, carrier)
+    sec_carrier_counts = defaultdict(int)
+    for c in raw_cells:
+        sec_carrier_counts[(c['sector'], c['carrier'])] += 1
+
+    for meta in raw_cells:
+        if sec_carrier_counts[(meta['sector'], meta['carrier'])] > 1 and meta['ci'] is not None:
+            try:
+                meta['carrier'] = f"{meta['carrier']}_{int(float(meta['ci']))}"
+            except Exception:
+                pass
+
+        cname = meta['cell_name']
+        found_sectors.add(meta['sector'])
+        found_bands.add(meta['band'])
+
         cell_map_by_name[cname.upper()] = meta
         cell_map_by_name[normalize_cell_key(cname)] = meta
         if (cname.startswith("E_") or cname.startswith("C_")) and len(cname) > 2:
             cell_map_by_name[cname[2:].upper()] = meta
             cell_map_by_name[normalize_cell_key(cname[2:])] = meta
 
-        if r['ci'] is not None:
+        if meta['ci'] is not None:
             try:
-                cell_map_by_ci[int(r['ci'])] = meta
+                cell_map_by_ci[int(float(meta['ci']))] = meta
             except Exception:
                 pass
 
     # Fallback if cell_map is empty due to filter
     if not cell_map_by_name and cell_rows:
+        fb_cells = []
         for r in cell_rows:
             cname = r['cell_name'].strip()
             sec_type = r['sec new type'] or ""
@@ -892,22 +907,32 @@ def get_site_payload_daily_data(
                 except ValueError:
                     sector = 1
             band = get_band_from_ci(r['ci'], cname)
-            carrier = get_clean_carrier_label(cname, sector, band)
-            found_sectors.add(sector)
-            found_bands.add(band)
-            meta = {
+            carrier = get_clean_carrier_label(cname, sector, band, r['ci'])
+            fb_cells.append({
                 "cell_name": cname,
                 "sector": sector,
                 "band": band,
                 "carrier": carrier,
                 "ci": r['ci'],
                 "type": "Macro"
-            }
+            })
+        fb_counts = defaultdict(int)
+        for c in fb_cells:
+            fb_counts[(c['sector'], c['carrier'])] += 1
+        for meta in fb_cells:
+            if fb_counts[(meta['sector'], meta['carrier'])] > 1 and meta['ci'] is not None:
+                try:
+                    meta['carrier'] = f"{meta['carrier']}_{int(float(meta['ci']))}"
+                except Exception:
+                    pass
+            cname = meta['cell_name']
+            found_sectors.add(meta['sector'])
+            found_bands.add(meta['band'])
             cell_map_by_name[cname.upper()] = meta
             cell_map_by_name[normalize_cell_key(cname)] = meta
-            if r['ci'] is not None:
+            if meta['ci'] is not None:
                 try:
-                    cell_map_by_ci[int(r['ci'])] = meta
+                    cell_map_by_ci[int(float(meta['ci']))] = meta
                 except Exception:
                     pass
 
@@ -1083,7 +1108,7 @@ def get_site_payload_daily_data(
         else:
             sec = 1
             band = get_band_from_ci(cid, cname)
-            carrier = get_clean_carrier_label(cname, sec, band)
+            carrier = get_clean_carrier_label(cname, sec, band, cid)
 
         sb = sector_buckets[sec]
         sb["bands"][carrier] = band
