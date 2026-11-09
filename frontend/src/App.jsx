@@ -123,7 +123,7 @@ export default function App() {
   }
 
   return (
-    <div className={`min-h-screen flex flex-row font-sans select-none transition-colors duration-300 overflow-x-hidden ${
+    <div className={`min-h-screen flex flex-row font-sans select-none transition-colors duration-300 overflow-x-clip ${
       darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'
     }`}>
       <AppSidebar
@@ -153,7 +153,7 @@ export default function App() {
           <ThemePicker themeId={themeId} onChange={setThemeId} darkMode={darkMode} />
         </AppHeader>
 
-        <main className="p-4 sm:p-5 grow overflow-y-auto space-y-4">
+        <main className="p-4 sm:p-5 grow space-y-4">
           <Suspense fallback={<DataLoadingOverlay />}>
             {activeMenu === 'overview' && (
               <OverviewView onOpenSite={openSite} hierarchyData={ref.hierarchyData} {...common} />
