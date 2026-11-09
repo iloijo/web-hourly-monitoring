@@ -16,7 +16,7 @@ import {
   GitCompare,
   ArrowRight
 } from 'lucide-react';
-import { BAND_COLORS, BAND_COLOR_VARIANTS } from './SectorPayloadChart';
+import { BAND_COLORS, BAND_COLOR_VARIANTS, getCarrierStyle, getColorForCarrier } from './SectorPayloadChart';
 import { loadLatestDates, shiftDate } from '../constants/dates';
 import { objectRowsSheet } from '../api/export';
 import { getJson } from '../api/client';
@@ -38,13 +38,7 @@ function getTaSeriesName(key, entry, fallbackSiteId) {
 }
 
 function getTaSeriesColor(band, idxInBand) {
-  const variants = BAND_COLOR_VARIANTS[band];
-  if (variants && variants.length > 0) {
-    return variants[idxInBand % variants.length];
-  }
-  const base = BAND_COLORS[band] || '#60a5fa';
-  if (idxInBand === 0) return base;
-  return idxInBand % 2 === 1 ? '#1d4ed8' : '#93c5fd';
+  return getColorForCarrier(band, {}, idxInBand);
 }
 
 export default function TimingAdvanceView({
@@ -430,7 +424,9 @@ export default function TimingAdvanceView({
       const idxInBand = bandIdxMap[band] || 0;
       bandIdxMap[band] = idxInBand + 1;
 
-      const sColor = getTaSeriesColor(band, idxInBand);
+      const style = getCarrierStyle(band, {}, idxInBand);
+      const sColor = style.color;
+      const sLineType = style.lineType;
       const sName = getTaSeriesName(k, entry, siteId);
       const isFirst = idx === 0;
 
@@ -452,7 +448,8 @@ export default function TimingAdvanceView({
         data: cumData,
         lineStyle: {
           color: sColor,
-          width: 2.2
+          width: 2.2,
+          type: sLineType
         },
         itemStyle: {
           color: sColor

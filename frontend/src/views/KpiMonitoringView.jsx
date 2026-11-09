@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ScopeFilterPanel from './kpi/ScopeFilterPanel';
 import KpiChartsPanel from './kpi/KpiChartsPanel';
-import PropertiesPanel from './kpi/PropertiesPanel';
+import PropertiesPanel, { compareValues } from './kpi/PropertiesPanel';
 import MarkerControl from './kpi/MarkerControl';
 import ThresholdControl, { loadThresholdSettings } from './kpi/ThresholdControl';
 import { buildKpiExport } from './kpi/kpiExport';
@@ -12,13 +12,25 @@ export default function KpiMonitoringView({
   km, activeMenu, siteNamesMap, chartsPerRow, darkMode, sidebarOpen, markers, setMarkers, onExportData,
 }) {
   const [propsOpen, setPropsOpen] = useState(false);
-  const [sortedPropertyRows, setSortedPropertyRows] = useState([]);
+  const [propSort, setPropSort] = useState({ key: 'siteid_ci', direction: 'asc' });
   const [thresholdSettings, setThresholdSettings] = useState(loadThresholdSettings);
   const showProperties = (activeMenu === '4g-daily' || activeMenu === '4g-hourly') && km.aggregationScope === 'sector';
   const hasThresholds = activeMenu === '4g-hourly' || activeMenu === '4g-daily' || activeMenu === '5g';
   const props = useSiteProperties(showProperties && propsOpen, km.siteId);
   const sectors = km.sectorViewMode === 'sectoral' ? (km.sectoralSectors || []).map(Number) : [Number(km.selectedSector)];
-  const propertyRows = props.rows.filter(r => sectors.includes(r.sector));
+  const sectorKey = sectors.join(',');
+  // Filtered + sorted once per data/sector/sort change (a new array every render re-rendered all charts in a loop)
+  const propertyRows = useMemo(() => {
+    const wanted = sectorKey.split(',').map(Number);
+    return props.rows
+      .filter(r => wanted.includes(r.sector))
+      .sort((a, b) => compareValues(a[propSort.key], b[propSort.key], propSort.direction));
+  }, [props.rows, sectorKey, propSort]);
+  const handlePropSort = useCallback((key) => {
+    setPropSort(prev => (prev.key === key
+      ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+      : { key, direction: 'asc' }));
+  }, []);
   const hasData = km.aggregationScope === 'sector' ? !!km.data?.sectors : !!km.aggregationData?.kpis;
 
   // Excel export of the charts (and the properties table when it is open). The getter reads the
@@ -27,7 +39,7 @@ export default function KpiMonitoringView({
   useEffect(() => {
     exportInput.current = {
       km, activeMenu, sectors,
-      propertyRows: showProperties && propsOpen ? (sortedPropertyRows.length ? sortedPropertyRows : propertyRows) : [],
+      propertyRows: showProperties && propsOpen ? propertyRows : [],
       propertyColumns: props.columns,
     };
   });
@@ -74,7 +86,8 @@ export default function KpiMonitoringView({
             onOpenChange={setPropsOpen}
             darkMode={darkMode}
             sidebarOpen={sidebarOpen}
-            onSortedRowsChange={setSortedPropertyRows}
+            sortConfig={propSort}
+            onSort={handlePropSort}
           />
         </>
       )}

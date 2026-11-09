@@ -1,20 +1,21 @@
 import React, { useRef, useEffect } from 'react';
 import ReactECharts from '../lib/echarts';
 
-// Standard LTE Band color mapping strictly adhering to Band_LTE skill & Image 7 reference
+// Distinct LTE Band palette (Tableau 10) optimized for high visual contrast across bands
 export const BAND_COLORS = {
-  'L1800': '#3b82f6',   // Vivid Royal Blue (ML, SL, QL, IL, VL)
-  'L2100': '#c084fc',   // Vivid Purple / Magenta (MR, VR, QR, IR)
-  'L900': '#f97316',    // Vivid Orange (MT, VT)
-  'L2300_1': '#22c55e', // Vivid Emerald Green (ME, VE, QE, IE)
-  'L2300_2': '#14b8a6', // Teal (MF, VF, QF, IF)
-  'L2300_3': '#06b6d4', // Cyan (VV, QV)
-  'L700': '#eab308',    // Gold / Amber (MD, VD)
-  'L2600': '#ec4899',   // Pink (MG, VG)
-  'L2600_1': '#ec4899',
-  'L2600_2': '#db2777',
-  'L2600_3': '#be185d',
-  'L2600_4': '#9d174d',
+  // 4G LTE Bands
+  'L1800': '#4e79a7',   // Blue
+  'L900': '#f28e2b',    // Orange
+  'L2100': '#e15759',   // Red
+  'L2300_1': '#59a14f', // Green
+  'L2300_2': '#76b7b2', // Light Teal
+  'L2300_3': '#9c755f', // Brown
+  'L700': '#edc948',    // Yellow
+  'L2600': '#b07aa1',   // Purple
+  'L2600_1': '#b07aa1',
+  'L2600_2': '#b07aa1',
+  'L2600_3': '#b07aa1',
+  'L2600_4': '#b07aa1',
   // 5G Bands & Carriers
   'NR2300': '#06b6d4',  // Cyan
   'NR2600': '#8b5cf6',  // Violet
@@ -33,27 +34,54 @@ export const BAND_COLORS = {
   'MG1': '#3b82f6'
 };
 
-// Color variants for multiple carriers sharing the same band in a sector or chart
+// Adjust brightness of a hex color (+percent lightens, -percent darkens)
+export function adjustBrightness(hex, percent) {
+  if (!hex || typeof hex !== 'string') return hex;
+  const clean = hex.replace('#', '');
+  const num = parseInt(clean, 16);
+  if (isNaN(num)) return hex;
+  let r = (num >> 16);
+  let g = ((num >> 8) & 0x00FF);
+  let b = (num & 0x0000FF);
+
+  if (percent > 0) {
+    r = Math.min(255, Math.round(r + (255 - r) * percent));
+    g = Math.min(255, Math.round(g + (255 - g) * percent));
+    b = Math.min(255, Math.round(b + (255 - b) * percent));
+  } else if (percent < 0) {
+    const factor = 1 + percent;
+    r = Math.max(0, Math.round(r * factor));
+    g = Math.max(0, Math.round(g * factor));
+    b = Math.max(0, Math.round(b * factor));
+  }
+
+  const toHex = (c) => c.toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+// Color variants for carriers sharing a band (shades within the same hue)
 export const BAND_COLOR_VARIANTS = {
-  'L1800': ['#3b82f6', '#1d4ed8', '#0284c7', '#60a5fa', '#1e3a8a', '#38bdf8'],
-  'L2100': ['#c084fc', '#9333ea', '#e879f9', '#6b21a8', '#a855f7', '#d946ef'],
-  'L900':  ['#f97316', '#c2410c', '#fb923c', '#7c2d12', '#ea580c', '#fdba74'],
-  'L2300_1': ['#22c55e', '#15803d', '#4ade80', '#14532d', '#16a34a', '#86efac'],
-  'L2300_2': ['#14b8a6', '#0f766e', '#2dd4bf', '#134e4a', '#0d9488', '#5eead4'],
-  'L2300_3': ['#06b6d4', '#0e7490', '#22d3ee', '#164e63', '#0891b2', '#67e8f9'],
-  'L700':  ['#eab308', '#a16207', '#facc15', '#713f12', '#ca8a04', '#fde047'],
-  'L2600': ['#ec4899', '#be185d', '#f472b6', '#831843', '#db2777', '#fbcfe8'],
-  'L2600_1': ['#ec4899', '#be185d', '#f472b6', '#831843'],
-  'L2600_2': ['#db2777', '#9d174d', '#f472b6', '#be185d'],
-  'L2600_3': ['#be185d', '#831843', '#f472b6', '#db2777'],
-  'L2600_4': ['#9d174d', '#701a75', '#f472b6', '#be185d'],
+  'L1800': ['#4e79a7', adjustBrightness('#4e79a7', -0.15), adjustBrightness('#4e79a7', 0.15), '#4e79a7', adjustBrightness('#4e79a7', -0.25), adjustBrightness('#4e79a7', 0.25)],
+  'L900': ['#f28e2b', adjustBrightness('#f28e2b', -0.15), adjustBrightness('#f28e2b', 0.15), '#f28e2b', adjustBrightness('#f28e2b', -0.25), adjustBrightness('#f28e2b', 0.25)],
+  'L2100': ['#e15759', adjustBrightness('#e15759', -0.15), adjustBrightness('#e15759', 0.15), '#e15759', adjustBrightness('#e15759', -0.25), adjustBrightness('#e15759', 0.25)],
+  'L2300_1': ['#59a14f', adjustBrightness('#59a14f', -0.15), adjustBrightness('#59a14f', 0.15), '#59a14f', adjustBrightness('#59a14f', -0.25), adjustBrightness('#59a14f', 0.25)],
+  'L2300_2': ['#76b7b2', adjustBrightness('#76b7b2', -0.15), adjustBrightness('#76b7b2', 0.15), '#76b7b2', adjustBrightness('#76b7b2', -0.25), adjustBrightness('#76b7b2', 0.25)],
+  'L2300_3': ['#9c755f', adjustBrightness('#9c755f', -0.15), adjustBrightness('#9c755f', 0.15), '#9c755f', adjustBrightness('#9c755f', -0.25), adjustBrightness('#9c755f', 0.25)],
+  'L700': ['#edc948', adjustBrightness('#edc948', -0.15), adjustBrightness('#edc948', 0.15), '#edc948', adjustBrightness('#edc948', -0.25), adjustBrightness('#edc948', 0.25)],
+  'L2600': ['#b07aa1', adjustBrightness('#b07aa1', -0.15), adjustBrightness('#b07aa1', 0.15), '#b07aa1', adjustBrightness('#b07aa1', -0.25), adjustBrightness('#b07aa1', 0.25)],
+  'L2600_1': ['#b07aa1', adjustBrightness('#b07aa1', -0.15), adjustBrightness('#b07aa1', 0.15), '#b07aa1'],
+  'L2600_2': ['#b07aa1', adjustBrightness('#b07aa1', -0.15), adjustBrightness('#b07aa1', 0.15), '#b07aa1'],
+  'L2600_3': ['#b07aa1', adjustBrightness('#b07aa1', -0.15), adjustBrightness('#b07aa1', 0.15), '#b07aa1'],
+  'L2600_4': ['#b07aa1', adjustBrightness('#b07aa1', -0.15), adjustBrightness('#b07aa1', 0.15), '#b07aa1'],
+  // 5G Bands & Carriers (Unchanged)
   'NR2300': ['#06b6d4', '#0e7490', '#22d3ee', '#164e63'],
   'NR2600': ['#8b5cf6', '#6d28d9', '#a78bfa', '#4c1d95'],
   'NR2100': ['#c084fc', '#9333ea', '#e879f9', '#6b21a8'],
   'NR3500': ['#ec4899', '#db2777', '#be185d', '#f472b6'],
-  'GSM':   ['#f97316', '#c2410c', '#fb923c', '#7c2d12'],
-  'G900':  ['#f97316', '#c2410c', '#fb923c', '#7c2d12'],
-  'DCS':   ['#3b82f6', '#1d4ed8', '#0284c7', '#60a5fa'],
+  // 2G Bands & Carriers (Unchanged)
+  'GSM': ['#f97316', '#c2410c', '#fb923c', '#7c2d12'],
+  'G900': ['#f97316', '#c2410c', '#fb923c', '#7c2d12'],
+  'DCS': ['#3b82f6', '#1d4ed8', '#0284c7', '#60a5fa'],
   'G1800': ['#3b82f6', '#1d4ed8', '#0284c7', '#60a5fa']
 };
 
@@ -108,23 +136,59 @@ export const ENTITY_PALETTE = [
   '#e11d48'  // Rose
 ];
 
-export function getColorForCarrier(cName, carrierBands = {}, idxInBand = 0) {
+// Returns { color, lineType } for a carrier within its band
+export function getCarrierStyle(cName, carrierBands = {}, idxInBand = 0) {
   if (carrierBands && carrierBands[cName] === 'ENTITY') {
-    return ENTITY_PALETTE[idxInBand % ENTITY_PALETTE.length];
+    return {
+      color: ENTITY_PALETTE[idxInBand % ENTITY_PALETTE.length],
+      lineType: 'solid'
+    };
   }
-  if (BAND_COLORS[cName]) {
-    return BAND_COLORS[cName];
-  }
+
   const rawBand = (carrierBands && carrierBands[cName]) ? carrierBands[cName] : getBandForCarrier(cName, carrierBands);
-  const band = (rawBand && rawBand.startsWith('L2600') && !BAND_COLOR_VARIANTS[rawBand]) ? 'L2600' : rawBand;
-  const variants = BAND_COLOR_VARIANTS[band] || BAND_COLOR_VARIANTS[rawBand];
-  if (variants && variants.length > 0) {
-    return variants[idxInBand % variants.length];
+  const band = (rawBand && rawBand.startsWith('L2600')) ? 'L2600' : rawBand;
+
+  // 5G or 2G check: preserve solid lines and standard palettes
+  const is5Gor2G = band?.startsWith('NR') || band?.startsWith('VP') || band?.startsWith('VQ') ||
+    band?.startsWith('MK') || band?.startsWith('QP') || band === 'GSM' || band === 'DCS' ||
+    band?.startsWith('G900') || band?.startsWith('G1800') || band === 'MD1' || band === 'MG1';
+
+  if (is5Gor2G) {
+    const variants = BAND_COLOR_VARIANTS[band];
+    const color = (variants && variants.length > 0)
+      ? variants[idxInBand % variants.length]
+      : (BAND_COLORS[band] || BAND_COLORS[cName] || '#3b82f6');
+    return { color, lineType: 'solid' };
   }
-  return BAND_COLORS[band] || BAND_COLORS[rawBand] || ENTITY_PALETTE[idxInBand % ENTITY_PALETTE.length];
+
+  const baseColor = BAND_COLORS[band] || BAND_COLORS[rawBand] || BAND_COLORS[cName] || '#4e79a7';
+
+  // Distinct line pattern sequence for carriers sharing a band:
+  // n=1 (idx=0): 'solid'
+  // n=2 (idx=1): 'dashed'
+  // n=3 (idx=2): 'dotted'
+  // n=4 (idx=3): [8, 3, 2, 3] (dash-dot)
+  const LINE_TYPES = ['solid', 'dashed', 'dotted', [8, 3, 2, 3]];
+  const lineType = LINE_TYPES[idxInBand % LINE_TYPES.length];
+
+  // Brightness variation sequence within the same hue:
+  // n=1: 0% (base)
+  // n=2: -15% (slightly darker)
+  // n=3: +15% (slightly lighter)
+  // n=4: 0% (base with dash-dot)
+  // n=5+: ±25%
+  const BRIGHTNESS_STEPS = [0, -0.15, 0.15, 0, -0.25, 0.25, -0.15, 0.15];
+  const brightness = BRIGHTNESS_STEPS[idxInBand % BRIGHTNESS_STEPS.length];
+  const color = adjustBrightness(baseColor, brightness);
+
+  return { color, lineType };
 }
 
-export default function SectorPayloadChart({
+export function getColorForCarrier(cName, carrierBands = {}, idxInBand = 0) {
+  return getCarrierStyle(cName, carrierBands, idxInBand).color;
+}
+
+function SectorPayloadChart({
   title,
   unit = "GB",
   timestamps = [],
@@ -213,33 +277,37 @@ export default function SectorPayloadChart({
     });
   }
 
-  // Pre-calculate distinct color for each carrier, varying shades when multiple carriers share a band
+  // Pre-calculate distinct color and line style for each carrier
   const bandCounts = {};
+  const carrierStyleMap = {};
   const carrierColorMap = {};
   carrierKeys.forEach((cName, idx) => {
-    let color;
+    let style;
     if (carrierBands && carrierBands[cName] === 'ENTITY') {
-      color = ENTITY_PALETTE[idx % ENTITY_PALETTE.length];
-    } else if (BAND_COLORS[cName]) {
-      color = BAND_COLORS[cName];
+      style = {
+        color: ENTITY_PALETTE[idx % ENTITY_PALETTE.length],
+        lineType: 'solid'
+      };
     } else {
       const rawBand = (carrierBands && carrierBands[cName]) ? carrierBands[cName] : getBandForCarrier(cName, carrierBands);
-      const band = (rawBand && rawBand.startsWith('L2600') && !BAND_COLOR_VARIANTS[rawBand]) ? 'L2600' : rawBand;
+      const band = (rawBand && rawBand.startsWith('L2600')) ? 'L2600' : rawBand;
       const idxInBand = bandCounts[band] || 0;
       bandCounts[band] = idxInBand + 1;
-      color = getColorForCarrier(cName, carrierBands, idxInBand);
+      style = getCarrierStyle(cName, carrierBands, idxInBand);
     }
-    carrierColorMap[cName] = color;
+    carrierStyleMap[cName] = style;
+    carrierColorMap[cName] = style.color;
     const displayName = getSeriesDisplayName(cName);
-    carrierColorMap[displayName] = color;
+    carrierStyleMap[displayName] = style;
+    carrierColorMap[displayName] = style.color;
   });
 
   // Build series in standard order: Carriers first (lines), Total last (area)
   const series = [];
 
-  // 1. Carrier line curves
+  // 1. Carrier line curves with band hue + carrier line style pattern
   carrierKeys.forEach((cName) => {
-    const color = carrierColorMap[cName] || '#3b82f6';
+    const style = carrierStyleMap[cName] || { color: '#4e79a7', lineType: 'solid' };
     const displayName = getSeriesDisplayName(cName);
     series.push({
       id: `carrier_${cName}`,
@@ -254,10 +322,11 @@ export default function SectorPayloadChart({
       },
       lineStyle: {
         width: 1.8,
-        color: color
+        color: style.color,
+        type: style.lineType
       },
       itemStyle: {
-        color: color
+        color: style.color
       },
       data: carrierSeries[cName] || []
     });
@@ -674,3 +743,14 @@ export default function SectorPayloadChart({
     </div>
   );
 }
+
+// Re-render only when a prop really changes. `threshold` is rebuilt by the parent on every render,
+// so it is compared by value; everything else by reference.
+const sameThreshold = (a, b) => (a === b) || (!!a && !!b && a.value === b.value && a.unit === b.unit);
+export default React.memo(SectorPayloadChart, (prev, next) => {
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+  for (const k of keys) {
+    if (k === 'threshold' ? !sameThreshold(prev[k], next[k]) : prev[k] !== next[k]) return false;
+  }
+  return true;
+});
