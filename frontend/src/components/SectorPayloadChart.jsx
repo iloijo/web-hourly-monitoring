@@ -142,6 +142,7 @@ export default function SectorPayloadChart({
   markers = [],  // [{ date: 'YYYY-MM-DD', label }] activity markers drawn as vertical lines
   periods = [],  // [{ start, end, label, color }] shaded date windows (30% opacity, no border), e.g. before / after
   threshold = null, // { value: number, unit?: string }
+  tooltipOrder = 'desc', // 'desc' (High -> Low) or 'asc' (Low -> High)
 }) {
   const echartsRef = useRef(null);
 
@@ -540,6 +541,7 @@ export default function SectorPayloadChart({
     // Tooltip strictly styled with standard band colors (Image 2 requirement)
     tooltip: {
       trigger: 'axis',
+      confine: true,
       backgroundColor: darkMode ? 'rgba(15, 23, 42, 0.96)' : 'rgba(15, 23, 42, 0.96)',
       borderColor: darkMode ? '#475569' : '#334155',
       borderWidth: 1,
@@ -547,29 +549,54 @@ export default function SectorPayloadChart({
         color: '#ffffff',
         fontSize: 12
       },
-      padding: [10, 14],
+      padding: [8, 12],
+      extraCssText: 'max-height: 260px; overflow-y: auto; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);',
       formatter: function (params) {
         if (!params || !params.length) return '';
         const rawTime = params[0].axisValue;
         const formattedTime = formatAxisDate(rawTime, timeMode);
-        let html = `<div style="font-weight: 700; color: #f8fafc; margin-bottom: 8px; border-bottom: 1px solid #334155; padding-bottom: 4px; font-size: 11px;">${formattedTime}</div>`;
+        let html = `<div style="font-weight: 700; color: #f8fafc; margin-bottom: 6px; border-bottom: 1px solid #334155; padding-bottom: 3px; font-size: 11px;">${formattedTime}</div>`;
         
-        params.forEach((p, pIdx) => {
-          const isTotal = p.seriesName === 'Total Payload';
+        // Filter out pseudo-series like markers or threshold
+        const validParams = params.filter(p => p.seriesName !== '__markers' && p.seriesName !== '__threshold' && p.seriesName !== '__periods');
+        
+        // Separate Total Payload from carrier series
+        const totalItems = validParams.filter(p => p.seriesName === 'Total Payload' || p.seriesId === 'total_payload');
+        const carrierItems = validParams.filter(p => p.seriesName !== 'Total Payload' && p.seriesId !== 'total_payload');
+        
+        // Sort carriers by value: High -> Low (desc) or Low -> High (asc)
+        carrierItems.sort((a, b) => {
+          const valA = (typeof a.value === 'number') ? a.value : parseFloat(a.value);
+          const valB = (typeof b.value === 'number') ? b.value : parseFloat(b.value);
+          const hasA = !isNaN(valA);
+          const hasB = !isNaN(valB);
+          if (!hasA && !hasB) return 0;
+          if (!hasA) return 1;  // empty / NaN always at bottom
+          if (!hasB) return -1;
+          return tooltipOrder === 'asc' ? valA - valB : valB - valA;
+        });
+
+        const displayItems = [...carrierItems, ...totalItems];
+
+        html += '<div style="display: flex; flex-direction: column; gap: 2px;">';
+        displayItems.forEach((p, pIdx) => {
+          const isTotal = p.seriesName === 'Total Payload' || p.seriesId === 'total_payload';
           const bandColor = isTotal
             ? '#f43f5e'
             : (carrierColorMap[p.seriesName] || p.color || getColorForCarrier(p.seriesName, carrierBands, p.seriesIndex ?? pIdx));
           const displayName = p.seriesName;
+          const valStr = (p.value !== null && p.value !== undefined && !isNaN(p.value)) ? p.value : '–';
           html += `
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 20px; font-size: 11px; padding: 2px 0;">
-              <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="display: inline-block; width: 8px; height: 8px; border-radius: 2px; background-color: ${bandColor};"></span>
-                <span style="color: ${bandColor}; font-weight: 700;">${displayName}:</span>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 11px; padding: 1.5px 0;">
+              <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+                <span style="display: inline-block; width: 8px; height: 8px; border-radius: 2px; background-color: ${bandColor}; shrink: 0;"></span>
+                <span style="color: ${bandColor}; font-weight: 700; white-space: nowrap;">${displayName}:</span>
               </div>
-              <span style="font-weight: 700; font-family: monospace; color: #ffffff;">${p.value} ${unit}</span>
+              <span style="font-weight: 700; font-family: monospace; color: #ffffff; white-space: nowrap;">${valStr} ${unit}</span>
             </div>
           `;
         });
+        html += '</div>';
         return html;
       }
     },
