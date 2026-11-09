@@ -1,5 +1,6 @@
 """4G cell properties for one site: CompilePowerRet (power / RET) + lte_cell_config (reselection) + location."""
 from decimal import Decimal
+import re
 from typing import Any, Dict, List
 
 from .bands import lte_band
@@ -91,8 +92,13 @@ def get_site_properties(site_id: str) -> Dict[str, Any]:
                 SELECT DISTINCT ON (siteid_ci) * FROM "lte_cell_config"
                 WHERE siteid = %s ORDER BY siteid_ci
             ) c ON c.siteid_ci = x.siteid_ci
-            LEFT JOIN "LookupSITEID" l ON l."Prefix Site ID" = %s
-            ORDER BY 2
+            LEFT JOIN LATERAL (
+                SELECT * FROM "LookupSITEID"
+                WHERE "Prefix Site ID" = %s
+                ORDER BY "NOP", "Kota/Kabupaten", "Kecamatan"
+                LIMIT 1
+            ) l ON true
+            ORDER BY SPLIT_PART(x.siteid_ci, '_', 1), NULLIF(REGEXP_REPLACE(SPLIT_PART(x.siteid_ci, '_', 2), '[^0-9]', '', 'g'), '')::bigint NULLS LAST, x.siteid_ci
         """, (site, site, site, site, site, site))
         cols = [d[0] for d in cur.description]
         raw = [dict(zip(cols, r)) for r in cur.fetchall()]
@@ -112,6 +118,12 @@ def get_site_properties(site_id: str) -> Dict[str, Any]:
             if isinstance(v, (Decimal, float)):  # plain JSON numbers, no trailing .0
                 row[k] = int(v) if float(v).is_integer() else float(v)
         rows.append(row)
+
+    def _natural_key(val: Any) -> list:
+        s = str(val or "")
+        return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
+
+    rows.sort(key=lambda r: _natural_key(r.get("siteid_ci")))
 
     return {
         "site_id": site,
