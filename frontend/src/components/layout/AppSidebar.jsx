@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Activity, BarChart3, Boxes, Calendar, ChevronDown, ChevronLeft, Clock, Database, Moon, Radio, RadioTower, TrendingDown, Wifi,
+  Activity, BarChart3, Boxes, Calendar, ChevronDown, ChevronLeft, Clock, Database, LayoutDashboard, Moon, Radio, RadioTower, TrendingDown, Wifi,
 } from 'lucide-react';
 import { APP_NAME, APP_VERSION } from '../../constants/kpis';
 
@@ -83,7 +83,7 @@ function DbStatusRow({ label, port, ok }) {
   );
 }
 
-// Left navigation: Main KPI, Worst Cell / ZTZP, Others
+// Left navigation: Overview, Main KPI, Worst Cell / ZTZP, Others
 export default function AppSidebar({ open, onClose, activeMenu, onSelectMenu, dbStatus, darkMode }) {
   const [kpiOpen, setKpiOpen] = useState(true);
   const [fourGOpen, setFourGOpen] = useState(true);
@@ -115,7 +115,11 @@ export default function AppSidebar({ open, onClose, activeMenu, onSelectMenu, db
       </div>
 
       <div className="p-3 space-y-1 grow overflow-y-auto">
-        <SectionTitle first>Main KPI</SectionTitle>
+        <div className="mb-2">
+          <MenuButton id="overview" label="Overview" Icon={LayoutDashboard} accent="blue" tag="OneDb" size="lg" {...common} />
+        </div>
+
+        <SectionTitle>Main KPI</SectionTitle>
         <Group label="KPI Monitoring" Icon={RadioTower} iconClass="text-blue-500" open={kpiOpen} onToggle={() => setKpiOpen(!kpiOpen)} darkMode={darkMode}>
           <div className="mb-0.5">
             <MenuButton id="2g" label="2G Monitoring" Icon={Radio} accent="emerald" tag="OneDb" {...common} />

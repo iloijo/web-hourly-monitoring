@@ -28,6 +28,13 @@ from .queries_scope_4g import get_scope_aggregation_data, get_hourly_scope_aggre
 from .queries_worstcell import get_worst_cells, get_ztzp
 from .export_xlsx import build_workbook, safe_filename
 from .queries_cluster import get_cluster_compare, get_site_sectors
+from .queries_overview import (
+    get_overview_summary,
+    get_overview_trend,
+    get_overview_branches,
+    get_overview_top_decline,
+    get_latest_overview_date
+)
 from . import clusters as cluster_store
 
 # Short-lived result cache: switching back to a scope/site already viewed returns instantly.
@@ -75,6 +82,10 @@ get_site_properties = _cached(get_site_properties)
 get_worst_cells = _cached(get_worst_cells)
 get_ztzp = _cached(get_ztzp)
 get_cluster_compare = _cached(get_cluster_compare)
+get_overview_summary = _cached(get_overview_summary)
+get_overview_trend = _cached(get_overview_trend)
+get_overview_branches = _cached(get_overview_branches)
+get_overview_top_decline = _cached(get_overview_top_decline)
 
 app = FastAPI(title="netPulse - KPI Monitoring Dashboard", version="3.8.0")
 
@@ -159,6 +170,7 @@ def get_status():
 def get_latest_dates():
     """Latest available data date (YYYY-MM-DD) per monitoring source."""
     sources = {
+        "overview": ("onedb", "measDailyTrafficPayload"),
         "4g_hourly": ("twodb", "measHy4g"),
         "4g_daily": ("onedb", "measDy4g"),
         "5g": ("onedb", "measDy5g"),
@@ -317,6 +329,53 @@ async def export_xlsx(request: Request):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+@app.get("/api/overview/summary")
+def get_overview_summary_endpoint(
+    date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD)"),
+    branch: Optional[str] = Query(None, description="Branch filter (All, MAKASSAR, etc.)")
+):
+    """Overview KPI tiles and inventory site counts with YoY comparison."""
+    try:
+        return get_overview_summary(date=date, branch=branch)
+    except Exception as e:
+        return {"error": str(e), "kpi": {}, "inventory": {}}
+
+@app.get("/api/overview/trend")
+def get_overview_trend_endpoint(
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    days: int = Query(30, description="Number of days (default 30)"),
+    branch: Optional[str] = Query(None, description="Branch filter")
+):
+    """30-day productivity trend: stacked bar payload and traffic with YoY baseline."""
+    try:
+        return get_overview_trend(end_date=end_date, days=days, branch=branch)
+    except Exception as e:
+        return {"error": str(e), "trend": []}
+
+@app.get("/api/overview/branches")
+def get_overview_branches_endpoint(
+    date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD)"),
+    level: str = Query("branch", description="Hierarchy level: branch, sales_cluster, rtpo"),
+    parent: Optional[str] = Query(None, description="Parent name for drill-down")
+):
+    """Branch ranking table with drill-down (branch -> sales_cluster -> rtpo)."""
+    try:
+        return get_overview_branches(date=date, level=level, parent=parent)
+    except Exception as e:
+        return {"error": str(e), "items": []}
+
+@app.get("/api/overview/top_decline")
+def get_overview_top_decline_endpoint(
+    date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD)"),
+    branch: Optional[str] = Query(None, description="Branch filter"),
+    top_n: int = Query(10, description="Top N sites (default 10)")
+):
+    """Top sites with largest YoY payload decline."""
+    try:
+        return get_overview_top_decline(date=date, branch=branch, top_n=top_n)
+    except Exception as e:
+        return {"error": str(e), "sites": []}
 
 @app.get("/api/worstcell")
 def get_worstcell_endpoint(

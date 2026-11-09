@@ -13,6 +13,7 @@ import useKpiMonitoring from './hooks/useKpiMonitoring';
 import { KPI_MENUS } from './constants/kpis';
 import { getAuthToken, getStoredAuthUser, setAuthSession, getJson } from './api/client';
 
+const OverviewView = lazy(() => import('./views/OverviewView'));
 const TimingAdvanceView = lazy(() => import('./components/TimingAdvanceView'));
 const PacketLossView = lazy(() => import('./components/PacketLossView'));
 const WorstCellView = lazy(() => import('./views/WorstCellView'));
@@ -25,7 +26,7 @@ const TECH_TO_MENU = { '2g': '2g', '4g': '4g-daily', '5g': '5g' };
 export default function App() {
   const [themeId, setThemeId] = useState(readStoredTheme);
   const darkMode = THEMES.find(t => t.id === themeId)?.dark ?? false;
-  const [activeMenu, setActiveMenu] = useState('4g-hourly');
+  const [activeMenu, setActiveMenu] = useState('overview');
   const [chartsPerRow, setChartsPerRow] = useState(3);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [markers, setMarkers] = useState([]); // temporary chart markers, cleared on reload
@@ -154,6 +155,9 @@ export default function App() {
 
         <main className="p-4 sm:p-5 grow overflow-y-auto space-y-4">
           <Suspense fallback={<DataLoadingOverlay />}>
+            {activeMenu === 'overview' && (
+              <OverviewView onOpenSite={openSite} {...common} />
+            )}
             {(activeMenu === 'ta-4g' || activeMenu === 'ta-5g') && (
               <TimingAdvanceView
                 key={activeMenu}

@@ -36,7 +36,8 @@ def get_latest_data_date(db: str, table: str) -> datetime:
     _LATEST_DATE_FAILED_AT.pop(key, None)
     try:
         cur = conn.cursor()
-        cur.execute(f'SELECT MAX("Begin Time") FROM "{table}";')
+        col = "date" if table == "measDailyTrafficPayload" else '"Begin Time"'
+        cur.execute(f'SELECT MAX({col}) FROM "{table}";')
         latest = cur.fetchone()[0]
         cur.close()
     except Exception as e:

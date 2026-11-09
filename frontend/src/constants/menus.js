@@ -1,5 +1,6 @@
 // Sidebar / header metadata for every page
 export const MENU_META = {
+  'overview': { title: 'Overview', crumbGroup: 'Overview', crumb: 'Network Overview', source: 'OneDb Live (measDailyTrafficPayload)', db: 'onedb' },
   '2g': { title: '2G Monitoring', crumbGroup: 'KPI Monitoring', crumb: '2G Daily', source: 'OneDb Live (measDy2g)', db: 'onedb' },
   '4g-hourly': { title: '4G Hourly Monitoring', crumbGroup: 'KPI Monitoring', crumb: '4G Hourly', source: 'TwoDb Live (measHy4g)', db: 'twodb' },
   '4g-daily': { title: '4G Daily Monitoring', crumbGroup: 'KPI Monitoring', crumb: '4G Daily', source: 'OneDb Live (measDy4g & measBdbh4g)', db: 'onedb' },

@@ -13,6 +13,7 @@ export const yesterdayStr = shiftDate(toIsoDate(new Date()), -1);
 
 // Keys match the menu ids; values are YYYY-MM-DD
 export const latestDates = {
+  'overview': yesterdayStr,
   '4g-hourly': yesterdayStr,
   '4g-daily': yesterdayStr,
   '5g': yesterdayStr,
@@ -23,6 +24,7 @@ export const latestDates = {
 };
 
 const API_KEY_TO_MENU = {
+  'overview': 'overview',
   '4g_hourly': '4g-hourly',
   '4g_daily': '4g-daily',
   '5g': '5g',
