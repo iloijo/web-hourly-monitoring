@@ -416,6 +416,14 @@ export default function SectorPayloadChart({
     });
   }
 
+  // Estimate number of wrapped legend rows to adjust chart height and bottom grid
+  const itemsPerLegendRow = chartsPerRow === 1 ? 8 : chartsPerRow === 2 ? 5 : chartsPerRow === 3 ? 4 : 3;
+  const legendRows = Math.max(1, Math.ceil(legendData.length / itemsPerLegendRow));
+  const extraRows = Math.max(0, legendRows - 1);
+  const extraHeight = extraRows * 18;
+  const chartHeight = 290 + extraHeight;
+  const gridBottom = 55 + (extraRows * 18);
+
   // Y-axis configuration
   const yAxisList = [
     {
@@ -516,18 +524,13 @@ export default function SectorPayloadChart({
     ],
     // Legend positioned at bottom, well below X-axis labels to completely eliminate overlap
     legend: {
-      type: 'scroll',
-      bottom: 8,
+      type: 'plain',
+      bottom: 6,
       left: 'center',
       data: legendData,
       itemWidth: 10,
       itemHeight: 10,
       itemGap: 14,
-      pageIconSize: 10,
-      pageTextStyle: {
-        fontSize: 10,
-        color: darkMode ? '#cbd5e1' : '#64748b'
-      },
       textStyle: {
         color: darkMode ? '#e2e8f0' : '#475569',
         fontSize: 10,
@@ -573,7 +576,7 @@ export default function SectorPayloadChart({
     grid: {
       top: markerLines.length > 1 ? 58 : markerLines.length ? 50 : 45,
       right: hasTotal ? 48 : 25,
-      bottom: 60, // 60px bottom padding ensures X-axis and legend never overlap
+      bottom: gridBottom,
       left: 45,
       containLabel: false
     },
@@ -606,11 +609,11 @@ export default function SectorPayloadChart({
     <div className={`rounded-2xl border shadow-xs hover:shadow-md transition-all duration-300 overflow-hidden flex flex-col p-2 ${
       darkMode ? 'bg-slate-850 bg-slate-800/90 border-slate-700/80 shadow-md' : 'bg-white border-slate-200/90'
     }`}>
-      <div className="grow min-h-[290px]">
+      <div className="grow" style={{ minHeight: `${chartHeight}px` }}>
         <ReactECharts
           ref={echartsRef}
           option={option}
-          style={{ height: '290px', width: '100%' }}
+          style={{ height: `${chartHeight}px`, width: '100%' }}
           notMerge={true} // Eliminates ghost series/cache leaks when switching sites or toggling filters
           lazyUpdate={false}
         />
