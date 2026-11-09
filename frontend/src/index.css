@@ -284,3 +284,10 @@
   animation: sonarRipple var(--pulse-speed, 2.4s) cubic-bezier(0.16, 1, 0.3, 1) infinite;
   animation-delay: calc(var(--pulse-speed, 2.4s) * 0.45);
 }
+
+/* ECharts tooltip must never intercept pointer events to prevent hover flickering */
+.echarts-tooltip,
+div.echarts-tooltip {
+  pointer-events: none !important;
+  user-select: none !important;
+}

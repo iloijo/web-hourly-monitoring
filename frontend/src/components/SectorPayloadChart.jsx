@@ -250,6 +250,9 @@ export default function SectorPayloadChart({
       yAxisIndex: 0,
       smooth: true,
       showSymbol: false,
+      emphasis: {
+        scale: false
+      },
       lineStyle: {
         width: 1.8,
         color: color
@@ -271,6 +274,9 @@ export default function SectorPayloadChart({
       yAxisIndex: 1,
       smooth: true,
       showSymbol: false,
+      emphasis: {
+        scale: false
+      },
       lineStyle: {
         width: 1.5,
         color: '#f43f5e'
@@ -492,7 +498,7 @@ export default function SectorPayloadChart({
     backgroundColor: darkMode ? 'transparent' : '#ffffff',
     animation: true,
     animationDuration: 500,
-    animationDurationUpdate: 500,
+    animationDurationUpdate: 0,
     animationEasing: 'cubicInOut',
     animationEasingUpdate: 'cubicInOut',
     title: [
@@ -541,6 +547,18 @@ export default function SectorPayloadChart({
     // Tooltip strictly styled with standard band colors (Image 2 requirement)
     tooltip: {
       trigger: 'axis',
+      className: 'echarts-tooltip',
+      transitionDuration: 0,
+      axisPointer: {
+        type: 'line',
+        animation: false,
+        snap: true,
+        lineStyle: {
+          color: darkMode ? '#64748b' : '#94a3b8',
+          width: 1,
+          type: 'dashed'
+        }
+      },
       backgroundColor: darkMode ? 'rgba(15, 23, 42, 0.96)' : 'rgba(15, 23, 42, 0.96)',
       borderColor: darkMode ? '#475569' : '#334155',
       borderWidth: 1,
@@ -549,7 +567,7 @@ export default function SectorPayloadChart({
         fontSize: 12
       },
       padding: [10, 14],
-      extraCssText: 'pointer-events: none !important; user-select: none;',
+      extraCssText: 'pointer-events: none !important; user-select: none; z-index: 50;',
       formatter: function (params) {
         if (!params || !params.length) return '';
         const rawTime = params[0].axisValue;
@@ -557,16 +575,22 @@ export default function SectorPayloadChart({
         let html = `<div style="font-weight: 700; color: #f8fafc; margin-bottom: 8px; border-bottom: 1px solid #334155; padding-bottom: 4px; font-size: 11px;">${formattedTime}</div>`;
         
         // Filter out pseudo-series like markers or threshold
-        const validParams = params.filter(p => p.seriesName !== '__markers' && p.seriesName !== '__threshold' && p.seriesName !== '__periods');
+        const validParams = params.filter(p => p && p.seriesName !== '__markers' && p.seriesName !== '__threshold' && p.seriesName !== '__periods');
         
         // Separate Total Payload from carrier series
         const totalItems = validParams.filter(p => p.seriesName === 'Total Payload' || p.seriesId === 'total_payload');
         const carrierItems = validParams.filter(p => p.seriesName !== 'Total Payload' && p.seriesId !== 'total_payload');
         
+        const parseVal = (v) => {
+          if (v === null || v === undefined) return NaN;
+          if (Array.isArray(v)) return typeof v[1] === 'number' ? v[1] : parseFloat(v[1]);
+          return typeof v === 'number' ? v : parseFloat(v);
+        };
+
         // Sort carriers by value: High -> Low (desc) or Low -> High (asc)
         carrierItems.sort((a, b) => {
-          const valA = (typeof a.value === 'number') ? a.value : parseFloat(a.value);
-          const valB = (typeof b.value === 'number') ? b.value : parseFloat(b.value);
+          const valA = parseVal(a.value);
+          const valB = parseVal(b.value);
           const hasA = !isNaN(valA);
           const hasB = !isNaN(valB);
           if (!hasA && !hasB) return 0;
@@ -583,7 +607,8 @@ export default function SectorPayloadChart({
             ? '#f43f5e'
             : (carrierColorMap[p.seriesName] || p.color || getColorForCarrier(p.seriesName, carrierBands, p.seriesIndex ?? pIdx));
           const displayName = p.seriesName;
-          const valStr = (p.value !== null && p.value !== undefined && !isNaN(p.value)) ? p.value : '–';
+          const num = parseVal(p.value);
+          const valStr = !isNaN(num) ? num : '–';
           html += `
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 20px; font-size: 11px; padding: 2px 0;">
               <div style="display: flex; align-items: center; gap: 6px;">
