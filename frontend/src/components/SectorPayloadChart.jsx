@@ -106,10 +106,42 @@ export function formatAxisDate(val, timeMode = 'hourly') {
 }
 
 export function getBandForCarrier(cName, carrierBands = {}) {
+  if (!cName) return 'L1800';
   if (carrierBands && carrierBands[cName]) {
     return carrierBands[cName];
   }
-  const upper = cName.toUpperCase();
+  const raw = String(cName).trim();
+  const upper = raw.toUpperCase();
+
+  // 1. Direct match with known band keys
+  if (BAND_COLORS[raw] || BAND_COLOR_VARIANTS[raw]) return raw;
+  if (BAND_COLORS[upper] || BAND_COLOR_VARIANTS[upper]) return upper;
+
+  // 2. Starts with a known band prefix (e.g. "L2300_1 VE3", "L1800 VL13", "L2100 VR13", "L900 MT3", "NR2600 N1")
+  const knownPrefixes = [
+    'L2300_1', 'L2300_2', 'L2300_3',
+    'L2600_1', 'L2600_2', 'L2600_3', 'L2600_4', 'L2600',
+    'L2100', 'L1800', 'L900', 'L700',
+    'NR2300', 'NR2600', 'NR2100', 'NR3500',
+    'GSM', 'DCS', 'G900', 'G1800'
+  ];
+  for (const prefix of knownPrefixes) {
+    if (upper === prefix || upper.startsWith(prefix + ' ') || upper.startsWith(prefix + '_') || upper.startsWith(prefix + '-')) {
+      return prefix;
+    }
+  }
+
+  // 3. 5G NR specific checks
+  if (upper.includes('NR2600')) return 'NR2600';
+  if (upper.includes('NR2100')) return 'NR2100';
+  if (upper.includes('NR3500')) return 'NR3500';
+  if (upper.includes('NR2300') || upper.includes('VP') || upper.includes('VQ') || upper.includes('NR') || upper.includes('5G')) return 'NR2300';
+
+  // 4. 2G specific checks
+  if (upper.includes('DCS') || upper.includes('G1800')) return 'DCS';
+  if (upper.includes('GSM') || upper.includes('G900') || upper.includes('2G')) return 'GSM';
+
+  // 5. 4G LTE carrier substring / suffix rules
   if (upper.includes('SL') || upper.includes('ML') || upper.includes('QL') || upper.includes('IL') || upper.includes('VL') || upper.endsWith('L1') || upper.endsWith('L2') || upper.endsWith('L3')) return 'L1800';
   if (upper.includes('MR') || upper.includes('VR') || upper.includes('QR') || upper.includes('IR') || upper.endsWith('R1') || upper.endsWith('R2') || upper.endsWith('R3')) return 'L2100';
   if (upper.includes('MT') || upper.includes('VT') || upper.includes('QT') || upper.includes('IT') || upper.endsWith('T1') || upper.endsWith('T2') || upper.endsWith('T3')) return 'L900';
@@ -118,8 +150,25 @@ export function getBandForCarrier(cName, carrierBands = {}) {
   if (upper.includes('VV') || upper.includes('QV') || upper.endsWith('V1') || upper.endsWith('V2') || upper.endsWith('V3')) return 'L2300_3';
   if (upper.includes('MD') || upper.includes('VD')) return 'L700';
   if (upper.includes('MG') || upper.includes('VG')) return 'L2600';
-  if (upper.includes('VP') || upper.includes('VQ') || upper.includes('NR') || upper.includes('5G')) return 'NR2300';
-  if (upper.includes('DCS') || upper.includes('GSM') || upper.includes('2G')) return upper.includes('DCS') ? 'DCS' : 'GSM';
+
+  // 6. Cell ID (ci) digit fallback if cName contains CI like "_12", "_11", etc.
+  const ciMatch = upper.match(/_(\d+)$/);
+  if (ciMatch) {
+    const ciLast = ciMatch[1].slice(-1);
+    const ciLen = ciMatch[1].length;
+    if (ciLen > 2 && ciLast === '8') return 'L2600_3';
+    if (ciLen > 2 && ciLast === '9') return 'L2600_4';
+    if (ciLast === '1') return 'L1800';
+    if (ciLast === '2') return 'L900';
+    if (ciLast === '3') return 'L2100';
+    if (ciLast === '4') return 'L2300_1';
+    if (ciLast === '5') return 'L2300_2';
+    if (ciLast === '6') return 'L2300_3';
+    if (ciLast === '7') return 'L700';
+    if (ciLast === '8') return 'L2600_1';
+    if (ciLast === '9') return 'L2600_2';
+  }
+
   return 'L1800';
 }
 
@@ -145,7 +194,15 @@ export function getCarrierStyle(cName, carrierBands = {}, idxInBand = 0) {
     };
   }
 
-  const rawBand = (carrierBands && carrierBands[cName]) ? carrierBands[cName] : getBandForCarrier(cName, carrierBands);
+  let rawBand;
+  if (carrierBands && carrierBands[cName] && carrierBands[cName] !== 'ENTITY') {
+    rawBand = carrierBands[cName];
+  } else if (BAND_COLORS[cName] || BAND_COLOR_VARIANTS[cName]) {
+    rawBand = cName;
+  } else {
+    rawBand = getBandForCarrier(cName, carrierBands);
+  }
+
   const band = (rawBand && rawBand.startsWith('L2600')) ? 'L2600' : rawBand;
 
   const variants = BAND_COLOR_VARIANTS[band] || BAND_COLOR_VARIANTS[rawBand];
@@ -230,12 +287,15 @@ function SectorPayloadChart({
       if (carrierBands[cName] === 'ENTITY' || carrierBands[cName] === cName) {
         return cName;
       }
+      if (cName.startsWith(carrierBands[cName] + ' ')) {
+        return cName;
+      }
       return `${carrierBands[cName]} ${cName}`;
     }
-    if (cName.startsWith('L') && BAND_COLORS[cName]) {
+    const b = getBandForCarrier(cName, carrierBands);
+    if (cName === b || cName.startsWith(b + ' ') || (cName.startsWith('L') && BAND_COLORS[cName])) {
       return cName;
     }
-    const b = getBandForCarrier(cName, carrierBands);
     return `${b} ${cName}`;
   };
 

@@ -37,8 +37,13 @@ function getTaSeriesName(key, entry, fallbackSiteId) {
   return key;
 }
 
-function getTaSeriesColor(band, idxInBand) {
-  return getColorForCarrier(band, {}, idxInBand);
+function getTaSeriesColor(band, idxInBand = 0) {
+  const b = (band && band.startsWith('L2600')) ? 'L2600' : band;
+  const variants = BAND_COLOR_VARIANTS[b] || BAND_COLOR_VARIANTS[band];
+  if (variants && variants.length > 0) {
+    return variants[idxInBand % variants.length];
+  }
+  return BAND_COLORS[b] || BAND_COLORS[band] || '#4e79a7';
 }
 
 export default function TimingAdvanceView({
@@ -1179,7 +1184,14 @@ export default function TimingAdvanceView({
                     <td className="px-3 py-2 font-mono">{row.date}</td>
                     <td className="px-3 py-2 font-semibold">Sector {row.sector}</td>
                     <td className="px-3 py-2">
-                      <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-300 font-mono text-[11px] font-bold">
+                      <span 
+                        className="px-2 py-0.5 rounded font-mono text-[11px] font-bold inline-block"
+                        style={{
+                          backgroundColor: `${BAND_COLORS[row.band] || '#4e79a7'}20`,
+                          color: BAND_COLORS[row.band] || '#4e79a7',
+                          border: `1px solid ${BAND_COLORS[row.band] || '#4e79a7'}40`
+                        }}
+                      >
                         {row.band}
                       </span>
                     </td>
