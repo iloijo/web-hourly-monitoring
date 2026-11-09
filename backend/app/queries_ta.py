@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional
 from collections import defaultdict
 from .db import get_onedb_connection, get_latest_data_date
 from .bands import lte_band
+from .queries import get_clean_carrier_label
 from .site_names import get_site_display_name, get_site_name
 
 logger = logging.getLogger("timing_advance")
@@ -196,9 +197,41 @@ def get_ta_4g_data(
     finally:
         conn.close()
 
+    # Pass 1: Build collision-safe carrier labels per (sector, ci)
+    distinct_cells = {}
+    for r in rows:
+        sec_new_type, cname, ci = r[2], (r[3] or "").strip(), r[4]
+        sec_num, c_type = derive_sector_and_type_4g(sec_new_type, ci, cname)
+        ci_val = int(float(ci)) if ci is not None else None
+        if (sec_num, ci_val) not in distinct_cells:
+            band = derive_band_4g(ci, cname)
+            sec_int = int(sec_num) if str(sec_num).isdigit() else 1
+            label = get_clean_carrier_label(cname, sec_int, band, ci_val)
+            distinct_cells[(sec_num, ci_val)] = {
+                "sec_num": sec_num,
+                "ci": ci_val,
+                "band": band,
+                "cell_name": cname,
+                "label": label,
+                "c_type": c_type
+            }
+
+    # Disambiguate duplicate carrier labels within the same sector
+    sec_label_counts = defaultdict(int)
+    for (sec_num, _), d in distinct_cells.items():
+        sec_label_counts[(sec_num, d["label"])] += 1
+
+    cell_key_map = {}
+    for (sec_num, ci_val), d in distinct_cells.items():
+        lbl = d["label"]
+        if sec_label_counts[(sec_num, lbl)] > 1 and ci_val is not None:
+            lbl = f"{lbl}_{ci_val}"
+        cell_key_map[(sec_num, ci_val)] = lbl
+
     # Data structures for aggregation
-    # sector -> band -> [bin0_sum, bin1_sum, ... bin14_sum]
-    sector_band_counts: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(lambda: [0.0] * 15))
+    # sector -> carrier_key -> [bin0_sum, bin1_sum, ... bin14_sum]
+    sector_ci_counts: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(lambda: [0.0] * 15))
+    sector_ci_meta: Dict[str, Dict[str, Dict[str, Any]]] = defaultdict(dict)
     all_sectors_set = set()
     all_bands_set = set()
     table_rows = []
@@ -208,11 +241,12 @@ def get_ta_4g_data(
     band_filter_clean = str(band_filter).strip().upper() if band_filter and band_filter.lower() != "all" else None
 
     for row in rows:
-        b_time, s_id, sec_new_type, cell_name, ci = row[0], row[1], row[2], row[3], row[4]
+        b_time, s_id, sec_new_type, cell_name, ci = row[0], row[1], row[2], (row[3] or "").strip(), row[4]
         bin_vals = [float(x or 0) for x in row[5:20]]
 
         sec_num, c_type = derive_sector_and_type_4g(sec_new_type, ci, cell_name)
         band = derive_band_4g(ci, cell_name)
+        ci_val = int(float(ci)) if ci is not None else None
 
         # Apply Type Filter
         if type_filter_clean == "macro" and c_type != "macro":
@@ -235,10 +269,21 @@ def get_ta_4g_data(
         if band_filter_clean and band.upper() != band_filter_clean:
             continue
 
+        carrier_key = cell_key_map.get((sec_num, ci_val))
+        if not carrier_key:
+            sec_int = int(sec_num) if str(sec_num).isdigit() else 1
+            carrier_key = get_clean_carrier_label(cell_name, sec_int, band, ci_val)
+
         # Add to sums
-        counts_arr = sector_band_counts[sec_num][band]
+        counts_arr = sector_ci_counts[sec_num][carrier_key]
         for i in range(15):
             counts_arr[i] += bin_vals[i]
+
+        sector_ci_meta[sec_num][carrier_key] = {
+            "band": band,
+            "ci": ci_val,
+            "cell_name": cell_name
+        }
 
         # Row for detailed table
         date_str = b_time.strftime("%Y-%m-%d") if isinstance(b_time, datetime) else str(b_time)[:10]
@@ -263,9 +308,18 @@ def get_ta_4g_data(
 
     # Build final data by sector: distribution counts & cumulative percentages
     data_by_sector = {}
-    for sec in sorted(sector_band_counts.keys(), key=lambda x: int(x) if x.isdigit() else 999):
+    for sec in sorted(sector_ci_counts.keys(), key=lambda x: int(x) if x.isdigit() else 999):
         sec_dict = {}
-        for b, counts in sector_band_counts[sec].items():
+        sorted_keys = sorted(
+            sector_ci_counts[sec].keys(),
+            key=lambda k: (
+                band_order.get(sector_ci_meta[sec][k]["band"], 99),
+                sector_ci_meta[sec][k]["ci"] if sector_ci_meta[sec][k]["ci"] is not None else 999
+            )
+        )
+        for k in sorted_keys:
+            counts = sector_ci_counts[sec][k]
+            meta = sector_ci_meta[sec][k]
             tot = sum(counts)
             cum_pct = []
             cum_sum = 0.0
@@ -274,10 +328,13 @@ def get_ta_4g_data(
                 pct = round((cum_sum / tot) * 100.0, 2) if tot > 0 else 0.0
                 cum_pct.append(pct)
 
-            sec_dict[b] = {
+            sec_dict[k] = {
                 "counts": [round(c, 0) for c in counts],
                 "cumulative": cum_pct,
-                "total": round(tot, 0)
+                "total": round(tot, 0),
+                "band": meta["band"],
+                "ci": meta["ci"],
+                "cell_name": meta["cell_name"]
             }
         data_by_sector[sec] = sec_dict
 
@@ -497,18 +554,33 @@ def get_ta_compare_data(
     bins = before.get("bins", [])
 
     data_by_sector = {}
+    band_order = { "L700": 1, "L900": 2, "L1800": 3, "L2100": 4, "L2300_1": 5, "L2300_2": 6, "L2300_3": 7, "L2600": 8 }
     for sec in all_sectors:
         sec_dict = {}
         b_sec = before.get("data_by_sector", {}).get(sec, {})
         a_sec = after.get("data_by_sector", {}).get(sec, {})
-        sec_bands = sorted(list(set(list(b_sec.keys()) + list(a_sec.keys()))))
-        for band in sec_bands:
-            b_counts = b_sec.get(band, {}).get("counts", [0.0] * len(bins))
-            a_counts = a_sec.get(band, {}).get("counts", [0.0] * len(bins))
-            b_cum = b_sec.get(band, {}).get("cumulative", [0.0] * len(bins))
-            a_cum = a_sec.get(band, {}).get("cumulative", [0.0] * len(bins))
-            b_tot = b_sec.get(band, {}).get("total", 0.0)
-            a_tot = a_sec.get(band, {}).get("total", 0.0)
+        all_keys = list(set(list(b_sec.keys()) + list(a_sec.keys())))
+
+        def key_sort_tuple(k):
+            m = a_sec.get(k) or b_sec.get(k) or {}
+            b = m.get("band", k)
+            c = m.get("ci")
+            return (band_order.get(b, 99), c if c is not None else 999)
+
+        sec_keys = sorted(all_keys, key=key_sort_tuple)
+
+        for key in sec_keys:
+            meta_src = a_sec.get(key) or b_sec.get(key) or {}
+            band_val = meta_src.get("band", key)
+            ci_val = meta_src.get("ci")
+            cname_val = meta_src.get("cell_name", "")
+
+            b_counts = b_sec.get(key, {}).get("counts", [0.0] * len(bins))
+            a_counts = a_sec.get(key, {}).get("counts", [0.0] * len(bins))
+            b_cum = b_sec.get(key, {}).get("cumulative", [0.0] * len(bins))
+            a_cum = a_sec.get(key, {}).get("cumulative", [0.0] * len(bins))
+            b_tot = b_sec.get(key, {}).get("total", 0.0)
+            a_tot = a_sec.get(key, {}).get("total", 0.0)
 
             delta_counts = [round(a - b, 0) for a, b in zip(a_counts, b_counts)]
             delta_cum = [round(a - b, 2) for a, b in zip(a_cum, b_cum)]
@@ -517,7 +589,10 @@ def get_ta_compare_data(
             pct_1k_before = b_cum[k1_idx - 1] if len(b_cum) >= k1_idx else 0.0
             pct_1k_after = a_cum[k1_idx - 1] if len(a_cum) >= k1_idx else 0.0
 
-            sec_dict[band] = {
+            sec_dict[key] = {
+                "band": band_val,
+                "ci": ci_val,
+                "cell_name": cname_val,
                 "before_counts": b_counts,
                 "after_counts": a_counts,
                 "delta_counts": delta_counts,

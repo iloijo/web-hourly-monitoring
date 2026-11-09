@@ -21,6 +21,42 @@ import { loadLatestDates, shiftDate } from '../constants/dates';
 import { objectRowsSheet } from '../api/export';
 import { getJson } from '../api/client';
 
+// Color variants for multiple CIs sharing the same band in a sector
+const BAND_COLOR_VARIANTS = {
+  'L1800': ['#3b82f6', '#1d4ed8', '#60a5fa', '#1e3a8a'],
+  'L2100': ['#c084fc', '#9333ea', '#e879f9', '#6b21a8'],
+  'L900':  ['#f97316', '#c2410c', '#fb923c', '#7c2d12'],
+  'L2300_1': ['#22c55e', '#15803d', '#4ade80', '#14532d'],
+  'L2300_2': ['#14b8a6', '#0f766e', '#2dd4bf', '#134e4a'],
+  'L2300_3': ['#06b6d4', '#0e7490', '#22d3ee', '#164e63'],
+  'L700':  ['#eab308', '#a16207', '#fde047', '#713f12'],
+  'L2600': ['#ec4899', '#be185d', '#f472b6', '#831843'],
+};
+
+const BAND_ORDER = {
+  'L700': 1, 'L900': 2, 'L1800': 3, 'L2100': 4,
+  'L2300_1': 5, 'L2300_2': 6, 'L2300_3': 7, 'L2600': 8,
+  'NR2300': 9, 'NR2600': 10
+};
+
+function getTaSeriesName(key, entry) {
+  if (entry && entry.ci !== undefined && entry.ci !== null) {
+    const band = entry.band || '';
+    return `${band} ${key} (${entry.ci})`.trim();
+  }
+  return key;
+}
+
+function getTaSeriesColor(band, idxInBand) {
+  const variants = BAND_COLOR_VARIANTS[band];
+  if (variants && variants[idxInBand]) {
+    return variants[idxInBand];
+  }
+  const base = BAND_COLORS[band] || '#60a5fa';
+  if (idxInBand === 0) return base;
+  return idxInBand % 2 === 1 ? '#1d4ed8' : '#93c5fd';
+}
+
 export default function TimingAdvanceView({
   tech = '4g', // '4g' or '5g'
   darkMode = false,
@@ -243,30 +279,53 @@ export default function TimingAdvanceView({
     const bins = activeDataSource.bins || [];
     const siteId = activeDataSource.site_id || selectedSite;
 
-    const activeBands = Object.keys(sectorData).filter(b => {
-      if (bandFilter !== 'all' && b.toUpperCase() !== bandFilter.toUpperCase()) return false;
+    const activeKeys = Object.keys(sectorData).filter(k => {
+      const entry = sectorData[k] || {};
+      const band = entry.band || k;
+      if (bandFilter !== 'all' && band.toUpperCase() !== bandFilter.toUpperCase()) return false;
       return true;
     });
 
-    const series = activeBands.map((b) => {
-      const bColor = BAND_COLORS[b] || (b === 'L900' ? '#f87171' : '#60a5fa');
+    const sortedKeys = activeKeys.sort((k1, k2) => {
+      const e1 = sectorData[k1] || {};
+      const e2 = sectorData[k2] || {};
+      const b1 = e1.band || k1;
+      const b2 = e2.band || k2;
+      const o1 = BAND_ORDER[b1] || 99;
+      const o2 = BAND_ORDER[b2] || 99;
+      if (o1 !== o2) return o1 - o2;
+      const ci1 = e1.ci !== undefined && e1.ci !== null ? Number(e1.ci) : 999;
+      const ci2 = e2.ci !== undefined && e2.ci !== null ? Number(e2.ci) : 999;
+      return ci1 - ci2;
+    });
+
+    const bandIdxMap = {};
+    const series = sortedKeys.map((k) => {
+      const entry = sectorData[k] || {};
+      const band = entry.band || k;
+      const idxInBand = bandIdxMap[band] || 0;
+      bandIdxMap[band] = idxInBand + 1;
+
+      const sColor = getTaSeriesColor(band, idxInBand);
+      const sName = getTaSeriesName(k, entry);
+
       let countData = [];
       if (period === 'Before') {
-        countData = sectorData[b].before_counts || [];
+        countData = entry.before_counts || [];
       } else if (period === 'After') {
-        countData = sectorData[b].after_counts || [];
+        countData = entry.after_counts || [];
       } else {
-        countData = sectorData[b].counts || [];
+        countData = entry.counts || [];
       }
 
       return {
-        name: b,
+        name: sName,
         type: 'bar',
         barGap: '15%',
         barCategoryGap: '20%',
         data: countData,
         itemStyle: {
-          color: bColor,
+          color: sColor,
           borderRadius: [2, 2, 0, 0]
         }
       };
@@ -354,37 +413,59 @@ export default function TimingAdvanceView({
     const bins = activeDataSource.bins || [];
     const siteId = activeDataSource.site_id || selectedSite;
 
-    const activeBands = Object.keys(sectorData).filter(b => {
-      if (bandFilter !== 'all' && b.toUpperCase() !== bandFilter.toUpperCase()) return false;
+    const activeKeys = Object.keys(sectorData).filter(k => {
+      const entry = sectorData[k] || {};
+      const band = entry.band || k;
+      if (bandFilter !== 'all' && band.toUpperCase() !== bandFilter.toUpperCase()) return false;
       return true;
     });
 
-    const series = activeBands.map((b, idx) => {
-      const bColor = BAND_COLORS[b] || (b === 'L900' ? '#f87171' : '#60a5fa');
+    const sortedKeys = activeKeys.sort((k1, k2) => {
+      const e1 = sectorData[k1] || {};
+      const e2 = sectorData[k2] || {};
+      const b1 = e1.band || k1;
+      const b2 = e2.band || k2;
+      const o1 = BAND_ORDER[b1] || 99;
+      const o2 = BAND_ORDER[b2] || 99;
+      if (o1 !== o2) return o1 - o2;
+      const ci1 = e1.ci !== undefined && e1.ci !== null ? Number(e1.ci) : 999;
+      const ci2 = e2.ci !== undefined && e2.ci !== null ? Number(e2.ci) : 999;
+      return ci1 - ci2;
+    });
+
+    const bandIdxMap = {};
+    const series = sortedKeys.map((k, idx) => {
+      const entry = sectorData[k] || {};
+      const band = entry.band || k;
+      const idxInBand = bandIdxMap[band] || 0;
+      bandIdxMap[band] = idxInBand + 1;
+
+      const sColor = getTaSeriesColor(band, idxInBand);
+      const sName = getTaSeriesName(k, entry);
       const isFirst = idx === 0;
 
       let cumData = [];
       if (period === 'Before') {
-        cumData = sectorData[b].before_cumulative || [];
+        cumData = entry.before_cumulative || [];
       } else if (period === 'After') {
-        cumData = sectorData[b].after_cumulative || [];
+        cumData = entry.after_cumulative || [];
       } else {
-        cumData = sectorData[b].cumulative || [];
+        cumData = entry.cumulative || [];
       }
 
       return {
-        name: b,
+        name: sName,
         type: 'line',
         smooth: true,
         symbol: 'circle',
         symbolSize: 3,
         data: cumData,
         lineStyle: {
-          color: bColor,
+          color: sColor,
           width: 2.2
         },
         itemStyle: {
-          color: bColor
+          color: sColor
         },
         markLine: isFirst && thresholdPct > 0 ? {
           symbol: ['none', 'none'],
