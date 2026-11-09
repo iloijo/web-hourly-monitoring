@@ -329,6 +329,7 @@ def get_ta_4g_data(
                 cum_pct.append(pct)
 
             sec_dict[k] = {
+                "site_id": site_clean,
                 "counts": [round(c, 0) for c in counts],
                 "cumulative": cum_pct,
                 "total": round(tot, 0),

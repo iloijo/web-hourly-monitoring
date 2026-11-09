@@ -39,10 +39,12 @@ const BAND_ORDER = {
   'NR2300': 9, 'NR2600': 10
 };
 
-function getTaSeriesName(key, entry) {
-  if (entry && entry.ci !== undefined && entry.ci !== null) {
-    const band = entry.band || '';
-    return `${band} ${key} (${entry.ci})`.trim();
+function getTaSeriesName(key, entry, fallbackSiteId) {
+  if (entry && entry.ci !== undefined && entry.ci !== null && entry.ci !== '') {
+    const sId = entry.site_id || fallbackSiteId || '';
+    const ciNum = parseInt(entry.ci, 10);
+    const ciStr = isNaN(ciNum) ? entry.ci : ciNum;
+    return sId ? `${sId}_${ciStr}` : `${key}_${ciStr}`;
   }
   return key;
 }
@@ -307,7 +309,7 @@ export default function TimingAdvanceView({
       bandIdxMap[band] = idxInBand + 1;
 
       const sColor = getTaSeriesColor(band, idxInBand);
-      const sName = getTaSeriesName(k, entry);
+      const sName = getTaSeriesName(k, entry, siteId);
 
       let countData = [];
       if (period === 'Before') {
@@ -441,7 +443,7 @@ export default function TimingAdvanceView({
       bandIdxMap[band] = idxInBand + 1;
 
       const sColor = getTaSeriesColor(band, idxInBand);
-      const sName = getTaSeriesName(k, entry);
+      const sName = getTaSeriesName(k, entry, siteId);
       const isFirst = idx === 0;
 
       let cumData = [];
