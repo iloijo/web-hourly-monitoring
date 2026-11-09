@@ -126,21 +126,40 @@ const CALENDAR_MM_DD = (() => {
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
+export default function OverviewView({ hierarchyData, darkMode, onOpenSite, onExportData }) {
   const [selectedDate, setSelectedDate] = useState(latestDates['overview'] || '2026-11-07');
   const [selectedNop, setSelectedNop] = useState('All');
+  const [selectedKabupaten, setSelectedKabupaten] = useState('All');
+  const [selectedKecamatan, setSelectedKecamatan] = useState('All');
   const [mode, setMode] = useState('YTD'); // 'YoY' | 'MTD' | 'YTD'
   const [fullscreenChart, setFullscreenChart] = useState(null); // 'payload' | 'traffic' | null
 
-  // Global dataset cache: year -> { year, latest_date, rows }
+  // Cascading options derived from hierarchyData
+  const kabupatenOptions = useMemo(() => {
+    if (!hierarchyData?.kabupaten_by_nop) return [];
+    if (selectedNop && selectedNop !== 'All') {
+      return (hierarchyData.kabupaten_by_nop[selectedNop] || []).slice().sort();
+    }
+    const all = Object.values(hierarchyData.kabupaten_by_nop).flat();
+    return Array.from(new Set(all)).filter(Boolean).sort();
+  }, [hierarchyData, selectedNop]);
+
+  const kecamatanOptions = useMemo(() => {
+    if (!hierarchyData?.kecamatan_by_kab || selectedKabupaten === 'All') return [];
+    return (hierarchyData.kecamatan_by_kab[selectedKabupaten] || []).slice().sort();
+  }, [hierarchyData, selectedKabupaten]);
+
+  const isScoped = selectedKabupaten !== 'All' || selectedKecamatan !== 'All';
+
+  // Global dataset cache: cacheKey -> { year, latest_date, rows }
   const [dataset, setDataset] = useState(null);
   const [inventory, setInventory] = useState(null);
   const [freshnessDates, setFreshnessDates] = useState({});
   const [loadingDataset, setLoadingDataset] = useState(false);
   const [error, setError] = useState(null);
 
-  // Hierarchy drill state: { level: 'nop' | 'kabupaten' | 'kecamatan', parent: null, parentNop: null }
-  const [drill, setDrill] = useState({ level: 'nop', parent: null, parentNop: null });
+  // Hierarchy drill state: { level: 'nop' | 'kabupaten' | 'kecamatan' | 'site', parent: null, parentNop: null, parentKab: null, parentKec: null }
+  const [drill, setDrill] = useState({ level: 'nop', parent: null, parentNop: null, parentKab: null, parentKec: null });
   const [drillRows, setDrillRows] = useState([]);
   const [loadingDrill, setLoadingDrill] = useState(false);
 
@@ -148,15 +167,17 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
   const [topDeclineSites, setTopDeclineSites] = useState([]);
   const [loadingDecline, setLoadingDecline] = useState(false);
 
-  // Local caches to prevent re-querying drill/decline
+  // Local caches to prevent re-querying drill/decline/inventory/dataset
   const drillCacheRef = useRef(new Map());
   const declineCacheRef = useRef(new Map());
+  const inventoryCacheRef = useRef(new Map());
+  const globalInventoryRef = useRef(null);
   const datasetCacheRef = useRef({});
 
   const selectedYear = Number(selectedDate.slice(0, 4)) || 2026;
   const lastYear = selectedYear - 1;
 
-  // 1. Initial load of latest dates & inventory
+  // 1. Initial load of latest dates & global inventory
   useEffect(() => {
     loadLatestDates().then((dates) => {
       setFreshnessDates(dates);
@@ -167,27 +188,75 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
 
     getJson('/api/overview/inventory')
       .then((inv) => {
-        if (inv?.nops) setInventory(inv);
+        if (inv?.nops) {
+          globalInventoryRef.current = inv;
+          setInventory(inv);
+        }
       })
-      .catch((err) => loggerWarning('Failed to load inventory', err));
+      .catch((err) => console.warn('Failed to load inventory', err));
   }, []);
 
-  // 2. Fetch dataset when year changes or on forced reload
+  // 1b. Load scoped inventory when Kabupaten or Kecamatan is selected
+  useEffect(() => {
+    if (!isScoped) {
+      if (globalInventoryRef.current) {
+        setInventory(globalInventoryRef.current);
+      }
+      return;
+    }
+
+    const invKey = `${selectedNop}_${selectedKabupaten}_${selectedKecamatan}`;
+    if (inventoryCacheRef.current.has(invKey)) {
+      setInventory(inventoryCacheRef.current.get(invKey));
+      return;
+    }
+
+    const params = {};
+    if (selectedNop !== 'All') params.nop = selectedNop;
+    if (selectedKabupaten !== 'All') params.kabupaten = selectedKabupaten;
+    if (selectedKecamatan !== 'All') params.kecamatan = selectedKecamatan;
+
+    getJson('/api/overview/inventory', params)
+      .then((res) => {
+        if (res && !res.error) {
+          inventoryCacheRef.current.set(invKey, res);
+          setInventory(res);
+        }
+      })
+      .catch((err) => console.error('Scoped inventory query failed', err));
+  }, [isScoped, selectedNop, selectedKabupaten, selectedKecamatan]);
+
+  // 2. Fetch dataset when year changes or geo scope changes, or on forced reload
   const fetchDataset = (year = selectedYear, forceRefresh = false) => {
-    if (!forceRefresh && datasetCacheRef.current[year]) {
-      setDataset(datasetCacheRef.current[year]);
+    const isGeoScoped = selectedKabupaten !== 'All' || selectedKecamatan !== 'All';
+    const cacheKey = isGeoScoped
+      ? `${year}_${selectedNop}_${selectedKabupaten}_${selectedKecamatan}`
+      : `${year}`;
+
+    if (!forceRefresh && datasetCacheRef.current[cacheKey]) {
+      setDataset(datasetCacheRef.current[cacheKey]);
       return;
     }
 
     setLoadingDataset(true);
     setError(null);
 
-    getJson('/api/overview/dataset', { year, refresh: forceRefresh ? 1 : 0 })
+    const params = {
+      year,
+      refresh: forceRefresh ? 1 : 0,
+    };
+    if (isGeoScoped) {
+      if (selectedNop !== 'All') params.nop = selectedNop;
+      if (selectedKabupaten !== 'All') params.kabupaten = selectedKabupaten;
+      if (selectedKecamatan !== 'All') params.kecamatan = selectedKecamatan;
+    }
+
+    getJson('/api/overview/dataset', params)
       .then((data) => {
         if (data?.error) {
           setError(data.error);
         } else {
-          datasetCacheRef.current[year] = data;
+          datasetCacheRef.current[cacheKey] = data;
           setDataset(data);
         }
       })
@@ -197,15 +266,27 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
 
   useEffect(() => {
     fetchDataset(selectedYear);
-  }, [selectedYear]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedYear, selectedNop, selectedKabupaten, selectedKecamatan]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Manual reload button
   const handleReload = () => {
     drillCacheRef.current.clear();
     declineCacheRef.current.clear();
+    inventoryCacheRef.current.clear();
     fetchDataset(selectedYear, true);
-    getJson('/api/overview/inventory', { refresh: 1 }).then((inv) => {
-      if (inv?.nops) setInventory(inv);
+
+    const invParams = { refresh: 1 };
+    if (selectedNop !== 'All') invParams.nop = selectedNop;
+    if (selectedKabupaten !== 'All') invParams.kabupaten = selectedKabupaten;
+    if (selectedKecamatan !== 'All') invParams.kecamatan = selectedKecamatan;
+
+    getJson('/api/overview/inventory', invParams).then((inv) => {
+      if (inv) {
+        if (inv.nops && !isScoped) {
+          globalInventoryRef.current = inv;
+        }
+        setInventory(inv);
+      }
     });
     getJson('/api/latest_dates').then((dates) => {
       if (dates) setFreshnessDates(dates);
@@ -248,8 +329,8 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
       yoyEndDate = safeShiftYear(effectiveSelectedDate, -1);
     }
 
-    // Filter by NOP
-    const filterNop = selectedNop !== 'All';
+    // Filter by NOP (only when not specifically scoped by Kabupaten/Kecamatan)
+    const filterNop = !isScoped && selectedNop !== 'All';
 
     // 3.1 Compute KPI Tiles Totals
     let totPayloadCur = 0;
@@ -506,15 +587,18 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
       },
       nopRows,
     };
-  }, [dataset, selectedDate, selectedNop, mode, selectedYear, lastYear, inventory]);
+  }, [dataset, selectedDate, selectedNop, selectedKabupaten, selectedKecamatan, mode, selectedYear, lastYear, inventory, isScoped]);
 
-  // 4. Fetch Drill-Down Rows when level is 'kabupaten' or 'kecamatan'
+  // 4. Fetch Drill-Down Rows when level is 'kabupaten', 'kecamatan', or 'site'
   useEffect(() => {
     if (drill.level === 'nop') {
       return;
     }
 
-    const cacheKey = `${drill.level}_${drill.parent}_${mode}_${selectedDate}_${selectedNop}`;
+    const activeKab = drill.parentKab || (selectedKabupaten !== 'All' ? selectedKabupaten : '');
+    const activeNop = drill.parentNop || (selectedNop !== 'All' ? selectedNop : '');
+
+    const cacheKey = `${drill.level}_${drill.parent}_${mode}_${selectedDate}_${activeNop}_${activeKab}`;
     if (drillCacheRef.current.has(cacheKey)) {
       setDrillRows(drillCacheRef.current.get(cacheKey));
       return;
@@ -526,7 +610,8 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
       mode,
       level: drill.level,
       parent: drill.parent || '',
-      nop: selectedNop === 'All' ? '' : selectedNop,
+      nop: activeNop,
+      kabupaten: activeKab,
     })
       .then((res) => {
         if (res?.items) {
@@ -536,11 +621,11 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
       })
       .catch((err) => console.error('Drill query failed', err))
       .finally(() => setLoadingDrill(false));
-  }, [drill, mode, selectedDate, selectedNop]);
+  }, [drill, mode, selectedDate, selectedNop, selectedKabupaten]);
 
   // 5. Fetch Top Decline Sites
   useEffect(() => {
-    const cacheKey = `${selectedDate}_${mode}_${selectedNop}_10`;
+    const cacheKey = `${selectedDate}_${mode}_${selectedNop}_${selectedKabupaten}_${selectedKecamatan}_10`;
     if (declineCacheRef.current.has(cacheKey)) {
       setTopDeclineSites(declineCacheRef.current.get(cacheKey));
       return;
@@ -551,6 +636,8 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
       date: selectedDate,
       mode,
       nop: selectedNop === 'All' ? '' : selectedNop,
+      kabupaten: selectedKabupaten === 'All' ? '' : selectedKabupaten,
+      kecamatan: selectedKecamatan === 'All' ? '' : selectedKecamatan,
       top_n: 10,
     })
       .then((res) => {
@@ -561,7 +648,7 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
       })
       .catch((err) => console.error('Decline query failed', err))
       .finally(() => setLoadingDecline(false));
-  }, [selectedDate, mode, selectedNop]);
+  }, [selectedDate, mode, selectedNop, selectedKabupaten, selectedKecamatan]);
 
   // Table rows to display
   const activeTableRows = drill.level === 'nop' ? computed?.nopRows || [] : drillRows;
@@ -569,16 +656,34 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
   // Handle row click in Ranking Table
   const handleDrillRow = (rowName) => {
     if (drill.level === 'nop') {
+      setSelectedNop(rowName);
+      setSelectedKabupaten('All');
+      setSelectedKecamatan('All');
       setDrill({
         level: 'kabupaten',
         parent: rowName,
         parentNop: rowName,
+        parentKab: null,
+        parentKec: null,
       });
     } else if (drill.level === 'kabupaten') {
+      setSelectedKabupaten(rowName);
+      setSelectedKecamatan('All');
       setDrill({
         level: 'kecamatan',
         parent: rowName,
-        parentNop: drill.parentNop,
+        parentNop: drill.parentNop || selectedNop,
+        parentKab: rowName,
+        parentKec: null,
+      });
+    } else if (drill.level === 'kecamatan') {
+      setSelectedKecamatan(rowName);
+      setDrill({
+        level: 'site',
+        parent: rowName,
+        parentNop: drill.parentNop || selectedNop,
+        parentKab: drill.parentKab || selectedKabupaten,
+        parentKec: rowName,
       });
     }
   };
@@ -586,12 +691,28 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
   // Breadcrumb navigation
   const handleBreadcrumbClick = (targetLevel) => {
     if (targetLevel === 'nop') {
-      setDrill({ level: 'nop', parent: null, parentNop: null });
+      setSelectedNop('All');
+      setSelectedKabupaten('All');
+      setSelectedKecamatan('All');
+      setDrill({ level: 'nop', parent: null, parentNop: null, parentKab: null, parentKec: null });
     } else if (targetLevel === 'kabupaten') {
+      setSelectedKabupaten('All');
+      setSelectedKecamatan('All');
       setDrill({
         level: 'kabupaten',
-        parent: drill.parentNop,
-        parentNop: drill.parentNop,
+        parent: drill.parentNop || selectedNop,
+        parentNop: drill.parentNop || selectedNop,
+        parentKab: null,
+        parentKec: null,
+      });
+    } else if (targetLevel === 'kecamatan') {
+      setSelectedKecamatan('All');
+      setDrill({
+        level: 'kecamatan',
+        parent: drill.parentKab || selectedKabupaten,
+        parentNop: drill.parentNop || selectedNop,
+        parentKab: drill.parentKab || selectedKabupaten,
+        parentKec: null,
       });
     }
   };
@@ -604,10 +725,12 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
     }
 
     const { kpi } = computed;
-    const inv = inventory?.nops?.[selectedNop] || {};
+    const inv = isScoped && inventory?.scoped
+      ? inventory
+      : (inventory?.nops?.[selectedNop] || {});
 
     onExportData(() => ({
-      filename: `netPulse_Overview_${mode}_${selectedDate}_${selectedNop}`,
+      filename: `netPulse_Overview_${mode}_${selectedDate}_${selectedNop}_${selectedKabupaten}_${selectedKecamatan}`,
       sheets: [
         {
           name: 'Summary',
@@ -675,7 +798,7 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
     }));
 
     return () => onExportData(null);
-  }, [computed, inventory, selectedDate, selectedNop, mode, selectedYear, lastYear, drill.level, activeTableRows, topDeclineSites, onExportData]);
+  }, [computed, inventory, selectedDate, selectedNop, selectedKabupaten, selectedKecamatan, mode, selectedYear, lastYear, drill.level, activeTableRows, topDeclineSites, onExportData, isScoped]);
 
   // Common card styles
   const cardCls = darkMode
@@ -962,7 +1085,9 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
   };
 
   const kpis = computed?.kpi || {};
-  const inv = inventory?.nops?.[selectedNop] || {};
+  const inv = isScoped && inventory?.scoped
+    ? inventory
+    : (inventory?.nops?.[selectedNop] || {});
 
   return (
     <div className="space-y-4 relative">
@@ -1000,8 +1125,15 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
             <select
               value={selectedNop}
               onChange={(e) => {
-                setSelectedNop(e.target.value);
-                setDrill({ level: 'nop', parent: null, parentNop: null });
+                const val = e.target.value;
+                setSelectedNop(val);
+                setSelectedKabupaten('All');
+                setSelectedKecamatan('All');
+                if (val === 'All') {
+                  setDrill({ level: 'nop', parent: null, parentNop: null, parentKab: null, parentKec: null });
+                } else {
+                  setDrill({ level: 'kabupaten', parent: val, parentNop: val, parentKab: null, parentKec: null });
+                }
               }}
               className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition cursor-pointer outline-none ${
                 darkMode
@@ -1012,6 +1144,90 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
               {NOP_OPTIONS.map((n) => (
                 <option key={n} value={n}>
                   {n}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Kabupaten Filter */}
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-slate-500 font-semibold">Kabupaten:</span>
+            <select
+              value={selectedKabupaten}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedKabupaten(val);
+                setSelectedKecamatan('All');
+                if (val === 'All') {
+                  if (selectedNop === 'All') {
+                    setDrill({ level: 'nop', parent: null, parentNop: null, parentKab: null, parentKec: null });
+                  } else {
+                    setDrill({ level: 'kabupaten', parent: selectedNop, parentNop: selectedNop, parentKab: null, parentKec: null });
+                  }
+                } else {
+                  setDrill({
+                    level: 'kecamatan',
+                    parent: val,
+                    parentNop: selectedNop !== 'All' ? selectedNop : null,
+                    parentKab: val,
+                    parentKec: null,
+                  });
+                }
+              }}
+              className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition cursor-pointer outline-none ${
+                darkMode
+                  ? 'bg-slate-800 border-slate-700 text-slate-200 focus:border-blue-500'
+                  : 'bg-white border-slate-300 text-slate-800 focus:border-blue-500 shadow-xs'
+              }`}
+            >
+              <option value="All">All</option>
+              {kabupatenOptions.map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Kecamatan Filter */}
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-slate-500 font-semibold">Kecamatan:</span>
+            <select
+              value={selectedKecamatan}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedKecamatan(val);
+                if (val === 'All') {
+                  setDrill({
+                    level: 'kecamatan',
+                    parent: selectedKabupaten,
+                    parentNop: selectedNop !== 'All' ? selectedNop : null,
+                    parentKab: selectedKabupaten,
+                    parentKec: null,
+                  });
+                } else {
+                  setDrill({
+                    level: 'site',
+                    parent: val,
+                    parentNop: selectedNop !== 'All' ? selectedNop : null,
+                    parentKab: selectedKabupaten,
+                    parentKec: val,
+                  });
+                }
+              }}
+              disabled={selectedKabupaten === 'All'}
+              className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition cursor-pointer outline-none ${
+                selectedKabupaten === 'All'
+                  ? 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-slate-800 text-slate-400'
+                  : darkMode
+                  ? 'bg-slate-800 border-slate-700 text-slate-200 focus:border-blue-500'
+                  : 'bg-white border-slate-300 text-slate-800 focus:border-blue-500 shadow-xs'
+              }`}
+            >
+              <option value="All">All</option>
+              {kecamatanOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
                 </option>
               ))}
             </select>
@@ -1171,7 +1387,7 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
           <div className="flex items-center gap-2">
             <Radio className="w-4 h-4 text-blue-500" />
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-              Registered Site Inventory ({selectedNop})
+              Registered Site Inventory ({selectedKecamatan !== 'All' ? selectedKecamatan : (selectedKabupaten !== 'All' ? selectedKabupaten : selectedNop)})
             </h2>
           </div>
           <span className="text-[11px] font-semibold text-slate-400">
@@ -1301,12 +1517,12 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
               </h2>
             </div>
             <span className="text-[10px] text-slate-400">
-              {drill.level === 'kecamatan' ? 'Leaf level' : 'Click row to drill'}
+              {drill.level === 'site' ? 'Leaf level · Click site to open 4G Daily' : 'Click row to drill'}
             </span>
           </div>
 
           {/* Breadcrumbs */}
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-3 bg-slate-100 dark:bg-slate-800/60 px-2.5 py-1.5 rounded-lg">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-3 bg-slate-100 dark:bg-slate-800/60 px-2.5 py-1.5 rounded-lg flex-wrap">
             <button
               type="button"
               onClick={() => handleBreadcrumbClick('nop')}
@@ -1330,10 +1546,24 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
                 </button>
               </>
             )}
-            {drill.level === 'kecamatan' && drill.parent && (
+            {drill.parentKab && (
               <>
                 <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                <span className="font-bold text-blue-500">{drill.parent}</span>
+                <button
+                  type="button"
+                  onClick={() => handleBreadcrumbClick('kecamatan')}
+                  className={`font-semibold cursor-pointer ${
+                    drill.level === 'kecamatan' ? 'text-blue-500 font-bold' : 'hover:text-blue-400'
+                  }`}
+                >
+                  {drill.parentKab}
+                </button>
+              </>
+            )}
+            {drill.parentKec && drill.level === 'site' && (
+              <>
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                <span className="font-bold text-blue-500">{drill.parentKec}</span>
               </>
             )}
           </div>
@@ -1348,7 +1578,9 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
                       ? 'NOP'
                       : drill.level === 'kabupaten'
                       ? 'Kabupaten'
-                      : 'Kecamatan'}
+                      : drill.level === 'kecamatan'
+                      ? 'Kecamatan'
+                      : 'Site ID'}
                   </th>
                   <th className="p-2.5 font-bold uppercase tracking-wider text-[11px] text-right">
                     Payload (TB)
@@ -1370,13 +1602,15 @@ export default function OverviewView({ darkMode, onOpenSite, onExportData }) {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {activeTableRows.length > 0 ? (
                   activeTableRows.map((row) => {
-                    const isLeaf = drill.level === 'kecamatan';
+                    const isLeaf = drill.level === 'site';
                     return (
                       <tr
                         key={row.name}
-                        onClick={() => !isLeaf && handleDrillRow(row.name)}
-                        className={`transition ${
-                          isLeaf ? '' : 'cursor-pointer hover:bg-blue-50 dark:hover:bg-slate-800/70'
+                        onClick={() => (isLeaf ? onOpenSite?.('4g', row.name) : handleDrillRow(row.name))}
+                        className={`transition cursor-pointer ${
+                          isLeaf
+                            ? 'hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
+                            : 'hover:bg-blue-50 dark:hover:bg-slate-800/70'
                         }`}
                       >
                         <td className="p-2.5 font-bold text-slate-900 dark:text-slate-100 flex items-center justify-between">

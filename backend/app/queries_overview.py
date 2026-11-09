@@ -12,11 +12,11 @@ _LATEST_DATE_CACHE: Optional[str] = None
 _LATEST_DATE_CACHE_TIME: float = 0
 _LATEST_DATE_TTL_SEC: int = 600
 
-# Cache for dataset: (year, latest_date) -> dataset_dict
-_DATASET_CACHE: Dict[Tuple[int, str], Dict[str, Any]] = {}
+# Cache for dataset: (year, nop, kab, kec, latest_date) -> dataset_dict
+_DATASET_CACHE: Dict[Tuple, Dict[str, Any]] = {}
 
-# Cache for inventory: week -> inventory_dict
-_INVENTORY_CACHE: Dict[str, Dict[str, Any]] = {}
+# Cache for inventory: (week, nop, kab, kec) -> inventory_dict
+_INVENTORY_CACHE: Dict[Tuple, Dict[str, Any]] = {}
 
 # LRU Cache for drill and top_decline
 _LRU_CACHE: "OrderedDict[Tuple, Any]" = OrderedDict()
@@ -58,14 +58,26 @@ def safe_shift_year(d: date, delta_years: int = -1) -> date:
         return d.replace(year=d.year + delta_years, day=28)
 
 
-def get_overview_dataset(year: int = 2026, refresh: bool = False) -> Dict[str, Any]:
+def get_overview_dataset(
+    year: int = 2026,
+    nop: Optional[str] = None,
+    kabupaten: Optional[str] = None,
+    kecamatan: Optional[str] = None,
+    refresh: bool = False
+) -> Dict[str, Any]:
     """
-    Returns daily aggregate x NOP for `year` and `year - 1`.
-    Columns: date, nop, payload_2g, payload_4g, payload_5g, total_payload, traffic_2g, traffic_volte, total_traffic.
-    Cached in-memory by (year, latest_date).
+    Returns daily aggregate for `year` and `year - 1`.
+    If kabupaten or kecamatan is specified, returns scoped single-entity daily time-series.
+    Else returns full (date x NOP) matrix.
+    Cached in-memory by (year, nop, kab, kec, latest_date).
     """
     latest_date = get_latest_overview_date()
-    cache_key = (year, latest_date)
+
+    n_val = nop.strip() if nop and nop.strip() not in ("All", "all", "") else None
+    k_val = kabupaten.strip() if kabupaten and kabupaten.strip() not in ("All", "all", "") else None
+    c_val = kecamatan.strip() if kecamatan and kecamatan.strip() not in ("All", "all", "") else None
+
+    cache_key = (year, n_val or "All", k_val or "All", c_val or "All", latest_date)
 
     if not refresh and cache_key in _DATASET_CACHE:
         return _DATASET_CACHE[cache_key]
@@ -76,6 +88,92 @@ def get_overview_dataset(year: int = 2026, refresh: bool = False) -> Dict[str, A
 
     try:
         cur = conn.cursor()
+
+        # If a specific Kabupaten or Kecamatan is requested, run scoped query for that geo scope
+        if k_val or c_val:
+            filter_clauses = []
+            filter_params = []
+            scope_name = ""
+
+            if c_val:
+                if c_val.lower() == "unmapped":
+                    filter_clauses.append("(lk.kec IS NULL OR lk.kec = 'Unmapped')")
+                else:
+                    filter_clauses.append("lk.kec = %s")
+                    filter_params.append(c_val)
+                scope_name = c_val
+            if k_val:
+                if k_val.lower() == "unmapped":
+                    filter_clauses.append("(lk.kab IS NULL OR lk.kab = 'Unmapped')")
+                else:
+                    filter_clauses.append("lk.kab = %s")
+                    filter_params.append(k_val)
+                if not scope_name:
+                    scope_name = k_val
+            if n_val:
+                if n_val.lower() == "unmapped":
+                    filter_clauses.append("(lk.nop IS NULL OR lk.nop = 'Unmapped')")
+                else:
+                    filter_clauses.append("lk.nop = %s")
+                    filter_params.append(n_val)
+
+            where_target = "WHERE " + " AND ".join(filter_clauses) if filter_clauses else ""
+
+            query = f'''
+                WITH lk AS (
+                    SELECT DISTINCT ON ("Prefix Site ID") "Prefix Site ID" AS p, "NOP" AS nop,
+                           "Kota/Kabupaten" AS kab, "Kecamatan" AS kec
+                    FROM "LookupSITEID" ORDER BY "Prefix Site ID"
+                ),
+                target_sites AS (
+                    SELECT p FROM lk {where_target}
+                )
+                SELECT 
+                    m.date,
+                    %s as nop,
+                    ROUND(SUM(m.payload_2g_tb)::numeric, 4) as payload_2g,
+                    ROUND(SUM(m.payload_4g_tb)::numeric, 4) as payload_4g,
+                    ROUND(SUM(m.payload_5g_tb)::numeric, 4) as payload_5g,
+                    ROUND(SUM(m.total_payload_tb)::numeric, 4) as total_payload,
+                    ROUND((SUM(m.traffic_2g_mio_erl) * 1000)::numeric, 4) as traffic_2g,
+                    ROUND((SUM(m.traffic_volte_mio_erl) * 1000)::numeric, 4) as traffic_volte,
+                    ROUND((SUM(m.total_traffic_mio_erl) * 1000)::numeric, 4) as total_traffic
+                FROM "measDailyTrafficPayload" m
+                JOIN target_sites t ON t.p = m.prefix_site_id
+                WHERE m.date >= make_date(%s - 1, 1, 1) AND m.date <= make_date(%s, 12, 31)
+                GROUP BY m.date
+                ORDER BY m.date ASC
+            '''
+            all_params = tuple(filter_params) + (scope_name, year, year)
+            cur.execute(query, all_params)
+            rows = cur.fetchall()
+            cur.close()
+
+            items = []
+            for r in rows:
+                items.append({
+                    "date": r[0].strftime("%Y-%m-%d"),
+                    "nop": str(r[1]),
+                    "p2g": float(r[2]),
+                    "p4g": float(r[3]),
+                    "p5g": float(r[4]),
+                    "ptot": float(r[5]),
+                    "t2g": float(r[6]),
+                    "tvolte": float(r[7]),
+                    "ttot": float(r[8]),
+                })
+
+            result = {
+                "year": year,
+                "latest_date": latest_date,
+                "scope_name": scope_name,
+                "total_rows": len(items),
+                "rows": items
+            }
+            _DATASET_CACHE[cache_key] = result
+            return result
+
+        # Standard NOP matrix dataset
         query = '''
             WITH lk AS (
                 SELECT DISTINCT ON ("Prefix Site ID") "Prefix Site ID" AS p, "NOP" AS nop
@@ -129,11 +227,16 @@ def get_overview_dataset(year: int = 2026, refresh: bool = False) -> Dict[str, A
         conn.close()
 
 
-def get_overview_inventory(refresh: bool = False) -> Dict[str, Any]:
+def get_overview_inventory(
+    nop: Optional[str] = None,
+    kabupaten: Optional[str] = None,
+    kecamatan: Optional[str] = None,
+    refresh: bool = False
+) -> Dict[str, Any]:
     """
-    Returns registered site inventory counts for ALL NOPs at once.
-    Keys: NOP name -> { sites_2g, sites_4g, sites_5g }.
-    Includes "All" key representing total unique sites across the entire network.
+    Returns registered site inventory counts.
+    If kabupaten or kecamatan is provided, returns site count for that scope.
+    Else returns site counts for ALL NOPs + All.
     """
     conn = get_onedb_connection()
     if not conn:
@@ -145,9 +248,96 @@ def get_overview_inventory(refresh: bool = False) -> Dict[str, Any]:
         max_week_row = cur.fetchone()
         latest_week = max_week_row[0] if max_week_row and max_week_row[0] else "Unknown"
 
-        if not refresh and latest_week in _INVENTORY_CACHE:
+        n_val = nop.strip() if nop and nop.strip() not in ("All", "all", "") else None
+        k_val = kabupaten.strip() if kabupaten and kabupaten.strip() not in ("All", "all", "") else None
+        c_val = kecamatan.strip() if kecamatan and kecamatan.strip() not in ("All", "all", "") else None
+
+        cache_key = (latest_week, n_val or "All", k_val or "All", c_val or "All")
+        if not refresh and cache_key in _INVENTORY_CACHE:
             cur.close()
-            return _INVENTORY_CACHE[latest_week]
+            return _INVENTORY_CACHE[cache_key]
+
+        # Scoped count for specific Kabupaten or Kecamatan
+        if k_val or c_val:
+            filter_clauses = ['c."Week" = %s']
+            params_cell = [latest_week]
+            filter_clauses_5g = []
+            params_5g = []
+
+            if c_val:
+                if c_val.lower() == "unmapped":
+                    filter_clauses.append("(lk.kec IS NULL OR lk.kec = 'Unmapped')")
+                    filter_clauses_5g.append("(lk.kec IS NULL OR lk.kec = 'Unmapped')")
+                else:
+                    filter_clauses.append("lk.kec = %s")
+                    params_cell.append(c_val)
+                    filter_clauses_5g.append("lk.kec = %s")
+                    params_5g.append(c_val)
+            if k_val:
+                if k_val.lower() == "unmapped":
+                    filter_clauses.append("(lk.kab IS NULL OR lk.kab = 'Unmapped')")
+                    filter_clauses_5g.append("(lk.kab IS NULL OR lk.kab = 'Unmapped')")
+                else:
+                    filter_clauses.append("lk.kab = %s")
+                    params_cell.append(k_val)
+                    filter_clauses_5g.append("lk.kab = %s")
+                    params_5g.append(k_val)
+
+            where_cell = "WHERE " + " AND ".join(filter_clauses)
+            where_5g = ("WHERE " + " AND ".join(filter_clauses_5g)) if filter_clauses_5g else ""
+
+            # 2G
+            cur.execute(f'''
+                WITH lk AS (
+                    SELECT DISTINCT ON ("Prefix Site ID") "Prefix Site ID" AS p, "NOP" AS nop,
+                           "Kota/Kabupaten" AS kab, "Kecamatan" AS kec
+                    FROM "LookupSITEID" ORDER BY "Prefix Site ID"
+                )
+                SELECT COUNT(DISTINCT c."Site ID")
+                FROM "CellList2G" c
+                LEFT JOIN lk ON lk.p = LEFT(c."Site ID", 6)
+                {where_cell}
+            ''', tuple(params_cell))
+            s2g = int(cur.fetchone()[0] or 0)
+
+            # 4G
+            cur.execute(f'''
+                WITH lk AS (
+                    SELECT DISTINCT ON ("Prefix Site ID") "Prefix Site ID" AS p, "NOP" AS nop,
+                           "Kota/Kabupaten" AS kab, "Kecamatan" AS kec
+                    FROM "LookupSITEID" ORDER BY "Prefix Site ID"
+                )
+                SELECT COUNT(DISTINCT c."Site ID")
+                FROM "CellList4G" c
+                LEFT JOIN lk ON lk.p = LEFT(c."Site ID", 6)
+                {where_cell}
+            ''', tuple(params_cell))
+            s4g = int(cur.fetchone()[0] or 0)
+
+            # 5G
+            cur.execute(f'''
+                WITH lk AS (
+                    SELECT DISTINCT ON ("Prefix Site ID") "Prefix Site ID" AS p, "NOP" AS nop,
+                           "Kota/Kabupaten" AS kab, "Kecamatan" AS kec
+                    FROM "LookupSITEID" ORDER BY "Prefix Site ID"
+                )
+                SELECT COUNT(DISTINCT r.siteid)
+                FROM ref_cell_5g r
+                LEFT JOIN lk ON lk.p = LEFT(r.siteid, 6)
+                {where_5g}
+            ''', tuple(params_5g))
+            s5g = int(cur.fetchone()[0] or 0)
+            cur.close()
+
+            res = {
+                "week": latest_week,
+                "scoped": True,
+                "sites_2g": s2g,
+                "sites_4g": s4g,
+                "sites_5g": s5g
+            }
+            _INVENTORY_CACHE[cache_key] = res
+            return res
 
         # 1. 2G per NOP
         cur.execute('''
@@ -224,9 +414,10 @@ def get_overview_inventory(refresh: bool = False) -> Dict[str, Any]:
 
         res = {
             "week": latest_week,
+            "scoped": False,
             "nops": nops_data
         }
-        _INVENTORY_CACHE[latest_week] = res
+        _INVENTORY_CACHE[cache_key] = res
         return res
     finally:
         conn.close()
@@ -261,21 +452,22 @@ def get_overview_drill(
     mode: str = "YTD",
     level: str = "kabupaten",
     parent: Optional[str] = None,
-    nop: Optional[str] = None
+    nop: Optional[str] = None,
+    kabupaten: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Drill-down ranking: NOP -> Kabupaten -> Kecamatan.
-    Level: 'kabupaten' (parent is NOP) or 'kecamatan' (parent is Kabupaten).
+    Drill-down ranking: NOP -> Kabupaten -> Kecamatan -> Site.
+    Level: 'kabupaten', 'kecamatan', or 'site'.
     """
     latest_date = get_latest_overview_date()
     target_date_str = date.strip() if date and date.strip() else latest_date
     lvl = level.lower().strip() if level else "kabupaten"
-    if lvl not in ("kabupaten", "kecamatan"):
+    if lvl not in ("kabupaten", "kecamatan", "site"):
         lvl = "kabupaten"
 
     cur_start, cur_end, yoy_start, yoy_end = _get_mode_ranges(target_date_str, mode)
 
-    cache_key = ("drill", target_date_str, mode, lvl, parent or "", nop or "", latest_date)
+    cache_key = ("drill", target_date_str, mode, lvl, parent or "", nop or "", kabupaten or "", latest_date)
     if cache_key in _LRU_CACHE:
         _LRU_CACHE.move_to_end(cache_key)
         return _LRU_CACHE[cache_key]
@@ -287,12 +479,11 @@ def get_overview_drill(
     try:
         cur = conn.cursor()
 
-        col_expr = "lk.kab" if lvl == "kabupaten" else "lk.kec"
         filter_clause = ""
         params_filter: List[Any] = []
 
         if lvl == "kabupaten":
-            # Parent is NOP (or nop parameter)
+            col_expr = "lk.kab"
             active_nop = parent or nop
             if active_nop and active_nop.strip().lower() not in ("all", "all branch", "all nop", ""):
                 if active_nop.strip().lower() == "unmapped":
@@ -300,13 +491,23 @@ def get_overview_drill(
                 else:
                     filter_clause = "WHERE lk.nop = %s"
                     params_filter.append(active_nop.strip())
-        else:
-            # Level is kecamatan: parent is Kabupaten
-            if parent:
-                if parent.strip().lower() == "unmapped":
+        elif lvl == "kecamatan":
+            col_expr = "lk.kec"
+            active_kab = parent or kabupaten
+            if active_kab:
+                if active_kab.strip().lower() == "unmapped":
                     filter_clause = "WHERE lk.kab IS NULL OR lk.kab = 'Unmapped'"
                 else:
                     filter_clause = "WHERE lk.kab = %s"
+                    params_filter.append(active_kab.strip())
+        else:
+            # Level is site: parent is Kecamatan
+            col_expr = "m.prefix_site_id"
+            if parent:
+                if parent.strip().lower() == "unmapped":
+                    filter_clause = "WHERE lk.kec IS NULL OR lk.kec = 'Unmapped'"
+                else:
+                    filter_clause = "WHERE lk.kec = %s"
                     params_filter.append(parent.strip())
 
         query = f'''
@@ -388,11 +589,13 @@ def get_overview_top_decline(
     date: str,
     mode: str = "YTD",
     nop: Optional[str] = None,
+    kabupaten: Optional[str] = None,
+    kecamatan: Optional[str] = None,
     top_n: int = 10
 ) -> Dict[str, Any]:
     """
     Top-N sites with the largest negative difference in payload vs same period last year.
-    For MTD/YTD, decline is computed from total payload in that period.
+    Hierarchy filtered by kecamatan -> kabupaten -> nop.
     """
     latest_date = get_latest_overview_date()
     target_date_str = date.strip() if date and date.strip() else latest_date
@@ -400,7 +603,11 @@ def get_overview_top_decline(
 
     cur_start, cur_end, yoy_start, yoy_end = _get_mode_ranges(target_date_str, mode)
 
-    cache_key = ("top_decline", target_date_str, mode, nop or "", safe_top_n, latest_date)
+    n_val = nop.strip() if nop and nop.strip() not in ("All", "all", "") else None
+    k_val = kabupaten.strip() if kabupaten and kabupaten.strip() not in ("All", "all", "") else None
+    c_val = kecamatan.strip() if kecamatan and kecamatan.strip() not in ("All", "all", "") else None
+
+    cache_key = ("top_decline", target_date_str, mode, n_val or "", k_val or "", c_val or "", safe_top_n, latest_date)
     if cache_key in _LRU_CACHE:
         _LRU_CACHE.move_to_end(cache_key)
         return _LRU_CACHE[cache_key]
@@ -412,23 +619,38 @@ def get_overview_top_decline(
     try:
         cur = conn.cursor()
 
-        nop_clause = ""
-        nop_params: List[Any] = []
-        if nop and nop.strip().lower() not in ("all", "all branch", "all nop", ""):
-            if nop.strip().lower() == "unmapped":
-                nop_clause = "WHERE lk.nop IS NULL OR lk.nop = 'Unmapped'"
+        geo_clauses = []
+        geo_params: List[Any] = []
+
+        if c_val:
+            if c_val.lower() == "unmapped":
+                geo_clauses.append("(lk.kec IS NULL OR lk.kec = 'Unmapped')")
             else:
-                nop_clause = "WHERE lk.nop = %s"
-                nop_params.append(nop.strip())
+                geo_clauses.append("lk.kec = %s")
+                geo_params.append(c_val)
+        elif k_val:
+            if k_val.lower() == "unmapped":
+                geo_clauses.append("(lk.kab IS NULL OR lk.kab = 'Unmapped')")
+            else:
+                geo_clauses.append("lk.kab = %s")
+                geo_params.append(k_val)
+        elif n_val:
+            if n_val.lower() == "unmapped":
+                geo_clauses.append("(lk.nop IS NULL OR lk.nop = 'Unmapped')")
+            else:
+                geo_clauses.append("lk.nop = %s")
+                geo_params.append(n_val)
+
+        where_geo = ("WHERE " + " AND ".join(geo_clauses)) if geo_clauses else ""
 
         query = f'''
             WITH lk AS (
                 SELECT DISTINCT ON ("Prefix Site ID") "Prefix Site ID" AS p, "NOP" AS nop,
-                       "Kota/Kabupaten" AS kab
+                       "Kota/Kabupaten" AS kab, "Kecamatan" AS kec
                 FROM "LookupSITEID" ORDER BY "Prefix Site ID"
             ),
             target_sites AS (
-                SELECT p, nop, kab FROM lk {nop_clause}
+                SELECT p, nop, kab, kec FROM lk {where_geo}
             ),
             site_cur AS (
                 SELECT m.prefix_site_id, SUM(m.total_payload_tb) as p_cur
@@ -460,7 +682,7 @@ def get_overview_top_decline(
             LIMIT %s
         '''
 
-        all_params = tuple(nop_params) + (cur_start, cur_end, yoy_start, yoy_end, safe_top_n)
+        all_params = tuple(geo_params) + (cur_start, cur_end, yoy_start, yoy_end, safe_top_n)
         cur.execute(query, all_params)
         rows = cur.fetchall()
         cur.close()
@@ -480,7 +702,9 @@ def get_overview_top_decline(
         res = {
             "date": target_date_str,
             "mode": mode,
-            "nop": nop or "All",
+            "nop": n_val or "All",
+            "kabupaten": k_val or "All",
+            "kecamatan": c_val or "All",
             "top_n": safe_top_n,
             "sites": sites
         }

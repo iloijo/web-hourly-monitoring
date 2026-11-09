@@ -335,21 +335,38 @@ async def export_xlsx(request: Request):
 @app.get("/api/overview/dataset")
 def get_overview_dataset_endpoint(
     year: int = Query(2026, description="Year to fetch (includes year and year-1)"),
+    nop: Optional[str] = Query(None, description="NOP filter"),
+    kabupaten: Optional[str] = Query(None, description="Kabupaten filter"),
+    kecamatan: Optional[str] = Query(None, description="Kecamatan filter"),
     refresh: bool = Query(False, description="Force refresh cache")
 ):
-    """Daily x NOP aggregated dataset for the specified year and previous year."""
+    """Daily aggregated dataset for the specified year and previous year."""
     try:
-        return get_overview_dataset(year=year, refresh=refresh)
+        return get_overview_dataset(
+            year=year,
+            nop=nop,
+            kabupaten=kabupaten,
+            kecamatan=kecamatan,
+            refresh=refresh
+        )
     except Exception as e:
         return {"error": str(e), "year": year, "rows": []}
 
 @app.get("/api/overview/inventory")
 def get_overview_inventory_endpoint(
+    nop: Optional[str] = Query(None, description="NOP filter"),
+    kabupaten: Optional[str] = Query(None, description="Kabupaten filter"),
+    kecamatan: Optional[str] = Query(None, description="Kecamatan filter"),
     refresh: bool = Query(False, description="Force refresh cache")
 ):
-    """Registered 2G/4G/5G site inventory counts grouped by NOP."""
+    """Registered 2G/4G/5G site inventory counts grouped by NOP or filtered by scope."""
     try:
-        return get_overview_inventory(refresh=refresh)
+        return get_overview_inventory(
+            nop=nop,
+            kabupaten=kabupaten,
+            kecamatan=kecamatan,
+            refresh=refresh
+        )
     except Exception as e:
         return {"error": str(e), "week": "Unknown", "nops": {}}
 
@@ -357,13 +374,21 @@ def get_overview_inventory_endpoint(
 def get_overview_drill_endpoint(
     date: Optional[str] = Query(None, description="Selected date (YYYY-MM-DD)"),
     mode: str = Query("YTD", description="Analysis mode: YoY, MTD, YTD"),
-    level: str = Query("kabupaten", description="Hierarchy level: kabupaten, kecamatan"),
-    parent: Optional[str] = Query(None, description="Parent name (NOP or Kabupaten)"),
-    nop: Optional[str] = Query(None, description="NOP filter")
+    level: str = Query("kabupaten", description="Hierarchy level: kabupaten, kecamatan, site"),
+    parent: Optional[str] = Query(None, description="Parent name (NOP, Kabupaten, or Kecamatan)"),
+    nop: Optional[str] = Query(None, description="NOP filter"),
+    kabupaten: Optional[str] = Query(None, description="Kabupaten filter")
 ):
-    """Geographic drill-down ranking (NOP -> Kabupaten -> Kecamatan) under YoY/MTD/YTD modes."""
+    """Geographic drill-down ranking (NOP -> Kabupaten -> Kecamatan -> Site) under YoY/MTD/YTD modes."""
     try:
-        return get_overview_drill(date=date, mode=mode, level=level, parent=parent, nop=nop)
+        return get_overview_drill(
+            date=date,
+            mode=mode,
+            level=level,
+            parent=parent,
+            nop=nop,
+            kabupaten=kabupaten
+        )
     except Exception as e:
         return {"error": str(e), "items": []}
 
@@ -372,11 +397,20 @@ def get_overview_top_decline_endpoint(
     date: Optional[str] = Query(None, description="Target date (YYYY-MM-DD)"),
     mode: str = Query("YTD", description="Analysis mode: YoY, MTD, YTD"),
     nop: Optional[str] = Query(None, description="NOP filter"),
+    kabupaten: Optional[str] = Query(None, description="Kabupaten filter"),
+    kecamatan: Optional[str] = Query(None, description="Kecamatan filter"),
     top_n: int = Query(10, description="Top N sites (default 10)")
 ):
     """Top sites with largest payload decline vs same period last year."""
     try:
-        return get_overview_top_decline(date=date, mode=mode, nop=nop, top_n=top_n)
+        return get_overview_top_decline(
+            date=date,
+            mode=mode,
+            nop=nop,
+            kabupaten=kabupaten,
+            kecamatan=kecamatan,
+            top_n=top_n
+        )
     except Exception as e:
         return {"error": str(e), "sites": []}
 

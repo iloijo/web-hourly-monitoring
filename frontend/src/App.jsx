@@ -156,7 +156,7 @@ export default function App() {
         <main className="p-4 sm:p-5 grow overflow-y-auto space-y-4">
           <Suspense fallback={<DataLoadingOverlay />}>
             {activeMenu === 'overview' && (
-              <OverviewView onOpenSite={openSite} {...common} />
+              <OverviewView onOpenSite={openSite} hierarchyData={ref.hierarchyData} {...common} />
             )}
             {(activeMenu === 'ta-4g' || activeMenu === 'ta-5g') && (
               <TimingAdvanceView
