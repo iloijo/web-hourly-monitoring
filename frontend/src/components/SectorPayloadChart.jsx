@@ -542,6 +542,8 @@ export default function SectorPayloadChart({
     tooltip: {
       trigger: 'axis',
       confine: true,
+      enterable: false,
+      transitionDuration: 0.1,
       backgroundColor: darkMode ? 'rgba(15, 23, 42, 0.96)' : 'rgba(15, 23, 42, 0.96)',
       borderColor: darkMode ? '#475569' : '#334155',
       borderWidth: 1,
@@ -550,12 +552,36 @@ export default function SectorPayloadChart({
         fontSize: 12
       },
       padding: [8, 12],
-      extraCssText: 'max-height: 260px; overflow-y: auto; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);',
+      extraCssText: 'pointer-events: none !important; user-select: none; z-index: 50; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);',
+      position: function (point, params, dom, rect, size) {
+        if (!point || !size || !size.contentSize || !size.viewSize) {
+          return point;
+        }
+        const [x, y] = point;
+        const boxW = size.contentSize[0] || 160;
+        const boxH = size.contentSize[1] || 100;
+        const viewW = size.viewSize[0] || 500;
+        const viewH = size.viewSize[1] || 300;
+
+        // Position 16px to the right of cursor; flip to left if overflowing view width
+        let posX = x + 16;
+        if (posX + boxW > viewW - 10) {
+          posX = x - boxW - 16;
+        }
+        if (posX < 8) posX = 8;
+        if (posX + boxW > viewW - 8) posX = Math.max(8, viewW - boxW - 8);
+
+        // Center vertically around the cursor point, clamped within the chart bounds
+        let posY = y - boxH / 2;
+        if (posY < 8) posY = 8;
+        if (posY + boxH > viewH - 8) posY = Math.max(8, viewH - boxH - 8);
+
+        return [posX, posY];
+      },
       formatter: function (params) {
         if (!params || !params.length) return '';
         const rawTime = params[0].axisValue;
         const formattedTime = formatAxisDate(rawTime, timeMode);
-        let html = `<div style="font-weight: 700; color: #f8fafc; margin-bottom: 6px; border-bottom: 1px solid #334155; padding-bottom: 3px; font-size: 11px;">${formattedTime}</div>`;
         
         // Filter out pseudo-series like markers or threshold
         const validParams = params.filter(p => p.seriesName !== '__markers' && p.seriesName !== '__threshold' && p.seriesName !== '__periods');
@@ -576,18 +602,21 @@ export default function SectorPayloadChart({
           return tooltipOrder === 'asc' ? valA - valB : valB - valA;
         });
 
-        const displayItems = [...carrierItems, ...totalItems];
+        const isMultiCol = carrierItems.length > 6;
+        let html = `<div style="font-weight: 700; color: #f8fafc; margin-bottom: 6px; border-bottom: 1px solid #334155; padding-bottom: 3px; font-size: 11px;">${formattedTime}</div>`;
 
-        html += '<div style="display: flex; flex-direction: column; gap: 2px;">';
-        displayItems.forEach((p, pIdx) => {
-          const isTotal = p.seriesName === 'Total Payload' || p.seriesId === 'total_payload';
-          const bandColor = isTotal
-            ? '#f43f5e'
-            : (carrierColorMap[p.seriesName] || p.color || getColorForCarrier(p.seriesName, carrierBands, p.seriesIndex ?? pIdx));
+        if (isMultiCol) {
+          html += '<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; row-gap: 2px;">';
+        } else {
+          html += '<div style="display: flex; flex-direction: column; gap: 2px;">';
+        }
+
+        carrierItems.forEach((p, pIdx) => {
+          const bandColor = carrierColorMap[p.seriesName] || p.color || getColorForCarrier(p.seriesName, carrierBands, p.seriesIndex ?? pIdx);
           const displayName = p.seriesName;
           const valStr = (p.value !== null && p.value !== undefined && !isNaN(p.value)) ? p.value : '–';
           html += `
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 11px; padding: 1.5px 0;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 14px; font-size: 11px; padding: 1px 0;">
               <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
                 <span style="display: inline-block; width: 8px; height: 8px; border-radius: 2px; background-color: ${bandColor}; shrink: 0;"></span>
                 <span style="color: ${bandColor}; font-weight: 700; white-space: nowrap;">${displayName}:</span>
@@ -597,6 +626,23 @@ export default function SectorPayloadChart({
           `;
         });
         html += '</div>';
+
+        // Render Total Payload at bottom (full width)
+        if (totalItems.length > 0) {
+          totalItems.forEach(p => {
+            const valStr = (p.value !== null && p.value !== undefined && !isNaN(p.value)) ? p.value : '–';
+            html += `
+              <div style="margin-top: 6px; padding-top: 4px; border-top: 1px solid #334155; display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 11px;">
+                <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+                  <span style="display: inline-block; width: 8px; height: 8px; border-radius: 2px; background-color: #f43f5e; shrink: 0;"></span>
+                  <span style="color: #f43f5e; font-weight: 700; white-space: nowrap;">Total Payload:</span>
+                </div>
+                <span style="font-weight: 700; font-family: monospace; color: #ffffff; white-space: nowrap;">${valStr} ${unit}</span>
+              </div>
+            `;
+          });
+        }
+
         return html;
       }
     },
