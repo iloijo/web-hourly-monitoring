@@ -6,6 +6,7 @@ from collections import defaultdict
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from .db import get_onedb_connection, get_latest_data_date
+from .bands import lte_band, lte_sector_from_ci, lte_sector_from_name
 from .queries import get_band_from_ci, normalize_cell_key, get_clean_carrier_label
 from .site_names import get_site_display_name, get_site_name
 
@@ -1106,9 +1107,11 @@ def get_site_payload_daily_data(
             carrier = meta['carrier']
             band = meta['band']
         else:
-            sec = 1
-            band = get_band_from_ci(cid, cname)
-            carrier = get_clean_carrier_label(cname, sec, band, cid)
+            sec = lte_sector_from_ci(cid)
+            if sec is None:
+                sec = lte_sector_from_name(cname) or 1
+            band = lte_band(cid, cname)
+            carrier = str(cid) if cid is not None else get_clean_carrier_label(cname, sec, band, None)
 
         sb = sector_buckets[sec]
         sb["bands"][carrier] = band

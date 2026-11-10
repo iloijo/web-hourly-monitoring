@@ -6,7 +6,7 @@ from collections import defaultdict
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from .db import get_twodb_connection, get_latest_data_date
-from .bands import lte_band
+from .bands import lte_band, lte_sector_from_ci, lte_sector_from_name
 from .site_names import get_site_display_name, get_site_name
 
 def get_band_from_ci(ci, cell_name: str = "") -> str:
@@ -143,6 +143,7 @@ def get_site_payload_data(
     for c in raw_cells:
         sec_carrier_counts[(c['sector'], c['carrier'])] += 1
 
+    cell_map_by_ci = {}
     for meta in raw_cells:
         if sec_carrier_counts[(meta['sector'], meta['carrier'])] > 1 and meta['ci'] is not None:
             try:
@@ -159,6 +160,11 @@ def get_site_payload_data(
         if (cname.startswith("E_") or cname.startswith("C_")) and len(cname) > 2:
             cell_map[cname[2:].upper()] = meta
             cell_map[normalize_cell_key(cname[2:])] = meta
+        if meta.get('ci') is not None:
+            try:
+                cell_map_by_ci[int(float(meta['ci']))] = meta
+            except (ValueError, TypeError):
+                pass
 
     # Fallback if filter resulted in 0 cells
     if not cell_map and cell_rows:
@@ -197,6 +203,11 @@ def get_site_payload_data(
             found_bands.add(meta['band'])
             cell_map[cname.upper()] = meta
             cell_map[normalize_cell_key(cname)] = meta
+            if meta.get('ci') is not None:
+                try:
+                    cell_map_by_ci[int(float(meta['ci']))] = meta
+                except (ValueError, TypeError):
+                    pass
 
     if not enodebs:
         enodebs.add(f"E_{site_clean}M41")
@@ -245,6 +256,7 @@ def get_site_payload_data(
             SELECT 
                 t.ts AS begin_time,
                 m."Cell Name",
+                m."cellId" AS cell_id,
                 ROUND((m."4G Payload (MByte) AMQ" / 1024.0)::numeric, 2) AS payload_gb,
                 m."Maximum Number of RRC Connection User" AS max_rrc_user,
                 ROUND((m."Cell Availability Num 4G AMQ" / NULLIF(m."Cell Availability Denum 4G AMQ", 0) * 100)::numeric, 2) AS availability_pct,
@@ -267,6 +279,7 @@ def get_site_payload_data(
             CROSS JOIN LATERAL (
                 SELECT 
                     "Cell Name",
+                    "cellId",
                     "4G Payload (MByte) AMQ",
                     "Maximum Number of RRC Connection User",
                     "Cell Availability Num 4G AMQ",
@@ -344,9 +357,10 @@ def get_site_payload_data(
     for r in all_meas_rows:
         ts = r['begin_time']
         t_key = ts.strftime("%Y-%m-%d") if time_mode == "daily" else ts.strftime("%Y-%m-%d %H:00")
-        cname = r['Cell Name'].strip()
+        cname = r['Cell Name'].strip() if r.get('Cell Name') else ""
+        cid = int(r['cell_id']) if r.get('cell_id') is not None else None
 
-        meta = cell_map.get(cname.upper()) or cell_map.get(normalize_cell_key(cname))
+        meta = (cell_map_by_ci.get(cid) if cid is not None else None) or cell_map.get(cname.upper()) or cell_map.get(normalize_cell_key(cname))
         if not meta and (cname.startswith("E_") or cname.startswith("C_")):
             stripped = cname[2:]
             meta = cell_map.get(stripped.upper()) or cell_map.get(normalize_cell_key(stripped))
@@ -356,9 +370,11 @@ def get_site_payload_data(
             carrier = meta['carrier']
             band = meta['band']
         else:
-            sec = 1
-            band = get_band_from_ci(None, cname)
-            carrier = get_clean_carrier_label(cname, sec, band, None)
+            sec = lte_sector_from_ci(cid)
+            if sec is None:
+                sec = lte_sector_from_name(cname) or 1
+            band = lte_band(cid, cname)
+            carrier = str(cid) if cid is not None else get_clean_carrier_label(cname, sec, band, None)
 
         sb = sector_buckets[sec]
         sb["bands"][carrier] = band

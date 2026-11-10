@@ -18,13 +18,39 @@ _LAST_DIGIT_BAND = {
 _NAME_CODES = [
     (('SL', 'ML', 'QL', 'IL'), 'L1800'),
     (('MR', 'VR', 'QR', 'IR'), 'L2100'),
+    (('MD', 'VD', 'MY'), 'L700'),
     (('MT',), 'L900'),
     (('ME', 'VE', 'QE', 'IE'), 'L2300_1'),
     (('MF', 'VF', 'QF', 'IF'), 'L2300_2'),
     (('VV', 'QV'), 'L2300_3'),
-    (('MD', 'VD'), 'L700'),
     (('MG', 'VG'), 'L2600'),
 ]
+
+
+def lte_sector_from_ci(ci) -> Optional[int]:
+    """Sector number of an LTE cell from its ci / cellId: all digits except the last (17 -> 1, 183 -> 18)."""
+    try:
+        digits = str(int(float(ci)))
+    except (ValueError, TypeError):
+        return None
+    return int(digits[:-1]) if len(digits) > 1 else None
+
+
+def lte_sector_from_name(cell_name: str) -> Optional[int]:
+    """Fallback sector from cell name suffix token, e.g. ..._MY01 -> 1, ..._ML02 -> 2."""
+    if not cell_name:
+        return None
+    tokens = [p for p in cell_name.strip().split('_') if p]
+    if tokens:
+        suffix = tokens[-1]
+        digits = ''.join(c for c in suffix if c.isdigit())
+        if digits:
+            try:
+                val = int(digits)
+                return val if val > 0 else 1
+            except ValueError:
+                pass
+    return None
 
 
 def lte_band(ci: Optional[float], cell_name: str = "", merge_l2600: bool = False) -> str:
@@ -45,7 +71,14 @@ def lte_band(ci: Optional[float], cell_name: str = "", merge_l2600: bool = False
 
     if band is None:
         upper = (cell_name or "").upper()
-        band = next((b for codes, b in _NAME_CODES if any(c in upper for c in codes)), 'L1800')
+        # Prefer matching on the last token suffix (e.g. ..._MY01 -> MY) to prevent
+        # substrings like "DMT" in the site name from matching "MT" (L900).
+        tokens = [p for p in upper.split('_') if p]
+        suffix = tokens[-1] if tokens else upper
+        band = next((b for codes, b in _NAME_CODES if any(c in suffix for c in codes)), None)
+        if band is None:
+            cleaned = upper.replace("-DMT", "").replace("_DMT", "").replace("DMT", "")
+            band = next((b for codes, b in _NAME_CODES if any(c in cleaned for c in codes)), 'L1800')
 
     if merge_l2600 and band.startswith('L2600'):
         return 'L2600'
