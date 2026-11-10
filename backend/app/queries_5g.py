@@ -376,7 +376,7 @@ def parse_5g_cell(cell_name: str, cell_id: Optional[float] = None):
     last_part = parts[-1] if len(parts) > 1 else ""
     
     sector = 1
-    carrier = "VP1"
+    legacy_carrier = "VP1"
 
     # Match carrier token e.g. VP, VQ, MK, QP
     match_suffix = re.search(r'([A-Z]+)(\d+)$', last_part)
@@ -384,13 +384,22 @@ def parse_5g_cell(cell_name: str, cell_id: Optional[float] = None):
         c_code = match_suffix.group(1)
         sec_num = int(match_suffix.group(2))
         sector = sec_num
-        carrier = f"{c_code}1" if not c_code.endswith('1') else c_code
+        legacy_carrier = f"{c_code}1" if not c_code.endswith('1') else c_code
     else:
         # Check first token e.g. C_UPD012VP1
         if len(parts) >= 2:
             match_first = re.search(r'([A-Z]{2}\d*)$', parts[1])
             if match_first:
-                carrier = match_first.group(1)
+                legacy_carrier = match_first.group(1)
+
+    cid_str = None
+    if cell_id is not None:
+        try:
+            cid_str = str(int(float(cell_id)))
+        except (ValueError, TypeError):
+            cid_str = None
+
+    carrier = cid_str if cid_str is not None else legacy_carrier
 
     return {
         "cell_name": cell_name,
@@ -507,6 +516,7 @@ def get_site_payload_5g_data(
     # Temporary storage: data_tree[sector][kpi_id][carrier][date_str] = val
     data_tree = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
     carrier_bands_map = {}
+    carrier_names_map = {}
 
     active_type_filter = cell_type.strip().lower() if cell_type else "all"
 
@@ -533,6 +543,7 @@ def get_site_payload_5g_data(
         found_sectors.add(sec)
         found_bands.add(band)
         carrier_bands_map[carrier] = band
+        carrier_names_map[carrier] = cname
 
         # Filter by sector if specified
         if sector_filter and sector_filter != "all":
@@ -572,6 +583,7 @@ def get_site_payload_5g_data(
             found_sectors.add(sec)
             found_bands.add(band)
             carrier_bands_map[carrier] = band
+            carrier_names_map[carrier] = cname
             d_str = row['begin_time'].strftime("%Y-%m-%d")
             for k_id in KPIS_5G_CONFIG.keys():
                 val = row.get(k_id)
@@ -587,14 +599,22 @@ def get_site_payload_5g_data(
 
     for sec in sorted_sectors:
         sector_kpis = {}
+        # Collect and numerically sort all carriers present in this sector
+        sec_carriers = set()
+        for k_id in KPIS_5G_CONFIG.keys():
+            sec_carriers.update(data_tree[sec][k_id].keys())
+        c_list = sorted(list(sec_carriers), key=lambda x: (0, int(x)) if x.isdigit() else (1, x))
+
         for k_id, cfg in KPIS_5G_CONFIG.items():
             carriers_data = data_tree[sec][k_id]
             series_by_carrier = {}
 
-            # Construct continuous time-series arrays for each carrier
-            for c_name, date_vals in carriers_data.items():
-                arr = [date_vals.get(d, None) for d in sorted_ts]
-                series_by_carrier[c_name] = arr
+            # Construct continuous time-series arrays for each carrier in sorted order
+            for c_name in c_list:
+                if c_name in carriers_data:
+                    date_vals = carriers_data[c_name]
+                    arr = [date_vals.get(d, None) for d in sorted_ts]
+                    series_by_carrier[c_name] = arr
 
             # Calculate total series if KPI has_tot (e.g. Payload)
             total_arr = None
@@ -611,6 +631,7 @@ def get_site_payload_5g_data(
                         total_arr.append(None)
 
             sector_kpis[k_id] = {
+                "id": k_id,
                 "title": cfg["title"],
                 "unit": cfg["unit"],
                 "category": cfg["category"],
@@ -618,13 +639,23 @@ def get_site_payload_5g_data(
                 "is_avg": cfg.get("is_avg", True),
                 "min_y": cfg.get("min_y"),
                 "max_y": cfg.get("max_y"),
+                "carriers": c_list,
                 "carrier_series": series_by_carrier,
                 "total_series": total_arr,
-                "carrier_bands": {c: carrier_bands_map.get(c, "NR2300") for c in series_by_carrier.keys()}
+                "carrier_bands": {c: carrier_bands_map.get(c, "NR2300") for c in c_list},
+                "carrier_names": {c: carrier_names_map.get(c, c) for c in c_list}
             }
 
         sectors_output[f"sector{sec}"] = {
             "sector": sec,
+            "sector_num": sec,
+            "title": f"Sector {sec}",
+            "timestamps": sorted_ts,
+            "carriers": c_list,
+            "carrier_bands": {c: carrier_bands_map.get(c, "NR2300") for c in c_list},
+            "carrier_names": {c: carrier_names_map.get(c, c) for c in c_list},
+            "carrier_series": sector_kpis.get("payload", {}).get("carrier_series", {}),
+            "total_series": sector_kpis.get("payload", {}).get("total_series"),
             "kpis": sector_kpis
         }
 

@@ -85,6 +85,7 @@ export default function KpiChartsPanel({
       carrierSeries: kpiData.carrier_series,
       totalSeries: kpiData.total_series,
       carrierBands: kpiData.carrier_bands || {},
+      carrierNames: kpiData.carrier_names || {},
       availableBands: currentAvailableBands,
       hasTotal: kpiData.has_total || kpiData.has_tot,
       minY: kpiData.min_y,

@@ -870,7 +870,8 @@ def get_site_payload_daily_data(
                 pass
 
         band = get_band_from_ci(r['ci'], cname)
-        carrier = get_clean_carrier_label(cname, sector, band, r['ci'])
+        ci_str = str(int(float(r['ci']))) if r.get('ci') is not None else None
+        carrier = ci_str if ci_str is not None else get_clean_carrier_label(cname, sector, band, r['ci'])
         raw_cells.append({
             "cell_name": cname,
             "sector": sector,
@@ -880,18 +881,7 @@ def get_site_payload_daily_data(
             "type": row_type
         })
 
-    # Collision safety net per (sector, carrier)
-    sec_carrier_counts = defaultdict(int)
-    for c in raw_cells:
-        sec_carrier_counts[(c['sector'], c['carrier'])] += 1
-
     for meta in raw_cells:
-        if sec_carrier_counts[(meta['sector'], meta['carrier'])] > 1 and meta['ci'] is not None:
-            try:
-                meta['carrier'] = f"{meta['carrier']}_{int(float(meta['ci']))}"
-            except Exception:
-                pass
-
         cname = meta['cell_name']
         found_sectors.add(meta['sector'])
         found_bands.add(meta['band'])
@@ -922,7 +912,8 @@ def get_site_payload_daily_data(
                 except ValueError:
                     sector = 1
             band = get_band_from_ci(r['ci'], cname)
-            carrier = get_clean_carrier_label(cname, sector, band, r['ci'])
+            ci_str = str(int(float(r['ci']))) if r.get('ci') is not None else None
+            carrier = ci_str if ci_str is not None else get_clean_carrier_label(cname, sector, band, r['ci'])
             fb_cells.append({
                 "cell_name": cname,
                 "sector": sector,
@@ -931,15 +922,7 @@ def get_site_payload_daily_data(
                 "ci": r['ci'],
                 "type": "Macro"
             })
-        fb_counts = defaultdict(int)
-        for c in fb_cells:
-            fb_counts[(c['sector'], c['carrier'])] += 1
         for meta in fb_cells:
-            if fb_counts[(meta['sector'], meta['carrier'])] > 1 and meta['ci'] is not None:
-                try:
-                    meta['carrier'] = f"{meta['carrier']}_{int(float(meta['ci']))}"
-                except Exception:
-                    pass
             cname = meta['cell_name']
             found_sectors.add(meta['sector'])
             found_bands.add(meta['band'])
@@ -1097,7 +1080,8 @@ def get_site_payload_daily_data(
     # 4. Bucketing per sector & carrier
     sector_buckets = defaultdict(lambda: {
         "kpi_values": defaultdict(lambda: defaultdict(lambda: defaultdict(list))),
-        "bands": {}
+        "bands": {},
+        "names": {}
     })
 
     # Pre-populate bands for carriers from cell_map
@@ -1106,6 +1090,7 @@ def get_site_payload_daily_data(
         carrier = meta['carrier']
         band = meta['band']
         sector_buckets[sec]["bands"][carrier] = band
+        sector_buckets[sec]["names"][carrier] = meta.get('cell_name', '')
 
     for r in all_meas_rows:
         ts = r['begin_time']
@@ -1135,6 +1120,7 @@ def get_site_payload_daily_data(
 
         sb = sector_buckets[sec]
         sb["bands"][carrier] = band
+        sb["names"][carrier] = cname
 
         # Store raw row values mapped to our KPI IDs
         mapping = {
@@ -1229,7 +1215,7 @@ def get_site_payload_daily_data(
     result_sectors = {}
     for sec in sorted_sectors:
         s_data = sector_buckets[sec]
-        c_names = sorted(list(s_data["bands"].keys()))
+        c_names = sorted(list(s_data["bands"].keys()), key=lambda x: (0, int(x)) if x.isdigit() else (1, x))
 
         kpis_out = {}
         for k_id, cfg in DAILY_KPIS_CONFIG.items():
@@ -1264,6 +1250,7 @@ def get_site_payload_daily_data(
                 "source": cfg["source"],
                 "carriers": c_names,
                 "carrier_bands": s_data["bands"],
+                "carrier_names": s_data.get("names", {}),
                 "carrier_series": s_dict,
                 "total_series": tot_list if has_tot else None,
                 "has_total": has_tot,
@@ -1277,6 +1264,7 @@ def get_site_payload_daily_data(
             "timestamps": sorted_ts,
             "carriers": c_names,
             "carrier_bands": s_data["bands"],
+            "carrier_names": s_data.get("names", {}),
             "carrier_series": kpis_out["payload"]["carrier_series"] if "payload" in kpis_out else {},
             "total_series": kpis_out["payload"]["total_series"] if "payload" in kpis_out else None,
             "kpis": kpis_out

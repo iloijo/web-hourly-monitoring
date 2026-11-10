@@ -152,8 +152,8 @@ export function getBandForCarrier(cName, carrierBands = {}) {
   if (upper.includes('MD') || upper.includes('VD')) return 'L700';
   if (upper.includes('MG') || upper.includes('VG')) return 'L2600';
 
-  // 6. Cell ID (ci) digit fallback if cName contains CI like "_12", "_11", etc.
-  const ciMatch = upper.match(/_(\d+)$/);
+  // 6. Cell ID (ci) digit fallback if cName contains CI like "_12", "_11", or bare "12", "11", etc.
+  const ciMatch = upper.match(/(?:^|_|sec\d+_)(\d+)$/i);
   if (ciMatch) {
     const ciLast = ciMatch[1].slice(-1);
     const ciLen = ciMatch[1].length;
@@ -228,6 +228,7 @@ function SectorPayloadChart({
   carrierSeries = {},
   totalSeries = null,
   carrierBands = {},
+  carrierNames = {},
   availableBands = null,
   hasTotal = false,
   bandFilter = "all",
@@ -282,7 +283,12 @@ function SectorPayloadChart({
     return () => clearTimeout(timer);
   }, [chartsPerRow]);
 
-  const allCarrierKeys = Object.keys(carrierSeries || {});
+  const allCarrierKeys = Object.keys(carrierSeries || {}).sort((a, b) => {
+    const na = Number(a);
+    const nb = Number(b);
+    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+    return String(a).localeCompare(String(b), undefined, { numeric: true });
+  });
   
   // Filter carriers based on bandFilter (can be string 'all' or array of selected bands)
   const carrierKeys = allCarrierKeys.filter(cName => {
@@ -309,22 +315,19 @@ function SectorPayloadChart({
     return b.toLowerCase() === bandFilter.toLowerCase();
   });
 
-  // Helper to format clean display name for series and legend
+  // Helper to format clean display name for series and legend (CI only for 4G/5G, entity preserved)
   const getSeriesDisplayName = (cName) => {
     if (carrierBands && carrierBands[cName]) {
       if (carrierBands[cName] === 'ENTITY' || carrierBands[cName] === cName) {
         return cName;
       }
-      if (cName.startsWith(carrierBands[cName] + ' ')) {
-        return cName;
-      }
-      return `${carrierBands[cName]} ${cName}`;
+      return String(cName);
     }
     const b = getBandForCarrier(cName, carrierBands);
     if (cName === b || cName.startsWith(b + ' ') || (cName.startsWith('L') && BAND_COLORS[cName])) {
       return cName;
     }
-    return `${b} ${cName}`;
+    return String(cName);
   };
 
   // Calculate dynamic Total strictly based on filtered bands
@@ -732,16 +735,23 @@ function SectorPayloadChart({
         }
 
         carrierItems.forEach((p, pIdx) => {
-          const bandColor = carrierColorMap[p.seriesName] || p.color || getColorForCarrier(p.seriesName, carrierBands, p.seriesIndex ?? pIdx);
-          const displayName = p.seriesName;
+          const cName = p.seriesName;
+          const bandColor = carrierColorMap[cName] || p.color || getColorForCarrier(cName, carrierBands, p.seriesIndex ?? pIdx);
+          const rawBand = (carrierBands && carrierBands[cName]) ? carrierBands[cName] : getBandForCarrier(cName, carrierBands);
+          const isEntity = rawBand === 'ENTITY';
+          const labelText = isEntity ? cName : `CI ${cName} · ${rawBand}`;
+          const cellFullName = (carrierNames && carrierNames[cName]) ? carrierNames[cName] : null;
           const val = (p.value !== null && p.value !== undefined && !isNaN(p.value)) ? p.value : '–';
           html += `
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 14px; font-size: 11px; padding: 1px 0;">
-              <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
-                <span style="display: inline-block; width: 8px; height: 8px; border-radius: 2px; background-color: ${bandColor}; shrink: 0;"></span>
-                <span style="color: ${bandColor}; font-weight: 700; white-space: nowrap;">${displayName}:</span>
+            <div style="padding: 1px 0;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 14px; font-size: 11px;">
+                <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+                  <span style="display: inline-block; width: 8px; height: 8px; border-radius: 2px; background-color: ${bandColor}; shrink: 0;"></span>
+                  <span style="color: ${bandColor}; font-weight: 700; white-space: nowrap;">${labelText}:</span>
+                </div>
+                <span style="font-weight: 700; font-family: monospace; color: #ffffff; white-space: nowrap;">${val} ${unit}</span>
               </div>
-              <span style="font-weight: 700; font-family: monospace; color: #ffffff; white-space: nowrap;">${val} ${unit}</span>
+              ${cellFullName ? `<div style="font-size: 9px; color: #94a3b8; font-weight: 400; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 14px;">${cellFullName}</div>` : ''}
             </div>
           `;
         });
