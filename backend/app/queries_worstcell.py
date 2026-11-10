@@ -166,6 +166,7 @@ def get_worst_cells(
     nops: Optional[List[str]] = None,
     cities: Optional[List[str]] = None,
     kecamatans: Optional[List[str]] = None,
+    sites: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     tech = tech.lower()
     if tech not in WPC_KPIS:
@@ -173,9 +174,28 @@ def get_worst_cells(
     kpis = WPC_KPIS[tech]
     src = TECH_SOURCE[tech]
     start, end = _date_range(tech, start_date, end_date)
-    scope = (scope or "regional").lower()
     top_n = max(1, min(int(top_n), 200))
-    scope_where, scope_params = _scope_sql(scope, nops, cities, kecamatans)
+
+    clean_sites = []
+    if sites:
+        for s in sites:
+            if s and isinstance(s, str):
+                s_clean = s.strip().upper()
+                if s_clean and s_clean not in clean_sites:
+                    clean_sites.append(s_clean)
+        clean_sites = clean_sites[:50]
+
+    if clean_sites:
+        scope = "site"
+        d_site_filter = f"AND {_site_sql(_q(src['cell']))} = ANY(%s)"
+        d_params = [clean_sites]
+        scope_where = ""
+        scope_params = []
+    else:
+        scope = (scope or "regional").lower()
+        d_site_filter = ""
+        d_params = []
+        scope_where, scope_params = _scope_sql(scope, nops, cities, kecamatans)
 
     # Daily per cell -> summed per cell (breach days from the daily values) -> ranked per KPI.
     # Only the Top-N rows per KPI leave the database.
@@ -216,7 +236,7 @@ def get_worst_cells(
         d AS (
             SELECT {_q(src['cell'])} AS cell, "Begin Time"::date AS day, {', '.join(daily_cols)}
             FROM {_q(src['table'])}
-            WHERE "Begin Time" >= %s AND "Begin Time" < %s
+            WHERE "Begin Time" >= %s AND "Begin Time" < %s {d_site_filter}
             GROUP BY 1, 2
         ),
         c AS (SELECT cell, {', '.join(cell_cols)} FROM d GROUP BY cell),
@@ -232,7 +252,7 @@ def get_worst_cells(
         return {"error": "OneDb is not reachable.", "kpis": []}
     try:
         cur = conn.cursor()
-        cur.execute(sql, [start, end + timedelta(days=1)] + scope_params)
+        cur.execute(sql, [start, end + timedelta(days=1)] + d_params + scope_params)
         cols = [c[0] for c in cur.description]
         ranked = [dict(zip(cols, r)) for r in cur.fetchall()]
         cur.close()
@@ -259,7 +279,8 @@ def get_worst_cells(
 
     return {
         "tech": tech, "start_date": start.strftime("%Y-%m-%d"), "end_date": end.strftime("%Y-%m-%d"),
-        "days": (end - start).days + 1, "scope": scope, "top_n": top_n, "kpis": result,
+        "days": (end - start).days + 1, "scope": scope, "sites": clean_sites if clean_sites else None,
+        "top_n": top_n, "kpis": result,
     }
 
 

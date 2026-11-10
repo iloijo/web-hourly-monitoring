@@ -434,11 +434,12 @@ def get_worstcell_endpoint(
     nops: Optional[List[str]] = Query(None),
     cities: Optional[List[str]] = Query(None),
     kecamatans: Optional[List[str]] = Query(None),
+    sites: Optional[List[str]] = Query(None),
 ):
     """Worst Cell Top-N per KPI (WPC rules); a date range sums num/denum and counts breach days."""
     try:
         return get_worst_cells(tech=tech, start_date=start_date, end_date=end_date, top_n=top_n,
-                               scope=scope, nops=nops, cities=cities, kecamatans=kecamatans)
+                               scope=scope, nops=nops, cities=cities, kecamatans=kecamatans, sites=sites)
     except Exception as e:
         return {"error": str(e), "kpis": []}
 
