@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Activity, BarChart3, Boxes, Calendar, ChevronDown, ChevronLeft, Clock, Database, LayoutDashboard, Moon, Radio, RadioTower, TrendingDown, Wifi,
+  Activity, BarChart3, Boxes, Calendar, ChevronDown, ChevronLeft, Clock, Database, LayoutDashboard, Moon, Radio, RadioTower, Smile, Target, TrendingDown, Wifi,
 } from 'lucide-react';
 import { APP_NAME, APP_VERSION } from '../../constants/kpis';
 
@@ -88,6 +88,7 @@ export default function AppSidebar({ open, onClose, activeMenu, onSelectMenu, db
   const [kpiOpen, setKpiOpen] = useState(true);
   const [fourGOpen, setFourGOpen] = useState(true);
   const [taOpen, setTaOpen] = useState(true);
+  const [okrOpen, setOkrOpen] = useState(true);
   const common = { activeMenu, onSelect: onSelectMenu, darkMode };
 
   return (
@@ -151,6 +152,12 @@ export default function AppSidebar({ open, onClose, activeMenu, onSelectMenu, db
         </Group>
         <div className="pt-1">
           <MenuButton id="cluster" label="Cluster Monitoring" Icon={Boxes} accent="teal" tag="2G/4G/5G" size="lg" {...common} />
+        </div>
+
+        <div className="pt-1">
+          <Group label="OKR" Icon={Target} iconClass="text-emerald-500" open={okrOpen} onToggle={() => setOkrOpen(!okrOpen)} darkMode={darkMode}>
+            <MenuButton id="cei" label="CEI" Icon={Smile} accent="emerald" tag="OneDb/TwoDb" {...common} />
+          </Group>
         </div>
 
         <SectionTitle>Worst Cell &amp; ZTZP</SectionTitle>

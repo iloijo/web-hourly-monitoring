@@ -20,6 +20,7 @@ const PacketLossView = lazy(() => import('./components/PacketLossView'));
 const WorstCellView = lazy(() => import('./views/WorstCellView'));
 const ZtzpView = lazy(() => import('./views/ZtzpView'));
 const ClusterMonitoringView = lazy(() => import('./views/ClusterMonitoringView'));
+const CeiView = lazy(() => import('./views/CeiView'));
 
 // Worst Cell / ZTZP rows open the daily sector charts of that technology
 const TECH_TO_MENU = { '2g': '2g', '4g': '4g-daily', '5g': '5g' };
@@ -182,6 +183,7 @@ export default function App() {
             {activeMenu === 'cluster' && (
               <ClusterMonitoringView refData={ref} chartsPerRow={chartsPerRow} {...common} />
             )}
+            {activeMenu === 'cei' && <CeiView {...common} />}
             {activeMenu === 'ztzp' && (
               <ZtzpView hierarchyData={ref.hierarchyData} onOpenSite={openSite} {...common} />
             )}

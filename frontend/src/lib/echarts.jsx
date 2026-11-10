@@ -2,7 +2,7 @@
 // Add a module here when a chart starts using a new series type or component.
 import ReactEChartsCore from 'echarts-for-react/esm/core';
 import * as echarts from 'echarts/core';
-import { BarChart, LineChart } from 'echarts/charts';
+import { BarChart, LineChart, PieChart } from 'echarts/charts';
 import {
   GraphicComponent, GridComponent, LegendComponent, MarkAreaComponent, MarkLineComponent,
   TitleComponent, TooltipComponent,
@@ -10,7 +10,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers';
 
 echarts.use([
-  LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent,
+  LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent,
   MarkLineComponent, MarkAreaComponent, GraphicComponent, CanvasRenderer,
 ]);
 

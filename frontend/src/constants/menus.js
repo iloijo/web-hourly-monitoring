@@ -10,5 +10,6 @@ export const MENU_META = {
   'ztzp': { title: 'ZTZP', crumbGroup: 'Worst Cell & ZTZP', crumb: 'Sleeping / Low Payload', source: 'OneDb Live (measDy2g / measDy4g / measDy5g)', db: 'onedb' },
   'ta-4g': { title: 'Timing Advance 4G', crumbGroup: 'Timing Advance', crumb: '4G TA', source: 'OneDb Live (measTa4g)', db: 'onedb' },
   'ta-5g': { title: 'Timing Advance 5G', crumbGroup: 'Timing Advance', crumb: '5G TA', source: 'OneDb Live (measTa5g)', db: 'onedb' },
+  'cei': { title: 'CEI', crumbGroup: 'OKR', crumb: 'Customer Experience Index', source: 'OneDb (measCEIweekly, measBdbh4g) & TwoDb (ceiKQI_daily_site)', db: 'onedb' },
   'packet-loss': { title: 'TWAMP Packet Loss', crumbGroup: 'Quality & Transport', crumb: 'TWAMP 4G', source: 'OneDb Live (measTwamp4g)', db: 'onedb' },
 };

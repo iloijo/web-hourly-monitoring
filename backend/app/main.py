@@ -38,6 +38,10 @@ from .queries_overview import (
     prewarm_overview_cache
 )
 from . import clusters as cluster_store
+from . import cei_store
+from .queries_cei import (
+    get_cei_weeks, get_cei_weekly, get_cei_throughput, get_cei_contributors, get_cei_daily, get_cei_hierarchy,
+)
 
 # Short-lived result cache: switching back to a scope/site already viewed returns instantly.
 # Data only changes when the auto import runs (every 2 h), so 10 minutes is safe.
@@ -84,6 +88,12 @@ get_site_properties = _cached(get_site_properties)
 get_worst_cells = _cached(get_worst_cells)
 get_ztzp = _cached(get_ztzp)
 get_cluster_compare = _cached(get_cluster_compare)
+get_cei_weeks = _cached(get_cei_weeks)
+get_cei_weekly = _cached(get_cei_weekly)
+get_cei_throughput = _cached(get_cei_throughput)
+get_cei_contributors = _cached(get_cei_contributors)
+get_cei_daily = _cached(get_cei_daily)
+get_cei_hierarchy = _cached(get_cei_hierarchy)
 app = FastAPI(title="netPulse - KPI Monitoring Dashboard", version="3.8.0")
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
@@ -880,6 +890,117 @@ async def cluster_compare_endpoint(request: Request):
         )
     except Exception as e:
         return JSONResponse(status_code=400 if isinstance(e, ValueError) else 500, content={"error": str(e)})
+
+# ---------------------------------------------------------------------------
+# OKR > CEI
+# ---------------------------------------------------------------------------
+def _cei_error(e: Exception):
+    return JSONResponse(status_code=400 if isinstance(e, ValueError) else 503, content={"error": str(e)})
+
+def _drop_cei_cache():
+    """Targets and events are part of the CEI results, so an edit must not wait for the 10-minute cache."""
+    with _RESULT_CACHE_LOCK:
+        for key in [k for k in _RESULT_CACHE if str(k[0]).startswith("get_cei")]:
+            del _RESULT_CACHE[key]
+
+@app.get("/api/cei/weeks")
+def cei_weeks_endpoint():
+    try:
+        return get_cei_weeks()
+    except Exception as e:
+        return _cei_error(e)
+
+_CEI_SCOPE = Query("all", description="all, nop, kabupaten or kecamatan")
+_CEI_VALUES = Query(None, description="NOP / kabupaten names, or KABUPATEN|KECAMATAN")
+
+def _cei_values(values):
+    return sorted({v.strip().upper() for v in values or [] if v and v.strip()})
+
+@app.get("/api/cei/hierarchy")
+def cei_hierarchy_endpoint():
+    """NOP -> kabupaten -> kecamatan options from the CEI data."""
+    try:
+        return get_cei_hierarchy()
+    except Exception as e:
+        return _cei_error(e)
+
+@app.get("/api/cei/weekly")
+def cei_weekly_endpoint(week: Optional[int] = Query(None, description="YYYYWW, default latest"),
+                        scope: str = _CEI_SCOPE, values: Optional[List[str]] = _CEI_VALUES):
+    """Weekly CEI report: achievement trend, NOP table, KQI fail, most KQI, kabupaten, demarcation, cohort, status."""
+    try:
+        return get_cei_weekly(week=week, scope=scope, values=_cei_values(values))
+    except Exception as e:
+        return _cei_error(e)
+
+@app.get("/api/cei/throughput")
+def cei_throughput_endpoint(week: int = Query(..., description="YYYYWW"),
+                            scope: str = _CEI_SCOPE, values: Optional[List[str]] = _CEI_VALUES):
+    try:
+        return get_cei_throughput(week=week, scope=scope, values=_cei_values(values))
+    except Exception as e:
+        return _cei_error(e)
+
+@app.get("/api/cei/contributors")
+def cei_contributors_endpoint(week: int = Query(..., description="YYYYWW"), top_n: int = Query(5, ge=1, le=10),
+                              scope: str = _CEI_SCOPE, values: Optional[List[str]] = _CEI_VALUES):
+    try:
+        return get_cei_contributors(week=week, top_n=top_n, scope=scope, values=_cei_values(values))
+    except Exception as e:
+        return _cei_error(e)
+
+@app.get("/api/cei/daily")
+def cei_daily_endpoint(start_date: Optional[str] = Query(None), end_date: Optional[str] = Query(None),
+                       scope: str = _CEI_SCOPE, values: Optional[List[str]] = _CEI_VALUES):
+    try:
+        return get_cei_daily(start_date=start_date, end_date=end_date, scope=scope, values=_cei_values(values))
+    except Exception as e:
+        return _cei_error(e)
+
+@app.get("/api/cei/settings")
+def cei_settings_endpoint():
+    try:
+        return {"targets": cei_store.list_targets(), "events": cei_store.list_events()}
+    except Exception as e:
+        return _cei_error(e)
+
+@app.post("/api/cei/targets")
+async def cei_save_target_endpoint(request: Request):
+    body = await request.json()
+    try:
+        cei_store.save_target(body.get("start_week"), body.get("target_pct"))
+        _drop_cei_cache()
+        return {"targets": cei_store.list_targets()}
+    except Exception as e:
+        return _cei_error(e)
+
+@app.delete("/api/cei/targets/{start_week}")
+def cei_delete_target_endpoint(start_week: int):
+    try:
+        cei_store.delete_target(start_week)
+        _drop_cei_cache()
+        return {"targets": cei_store.list_targets()}
+    except Exception as e:
+        return _cei_error(e)
+
+@app.post("/api/cei/events")
+async def cei_add_event_endpoint(request: Request):
+    body = await request.json()
+    try:
+        cei_store.add_event(str(body.get("date") or ""), str(body.get("kind") or ""), str(body.get("label") or ""))
+        _drop_cei_cache()
+        return {"events": cei_store.list_events()}
+    except Exception as e:
+        return _cei_error(e)
+
+@app.delete("/api/cei/events/{event_id}")
+def cei_delete_event_endpoint(event_id: int):
+    try:
+        cei_store.delete_event(event_id)
+        _drop_cei_cache()
+        return {"events": cei_store.list_events()}
+    except Exception as e:
+        return _cei_error(e)
 
 # Static file serving for React frontend production build
 DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"

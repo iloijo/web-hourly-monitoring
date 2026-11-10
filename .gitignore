@@ -42,3 +42,8 @@ Thumbs.db
 backend/.env
 backend/.env.*
 !backend/.env.example
+
+# Agent / AI local configs & scratch
+.claude/
+scratch/
+
