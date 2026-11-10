@@ -635,6 +635,7 @@ def get_site_payload_5g_data(
         "time_mode": "daily",
         "tech": "5G",
         "timestamps": sorted_ts,
+        "default_sector": sorted_sectors[0] if sorted_sectors else 1,
         "available_sectors": sorted_sectors,
         "available_bands": sorted(list(found_bands)) if found_bands else ["NR2300"],
         "available_types": sorted(list(found_types)) if found_types else ["Macro"],

@@ -88,6 +88,10 @@ def get_site_payload_data(
     found_bands = set()
     found_types = set()
 
+    # Detect if this site is hosted on another site's eNodeB (e.g. EPS sites)
+    is_hosted = bool(cell_rows) and not any(site_clean in (r['enodeb_name'] or '').upper() for r in cell_rows)
+    site_cis = set()
+
     # Pre-scan types
     for r in cell_rows:
         sec_type = (r['sec new type'] or "").upper()
@@ -126,6 +130,16 @@ def get_site_payload_data(
             p2 = r['site_id_sector_id'].split('_')
             if len(p2) >= 2 and p2[1].isdigit():
                 sector = int(p2[1])
+
+        # For hosted/EPS sites: EPS sectors are strictly > 3. Ignore sectors <= 3
+        if is_hosted and sector <= 3:
+            continue
+
+        if r.get('ci') is not None:
+            try:
+                site_cis.add(int(float(r['ci'])))
+            except (ValueError, TypeError):
+                pass
 
         band = get_band_from_ci(r['ci'], cname)
         carrier = get_clean_carrier_label(cname, sector, band, r['ci'])
@@ -213,18 +227,19 @@ def get_site_payload_data(
         enodebs.add(f"E_{site_clean}M41")
 
     # 2. Date ranges: Default end_date is today - 1 per Gambar 3 instruction
-    # If today is past the latest data in measHy4g, cap default to that date
     now = datetime.now()
     yesterday = now - timedelta(days=1)
-    max_known_db_date = get_latest_data_date("twodb", "measHy4g")
     
     try:
-        if end_date:
+        if end_date and end_date.strip():
             dt_end = datetime.strptime(end_date.strip(), "%Y-%m-%d")
+            max_known_db_date = dt_end
         else:
+            max_known_db_date = get_latest_data_date("twodb", "measHy4g")
             dt_end = max_known_db_date if yesterday > max_known_db_date else yesterday
     except Exception:
-        dt_end = max_known_db_date if yesterday > max_known_db_date else yesterday
+        dt_end = yesterday
+        max_known_db_date = yesterday
 
     try:
         if start_date:
@@ -359,6 +374,10 @@ def get_site_payload_data(
         t_key = ts.strftime("%Y-%m-%d") if time_mode == "daily" else ts.strftime("%Y-%m-%d %H:00")
         cname = r['Cell Name'].strip() if r.get('Cell Name') else ""
         cid = int(r['cell_id']) if r.get('cell_id') is not None else None
+
+        # Hosted/EPS site: discard measurement cells belonging to the parent/host eNodeB
+        if is_hosted and (cid is None or cid not in site_cis):
+            continue
 
         meta = (cell_map_by_ci.get(cid) if cid is not None else None) or cell_map.get(cname.upper()) or cell_map.get(normalize_cell_key(cname))
         if not meta and (cname.startswith("E_") or cname.startswith("C_")):
@@ -498,6 +517,7 @@ def get_site_payload_data(
         "time_mode": time_mode,
         "start_date": dt_start.strftime("%Y-%m-%d"),
         "end_date": dt_end.strftime("%Y-%m-%d"),
+        "default_sector": sorted_sectors[0] if sorted_sectors else 1,
         "available_sectors": sorted_sectors,
         "available_bands": sorted(list(found_bands)),
         "available_types": sorted(list(found_types)) if found_types else ["Macro"],

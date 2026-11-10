@@ -374,10 +374,14 @@ export default function useKpiMonitoring(activeMenu, ref) {
 
   // When the site's sector list changes, keep chosen sectors that still exist, else the first 3
   useEffect(() => {
-    const avail = availableSectorsKey.split(',');
+    const avail = availableSectorsKey ? availableSectorsKey.split(',').filter(Boolean) : [];
+    if (!avail.length) return;
     setSectoralSectors(prev => {
       const kept = prev.filter(s => avail.includes(s));
       return kept.length ? kept : avail.slice(0, 3);
+    });
+    setSelectedSector(prev => {
+      return avail.includes(prev) ? prev : String(avail[0]);
     });
   }, [availableSectorsKey]);
 
