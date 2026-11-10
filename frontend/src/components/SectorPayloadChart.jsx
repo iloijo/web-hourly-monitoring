@@ -1,5 +1,6 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import ReactECharts from '../lib/echarts';
+import { legendRowsFor } from '../lib/legendLayout';
 
 // Distinct LTE Band palette (Tableau 10) optimized for high visual contrast across bands
 export const BAND_COLORS = {
@@ -240,6 +241,33 @@ function SectorPayloadChart({
   threshold = null, // { value: number, unit?: string }
 }) {
   const echartsRef = useRef(null);
+  const containerRef = useRef(null);
+  const [containerWidth, setContainerWidth] = useState(400);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+
+    let rafId = null;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        const width = Math.round(entry.contentRect.width);
+        if (width > 0) {
+          if (rafId) cancelAnimationFrame(rafId);
+          rafId = requestAnimationFrame(() => {
+            setContainerWidth(prev => (Math.abs(prev - width) > 2 ? width : prev));
+          });
+        }
+      }
+    });
+
+    observer.observe(el);
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
+  }, []);
 
   // Smooth chart resize when chartsPerRow changes
   useEffect(() => {
@@ -526,13 +554,15 @@ function SectorPayloadChart({
     });
   }
 
-  // Estimate number of wrapped legend rows to adjust chart height and bottom grid
-  const itemsPerLegendRow = chartsPerRow === 1 ? 8 : chartsPerRow === 2 ? 5 : chartsPerRow === 3 ? 4 : 3;
-  const legendRows = Math.max(1, Math.ceil(legendData.length / itemsPerLegendRow));
-  const extraRows = Math.max(0, legendRows - 1);
-  const extraHeight = extraRows * 18;
-  const chartHeight = 290 + extraHeight;
-  const gridBottom = 55 + (extraRows * 18);
+  // Responsively calculate legend wrap rows based on measured container width
+  const usableWidth = Math.max(100, containerWidth - 20);
+  const rawRows = legendRowsFor(legendData, usableWidth);
+  const isScrollLegend = rawRows > 3;
+  const legendRows = isScrollLegend ? 1 : Math.max(1, rawRows);
+
+  const LEGEND_ROW_H = 16;
+  const gridBottom = 34 + (legendRows * LEGEND_ROW_H) + 8;
+  const chartHeight = 260 + (legendRows * LEGEND_ROW_H);
 
   // Y-axis configuration
   const yAxisList = [
@@ -587,9 +617,9 @@ function SectorPayloadChart({
     });
   }
 
-  // Calculate clean tick interval for horizontal X-axis labels
+  // Calculate clean tick interval for horizontal X-axis labels based on container width
   const tsLen = timestamps?.length || 1;
-  const labelInterval = Math.max(1, Math.floor((tsLen - 1) / 3));
+  const labelInterval = Math.max(1, Math.ceil(tsLen / Math.max(2, Math.floor(containerWidth / 90))));
 
   // Check for BDBH remark in title
   const titleStr = typeof title === 'string' ? title : '';
@@ -632,11 +662,12 @@ function SectorPayloadChart({
         }
       }] : [])
     ],
-    // Legend positioned at bottom, well below X-axis labels to completely eliminate overlap
+    // Responsive legend avoiding X-axis overlap across resolutions and zooms
     legend: {
-      type: 'plain',
-      bottom: 6,
+      type: isScrollLegend ? 'scroll' : 'plain',
+      bottom: 4,
       left: 'center',
+      width: usableWidth,
       data: legendData,
       itemWidth: 10,
       itemHeight: 10,
@@ -645,7 +676,12 @@ function SectorPayloadChart({
         color: darkMode ? '#e2e8f0' : '#475569',
         fontSize: 10,
         fontWeight: '500'
-      }
+      },
+      pageTextStyle: {
+        color: darkMode ? '#cbd5e1' : '#64748b'
+      },
+      pageIconColor: darkMode ? '#94a3b8' : '#64748b',
+      pageIconInactiveColor: darkMode ? '#475569' : '#cbd5e1'
     },
     // Tooltip strictly styled with standard band colors (Image 2 requirement)
     tooltip: {
@@ -750,6 +786,7 @@ function SectorPayloadChart({
         margin: 12,
         showMinLabel: true,
         showMaxLabel: true,
+        hideOverlap: true,
         interval: labelInterval,
         formatter: (val) => formatAxisDate(val, timeMode)
       },
@@ -766,7 +803,7 @@ function SectorPayloadChart({
     <div className={`rounded-2xl border shadow-xs hover:shadow-md transition-all duration-300 overflow-hidden flex flex-col p-2 ${
       darkMode ? 'bg-slate-850 bg-slate-800/90 border-slate-700/80 shadow-md' : 'bg-white border-slate-200/90'
     }`}>
-      <div className="grow" style={{ minHeight: `${chartHeight}px` }}>
+      <div ref={containerRef} className="grow" style={{ minHeight: `${chartHeight}px` }}>
         <ReactECharts
           ref={echartsRef}
           option={option}
