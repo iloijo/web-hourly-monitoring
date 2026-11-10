@@ -31,7 +31,7 @@ export function RemarkBadge({ remark }) {
 }
 
 // Worst first: Degrade, then the largest move against the KPI direction
-const sortSiteRows = (rows, polarity) => [...rows].sort((a, b) => {
+export const sortSiteRows = (rows, polarity) => [...rows].sort((a, b) => {
   const r = REMARK_ORDER[a.remark] - REMARK_ORDER[b.remark];
   if (r) return r;
   const sign = polarity === 'down' ? -1 : 1;

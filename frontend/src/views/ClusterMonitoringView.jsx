@@ -3,7 +3,7 @@ import { AlertTriangle, BarChart3, ChevronDown, LayoutGrid, MousePointerClick, R
 import DataLoadingOverlay from '../components/DataLoadingOverlay';
 import KpiDropdownPopover from '../components/KpiDropdownPopover';
 import MultiSelectDropdown from '../components/MultiSelectDropdown';
-import SectorPayloadChart from '../components/SectorPayloadChart';
+import SectorPayloadChart, { BAND_COLORS } from '../components/SectorPayloadChart';
 import SegmentedToggle from '../components/filters/SegmentedToggle';
 import { FilterLabel } from '../components/filters/FilterLabel';
 import { fieldClass } from '../components/filters/styles';
@@ -12,7 +12,7 @@ import { getAuthToken, getJson, postJson } from '../api/client';
 import { DEFAULT_DAILY_KPIS } from '../constants/kpis';
 import { loadLatestDates, shiftDate } from '../constants/dates';
 import ClusterEditor from './cluster/ClusterEditor';
-import ClusterTable from './cluster/ClusterTable';
+import ClusterTable, { sortSiteRows } from './cluster/ClusterTable';
 import PeriodControl, { periodError } from './cluster/PeriodControl';
 import MarkerControl from './kpi/MarkerControl';
 import { memberLabel, memberSite } from './cluster/members';
@@ -240,38 +240,145 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
     onExportData(async () => {
       const ids = Object.keys(result.kpis);
       const t = result.tech.toUpperCase();
+      const clusterTitle = `Cluster ${draft.name || 'Custom'} – ${t}`;
+      const periodBanner = `Before: ${result.before.start}..${result.before.end}   After: ${result.after.start}..${result.after.end}   Members: ${request?.members?.length || 0}   Exported: ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`;
+
+      // 1. Summary sheet
+      const summarySheet = {
+        name: `Summary ${t}`,
+        style: 'cluster',
+        title: clusterTitle,
+        period_banner: periodBanner,
+        columns: ['KPI', 'Unit', 'Polarity', `Before (${result.before.start}..${result.before.end})`, `After (${result.after.start}..${result.after.end})`, 'Delta', 'Growth (%)', 'Remark'],
+        rows: ids.map(id => {
+          const k = result.kpis[id];
+          return [
+            k.title,
+            k.unit + (k.per_day ? ' /day' : ''),
+            k.polarity,
+            k.before,
+            k.after,
+            k.delta,
+            k.growth !== null && k.growth !== undefined ? k.growth / 100 : null,
+            k.remark
+          ];
+        }),
+        number_formats: {
+          [`Before (${result.before.start}..${result.before.end})`]: '#,##0.00',
+          [`After (${result.after.start}..${result.after.end})`]: '#,##0.00',
+          'Delta': '#,##0.00',
+          'Growth (%)': '0.00%'
+        },
+        remark_column: 'Remark',
+        polarity_column: 'Polarity',
+        delta_column: 'Delta'
+      };
+
+      // 2. Per Site sheet: grouped per KPI, sorted worst first using sortSiteRows
+      const perSiteGroups = ids.map(id => {
+        const k = result.kpis[id];
+        const rawRows = result.site_rows[id] || [];
+        const sorted = sortSiteRows(rawRows, k.polarity);
+        return {
+          title: `${k.title} (${k.unit + (k.per_day ? ' /day' : '')})`,
+          rows: sorted.map(r => [
+            r.site,
+            siteNamesMap[r.site] || '',
+            r.before,
+            r.after,
+            r.delta,
+            r.growth !== null && r.growth !== undefined ? r.growth / 100 : null,
+            r.remark
+          ])
+        };
+      });
+
+      const perSiteSheet = {
+        name: `Per Site ${t}`,
+        style: 'cluster_grouped',
+        columns: ['Site', 'Site Name', 'Before', 'After', 'Delta', 'Growth (%)', 'Remark'],
+        groups: perSiteGroups,
+        number_formats: {
+          'Before': '#,##0.00',
+          'After': '#,##0.00',
+          'Delta': '#,##0.00',
+          'Growth (%)': '0.00%'
+        },
+        remark_column: 'Remark',
+        delta_column: 'Delta'
+      };
+
+      // 3. Charts sheet
+      const clusterCharts = [];
+      if (result.timestamps && result.timestamps.length > 0) {
+        const byBand = chartMode === 'band';
+        ids.forEach(id => {
+          const k = result.kpis[id];
+          if (!k) return;
+          if (byBand && k.band_series) {
+            const bEntries = Object.entries(k.band_series);
+            clusterCharts.push({
+              title: `${k.title} (${k.unit})`,
+              unit: k.unit,
+              categories: result.timestamps,
+              series: bEntries.map(([band, vals]) => ({
+                name: band,
+                band: band,
+                color: BAND_COLORS[band] || '#4e79a7',
+                values: vals
+              })),
+              total: k.has_total && k.cluster_series ? {
+                name: `Total ${k.title}`,
+                values: k.cluster_series
+              } : undefined
+            });
+          } else if (k.cluster_series) {
+            clusterCharts.push({
+              title: `${k.title} (${k.unit})`,
+              unit: k.unit,
+              categories: result.timestamps,
+              series: [{
+                name: 'Cluster',
+                band: 'ENTITY',
+                color: '#3b82f6',
+                values: k.cluster_series
+              }]
+            });
+          }
+        });
+      }
+
+      // 4. Members sheet
+      const memberList = request?.members || [];
+      const membersSheet = {
+        name: 'Members',
+        columns: ['Member', 'Site', 'NOP', 'Kabupaten', 'Kecamatan', 'Has data'],
+        rows: memberList.map(m => {
+          const meta = siteMap[memberSite(m)] || {};
+          return [
+            memberLabel(m),
+            memberSite(m),
+            meta.nop || '',
+            meta.kabupaten || '',
+            meta.kecamatan || '',
+            result.sites_with_data.includes(memberSite(m)) ? 'Yes' : 'No'
+          ];
+        })
+      };
+
+      const sheets = [summarySheet, perSiteSheet];
+      if (clusterCharts.length > 0) {
+        sheets.push({ name: 'Charts', charts: clusterCharts });
+      }
+      sheets.push(membersSheet);
+
       return {
         filename: `Cluster_${(draft.name || 'Custom').replace(/\s+/g, '_')}_${t}_${result.after.start}`,
-        sheets: [
-          {
-            name: `Summary ${t}`,
-            columns: ['KPI', 'Unit', 'Polarity', `Before ${result.before.start}..${result.before.end}`, `After ${result.after.start}..${result.after.end}`, 'Delta', 'Growth (%)', 'Remark'],
-            rows: ids.map(id => {
-              const k = result.kpis[id];
-              return [k.title, k.unit + (k.per_day ? ' /day' : ''), k.polarity, k.before, k.after, k.delta, k.growth, k.remark];
-            }),
-          },
-          {
-            name: `Per Site ${t}`,
-            columns: ['KPI', 'Site', 'Site Name', 'Before', 'After', 'Delta', 'Growth (%)', 'Remark'],
-            rows: ids.flatMap(id => (result.site_rows[id] || []).map(r => [
-              result.kpis[id].title, r.site, siteNamesMap[r.site] || '', r.before, r.after, r.delta, r.growth, r.remark,
-            ])),
-          },
-          {
-            name: 'Members',
-            columns: ['Member', 'Site', 'NOP', 'Kabupaten', 'Kecamatan', 'Has data'],
-            rows: request.members.map(m => {
-              const meta = siteMap[memberSite(m)] || {};
-              return [memberLabel(m), memberSite(m), meta.nop || '', meta.kabupaten || '', meta.kecamatan || '',
-                result.sites_with_data.includes(memberSite(m)) ? 'Yes' : 'No'];
-            }),
-          },
-        ],
+        sheets
       };
     });
     return () => onExportData(null);
-  }, [result]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [result, chartMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const card = darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm';
   const field = `border rounded-lg px-2.5 py-1.5 text-xs font-semibold cursor-pointer ${fieldClass(darkMode)}`;

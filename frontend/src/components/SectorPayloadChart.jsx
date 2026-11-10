@@ -221,6 +221,33 @@ export function getColorForCarrier(cName, carrierBands = {}, idxInBand = 0) {
   return getCarrierStyle(cName, carrierBands, idxInBand).color;
 }
 
+// Exported helper to filter carriers based on bandFilter and availableBands
+export function filterCarrierKeys(allCarrierKeys, availableBands, carrierBands, bandFilter) {
+  return (allCarrierKeys || []).filter(cName => {
+    // Exclude bands not owned by the site
+    if (availableBands && Array.isArray(availableBands) && availableBands.length > 0) {
+      if (!carrierBands || carrierBands[cName] !== 'ENTITY') {
+        const rawBand = (carrierBands && carrierBands[cName]) ? carrierBands[cName] : getBandForCarrier(cName, carrierBands);
+        const b = rawBand.startsWith('L2600') ? 'L2600' : rawBand;
+        if (!availableBands.includes(b) && !availableBands.includes(rawBand)) {
+          return false;
+        }
+      }
+    }
+    if (!bandFilter || bandFilter === "all") return true;
+    if (carrierBands && carrierBands[cName] === 'ENTITY') return true;
+    const rawBand = (carrierBands && carrierBands[cName] && carrierBands[cName] !== 'ENTITY')
+      ? carrierBands[cName]
+      : getBandForCarrier(cName, carrierBands);
+    // Band filter has a single 'L2600' option for carriers L2600_1..L2600_4
+    const b = rawBand.startsWith('L2600') ? 'L2600' : rawBand;
+    if (Array.isArray(bandFilter)) {
+      return bandFilter.includes(b);
+    }
+    return b.toLowerCase() === bandFilter.toLowerCase();
+  });
+}
+
 function SectorPayloadChart({
   title,
   unit = "GB",
@@ -291,29 +318,7 @@ function SectorPayloadChart({
   });
   
   // Filter carriers based on bandFilter (can be string 'all' or array of selected bands)
-  const carrierKeys = allCarrierKeys.filter(cName => {
-    // Exclude bands not owned by the site
-    if (availableBands && Array.isArray(availableBands) && availableBands.length > 0) {
-      if (!carrierBands || carrierBands[cName] !== 'ENTITY') {
-        const rawBand = (carrierBands && carrierBands[cName]) ? carrierBands[cName] : getBandForCarrier(cName, carrierBands);
-        const b = rawBand.startsWith('L2600') ? 'L2600' : rawBand;
-        if (!availableBands.includes(b) && !availableBands.includes(rawBand)) {
-          return false;
-        }
-      }
-    }
-    if (!bandFilter || bandFilter === "all") return true;
-    if (carrierBands && carrierBands[cName] === 'ENTITY') return true;
-    const rawBand = (carrierBands && carrierBands[cName] && carrierBands[cName] !== 'ENTITY')
-      ? carrierBands[cName]
-      : getBandForCarrier(cName, carrierBands);
-    // Band filter has a single 'L2600' option for carriers L2600_1..L2600_4
-    const b = rawBand.startsWith('L2600') ? 'L2600' : rawBand;
-    if (Array.isArray(bandFilter)) {
-      return bandFilter.includes(b);
-    }
-    return b.toLowerCase() === bandFilter.toLowerCase();
-  });
+  const carrierKeys = filterCarrierKeys(allCarrierKeys, availableBands, carrierBands, bandFilter);
 
   // Helper to format clean display name for series and legend (CI only for 4G/5G, entity preserved)
   const getSeriesDisplayName = (cName) => {
