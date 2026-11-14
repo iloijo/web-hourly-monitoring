@@ -266,8 +266,9 @@ export default function PacketLossView({
 
   // Sites filtered by NOP, Kabupaten, and Kecamatan
   const sitesFilteredByHierarchy = useMemo(() => {
-    let list = allSites;
     const siteMap = hierarchyData?.site_map || {};
+    // Union with the hierarchy's sites so the list stays complete even if /api/sites returned a short fallback
+    let list = [...new Set([...allSites, ...Object.keys(siteMap)])].sort();
 
     if (siteFilterNop !== 'ALL') {
       list = list.filter(s => {
@@ -304,9 +305,10 @@ export default function PacketLossView({
     }).slice(0, 50);
   }, [sitesFilteredByHierarchy, siteSearch, siteNamesMap]);
 
-  // Options for Compare Sites MultiSelectDropdown
+  // Options for Compare Sites MultiSelectDropdown. The full list is passed (the dropdown
+  // renders at most 100 rows itself) so a pasted site list can match every site in the area.
   const compareSitesOptions = useMemo(() => {
-    return sitesFilteredByHierarchy.slice(0, 200).map(s => ({
+    return sitesFilteredByHierarchy.map(s => ({
       value: s,
       label: siteNamesMap[s] ? `${s} - ${siteNamesMap[s]}` : s
     }));

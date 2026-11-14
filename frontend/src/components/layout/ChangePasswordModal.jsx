@@ -16,7 +16,7 @@ export default function ChangePasswordModal({ onClose, darkMode }) {
     e.preventDefault();
     setError('');
     if (newPw !== confirmPw) {
-      setError('Konfirmasi password baru tidak sama.');
+      setError('New password confirmation does not match.');
       return;
     }
     setBusy(true);
@@ -24,7 +24,7 @@ export default function ChangePasswordModal({ onClose, darkMode }) {
       await postJson('/api/me/password', { old_password: oldPw, new_password: newPw });
       setDone(true);
     } catch (err) {
-      setError(err.message || 'Gagal mengganti password.');
+      setError(err.message || 'Failed to change password.');
     } finally {
       setBusy(false);
     }
@@ -78,7 +78,7 @@ export default function ChangePasswordModal({ onClose, darkMode }) {
             </div>
             {error && <p className="text-xs text-rose-500 font-semibold">{error}</p>}
             <button type="submit" disabled={busy} className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-bold cursor-pointer">
-              {busy ? 'Menyimpan...' : 'Simpan password'}
+              {busy ? 'Saving...' : 'Save password'}
             </button>
           </form>
         )}

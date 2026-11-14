@@ -32,10 +32,10 @@ def load_site_names() -> Dict[str, str]:
     if _SITE_NAMES_CACHE is not None:
         return _SITE_NAMES_CACHE
         
+    # A failed load is not cached (returns {}), so the next call retries once OneDb is back
     conn = get_onedb_connection(timeout=10)
     if not conn:
-        _SITE_NAMES_CACHE = {}
-        return _SITE_NAMES_CACHE
+        return {}
 
     site_names = {}
     try:
@@ -73,8 +73,11 @@ def load_site_names() -> Dict[str, str]:
         return _SITE_NAMES_CACHE
     except Exception as e:
         print(f"Error loading site names: {e}")
-        _SITE_NAMES_CACHE = {}
-        return _SITE_NAMES_CACHE
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return {}
 
 def get_site_name(site_id: str) -> str:
     """Returns the clean site name for a site ID."""

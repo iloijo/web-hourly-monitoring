@@ -345,27 +345,43 @@ def get_sites():
     site_names = load_site_names()
     if CACHED_SITES:
         return {"sites": CACHED_SITES, "site_names": site_names, "total": len(CACHED_SITES)}
-    
-    try:
-        conn = get_twodb_connection(timeout=5)
-        if not conn:
-            CACHED_SITES = list(site_names.keys()) if site_names else ["MRW002", "UPD919", "UPD183", "COI350"]
-            return {"sites": CACHED_SITES, "site_names": site_names, "total": len(CACHED_SITES)}
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT DISTINCT site_id 
-            FROM "CellListRCI" 
-            WHERE site_id IS NOT NULL AND site_id != '' 
-            ORDER BY site_id;
-        """)
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        CACHED_SITES = [r[0].strip() for r in rows if r[0]]
-        return {"sites": CACHED_SITES, "site_names": site_names, "total": len(CACHED_SITES)}
-    except Exception as e:
-        CACHED_SITES = list(site_names.keys()) if site_names else ["MRW002", "UPD919", "UPD183", "COI350"]
-        return {"sites": CACHED_SITES, "site_names": site_names, "error": str(e), "total": len(CACHED_SITES)}
+
+    # CellListRCI exists in both TwoDb and OneDb: try TwoDb first, then OneDb, so the full site list
+    # still loads when the TwoDb tunnel is down. Only a real DB result is cached; a fallback is not,
+    # so the next call retries instead of keeping a short list until the server restarts.
+    sql = """
+        SELECT DISTINCT site_id
+        FROM "CellListRCI"
+        WHERE site_id IS NOT NULL AND site_id != ''
+        ORDER BY site_id;
+    """
+    errors = []
+    for name, connect in (("twodb", lambda: get_twodb_connection(timeout=5)), ("onedb", lambda: get_onedb_connection(timeout=10))):
+        conn = None
+        try:
+            conn = connect()
+            if not conn:
+                errors.append(f"{name} unreachable")
+                continue
+            cur = conn.cursor()
+            cur.execute(sql)
+            rows = cur.fetchall()
+            cur.close()
+            sites = sorted({r[0].strip() for r in rows if r[0] and r[0].strip()})
+            if sites:
+                CACHED_SITES = sites
+                return {"sites": CACHED_SITES, "site_names": site_names, "total": len(CACHED_SITES), "source": name}
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    fallback = sorted(site_names.keys()) if site_names else ["MRW002", "UPD919", "UPD183", "COI350"]
+    return {"sites": fallback, "site_names": site_names, "error": "; ".join(errors), "total": len(fallback)}
 
 @app.get("/api/site_names")
 def get_site_names():

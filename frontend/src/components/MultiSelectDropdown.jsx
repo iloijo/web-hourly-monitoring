@@ -16,6 +16,10 @@ export default function MultiSelectDropdown({
   const [searchTerm, setSearchTerm] = useState("");
   // Multi-select edits a draft; onChange (which reloads data) fires only on Terapkan or closing
   const [draft, setDraft] = useState(selectedValues);
+  // Paste a list (one per line or comma separated) and match it against the options
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [pasteMsg, setPasteMsg] = useState(null);
   const dropdownRef = useRef(null);
 
   const isDirty = isMulti && (
@@ -24,6 +28,7 @@ export default function MultiSelectDropdown({
 
   const openDropdown = () => {
     setDraft(selectedValues);
+    setPasteMsg(null);
     setIsOpen(true);
   };
 
@@ -61,8 +66,8 @@ export default function MultiSelectDropdown({
   const filteredOptions = useMemo(() => {
     if (!searchTerm.trim()) return normalizedOptions;
     const q = searchTerm.toLowerCase();
-    return normalizedOptions.filter(opt => 
-      opt.label.toLowerCase().includes(q) || opt.value.toLowerCase().includes(q)
+    return normalizedOptions.filter(opt =>
+      String(opt.label).toLowerCase().includes(q) || String(opt.value).toLowerCase().includes(q)
     );
   }, [normalizedOptions, searchTerm]);
 
@@ -91,7 +96,6 @@ export default function MultiSelectDropdown({
     }
 
     if (draft.includes(val)) {
-      if (draft.length <= 1) return; // Keep at least 1
       setDraft(draft.filter(v => v !== val));
     } else {
       setDraft([...draft, val]);
@@ -106,6 +110,32 @@ export default function MultiSelectDropdown({
     if (normalizedOptions.length > 0) {
       setDraft([normalizedOptions[0].value]);
     }
+  };
+
+  const handleDeselectAll = () => {
+    setDraft([]);
+  };
+
+  // Paste handling: tokens split by newline, comma, semicolon or tab (spaces are kept, so names like "KOTA PALU" work).
+  // The pasted list REPLACES the selection: only what was typed is selected, existing checks are dropped.
+  const applyPaste = () => {
+    const tokens = pasteText.split(/[\r\n\t,;]+/).map(t => t.trim()).filter(Boolean);
+    const lookup = new Map();
+    normalizedOptions.forEach(o => {
+      lookup.set(String(o.value).toLowerCase(), o.value);
+      lookup.set(String(o.label).toLowerCase(), o.value);
+    });
+    const matched = [];
+    const missing = [];
+    tokens.forEach(t => {
+      const v = lookup.get(t.toLowerCase());
+      if (v !== undefined) matched.push(v); else missing.push(t);
+    });
+    const uniq = [...new Set(matched)];
+    // Only replace when something matched, so a mistyped list does not wipe the current selection
+    if (uniq.length > 0) setDraft(uniq);
+    setPasteMsg({ matched: uniq.length, missing });
+    setPasteText("");
   };
 
   return (
@@ -156,12 +186,66 @@ export default function MultiSelectDropdown({
                 <span className="opacity-40">|</span>
                 <button
                   type="button"
+                  onClick={handleDeselectAll}
+                  className="text-blue-500 hover:underline font-bold cursor-pointer"
+                >
+                  Deselect all
+                </button>
+                <span className="opacity-40">|</span>
+                <button
+                  type="button"
                   onClick={handleClear}
                   className="text-blue-500 hover:underline font-bold cursor-pointer"
                 >
                   Reset
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Paste a list of values */}
+          {isMulti && (
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                onClick={() => setPasteOpen(!pasteOpen)}
+                className="text-[11px] font-bold text-blue-500 hover:underline cursor-pointer"
+              >
+                {pasteOpen ? 'Hide paste list' : 'Paste list…'}
+              </button>
+              {pasteOpen && (
+                <div className="space-y-1.5">
+                  <textarea
+                    rows={3}
+                    value={pasteText}
+                    onChange={(e) => { setPasteText(e.target.value); setPasteMsg(null); }}
+                    placeholder={'One per line or comma separated, e.g.\nKWA001\nADL002, ADL004'}
+                    className={`w-full px-2 py-1 text-xs rounded-lg border font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/30 ${
+                      darkMode ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                    }`}
+                  />
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={applyPaste}
+                      disabled={!pasteText.trim()}
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-600 text-white hover:bg-blue-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Select pasted only
+                    </button>
+                  </div>
+                  {pasteMsg && (
+                    <div className="text-[11px] space-y-0.5">
+                      <div className="font-bold text-emerald-500">{pasteMsg.matched} matched</div>
+                      {pasteMsg.missing.length > 0 && (
+                        <div className="text-rose-500">
+                          {pasteMsg.missing.length} not found: {pasteMsg.missing.slice(0, 5).join(', ')}{pasteMsg.missing.length > 5 ? '…' : ''}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -259,7 +343,7 @@ export default function MultiSelectDropdown({
               <button
                 type="button"
                 onClick={() => closeDropdown(true)}
-                disabled={!isDirty}
+                disabled={!isDirty || draft.length === 0}
                 className="px-3 py-1 rounded-lg text-[11px] font-bold transition bg-blue-600 text-white hover:bg-blue-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Apply ({draft.length})

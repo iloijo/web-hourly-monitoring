@@ -7,8 +7,8 @@ import { getJson, sendJson } from '../api/client';
 
 const ACTION_LABEL = {
   login: 'Login', login_failed: 'Login gagal', logout: 'Logout', change_password: 'Ganti password sendiri',
-  user_create: 'Tambah user', user_update: 'Ubah user', user_delete: 'Hapus user',
-  role_create: 'Tambah role', role_update: 'Ubah role', role_delete: 'Hapus role',
+  user_create: 'Add user', user_update: 'Update user', user_delete: 'Delete user',
+  role_create: 'Add role', role_update: 'Update role', role_delete: 'Delete role',
   bootstrap_superadmin: 'SuperAdmin awal dibuat',
 };
 
@@ -124,8 +124,8 @@ function UserForm({ user, roles, minLen, onSubmit, onCancel, s }) {
       </label>
       {error && <p className="text-xs text-rose-500 font-semibold">{error}</p>}
       <div className="flex justify-end gap-2 pt-1">
-        <button type="button" onClick={onCancel} className={s.ghost}>Batal</button>
-        <button type="submit" disabled={busy} className={s.primary}><Save className="w-3.5 h-3.5" />{busy ? 'Menyimpan...' : 'Simpan'}</button>
+        <button type="button" onClick={onCancel} className={s.ghost}>Cancel</button>
+        <button type="submit" disabled={busy} className={s.primary}><Save className="w-3.5 h-3.5" />{busy ? 'Saving...' : 'Save'}</button>
       </div>
     </form>
   );
@@ -148,11 +148,11 @@ function ResetPasswordForm({ user, minLen, onSubmit, onCancel, s }) {
   };
   return (
     <form onSubmit={submit} className="space-y-3">
-      <p className={`text-xs ${s.muted}`}>Password baru untuk <b>{user.username}</b>. Sesi login user ini akan diakhiri.</p>
+      <p className={`text-xs ${s.muted}`}>New password for <b>{user.username}</b>. This user's login sessions will be ended.</p>
       <input type="password" className={s.input} value={password} onChange={(e) => setPassword(e.target.value)} minLength={minLen} required autoComplete="new-password" aria-label="Password baru" placeholder={`Min. ${minLen} karakter`} />
       {error && <p className="text-xs text-rose-500 font-semibold">{error}</p>}
       <div className="flex justify-end gap-2">
-        <button type="button" onClick={onCancel} className={s.ghost}>Batal</button>
+        <button type="button" onClick={onCancel} className={s.ghost}>Cancel</button>
         <button type="submit" disabled={busy} className={s.primary}><KeyRound className="w-3.5 h-3.5" />Reset password</button>
       </div>
     </form>
@@ -196,10 +196,10 @@ function UsersTab({ authUser, roles, minLen, darkMode, s, notify }) {
     <div className={s.card}>
       <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
         <div className="flex items-center gap-2">
-          <input className={`${s.input} !py-1.5 !text-xs w-56`} placeholder="Cari username, nama, role" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Cari user" />
+          <input className={`${s.input} !py-1.5 !text-xs w-56`} placeholder="Search username, name, role" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search users" />
           <button type="button" onClick={load} className={s.ghost} title="Muat ulang"><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /></button>
         </div>
-        <button type="button" onClick={() => setDialog({ kind: 'new' })} className={s.primary}><Plus className="w-3.5 h-3.5" />Tambah user</button>
+        <button type="button" onClick={() => setDialog({ kind: 'new' })} className={s.primary}><Plus className="w-3.5 h-3.5" />Add user</button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full">
@@ -226,7 +226,7 @@ function UsersTab({ authUser, roles, minLen, darkMode, s, notify }) {
                   <td className={s.td}>
                     {u.locked
                       ? <span className="text-amber-500 font-bold">Terkunci</span>
-                      : u.is_active ? <span className="text-emerald-500 font-bold">Aktif</span> : <span className="text-rose-500 font-bold">Nonaktif</span>}
+                      : u.is_active ? <span className="text-emerald-500 font-bold">Active</span> : <span className="text-rose-500 font-bold">Inactive</span>}
                   </td>
                   <td className={`${s.td} ${s.muted}`}>{fmtTime(u.last_login_at)}</td>
                   <td className={`${s.td} text-right whitespace-nowrap`}>
@@ -237,12 +237,12 @@ function UsersTab({ authUser, roles, minLen, darkMode, s, notify }) {
                     )}
                     <button
                       type="button" className={s.iconBtn} disabled={self}
-                      title={u.is_active ? 'Nonaktifkan' : 'Aktifkan'}
+                      title={u.is_active ? 'Deactivate' : 'Activate'}
                       onClick={() => quick(u, { is_active: !u.is_active }, `${u.username} ${u.is_active ? 'dinonaktifkan' : 'diaktifkan'}.`)}
                     >
                       {u.is_active ? <UserX className="w-3.5 h-3.5 text-amber-500" /> : <UserCheck className="w-3.5 h-3.5 text-emerald-500" />}
                     </button>
-                    <button type="button" className={s.iconBtn} disabled={self} title="Hapus" onClick={() => setDialog({ kind: 'delete', user: u })}><Trash2 className="w-3.5 h-3.5 text-rose-500" /></button>
+                    <button type="button" className={s.iconBtn} disabled={self} title="Delete" onClick={() => setDialog({ kind: 'delete', user: u })}><Trash2 className="w-3.5 h-3.5 text-rose-500" /></button>
                   </td>
                 </tr>
               );
@@ -255,7 +255,7 @@ function UsersTab({ authUser, roles, minLen, darkMode, s, notify }) {
       </div>
 
       {dialog?.kind === 'new' && (
-        <Modal title="Tambah user" onClose={close} darkMode={darkMode}>
+        <Modal title="Add user"onClose={close} darkMode={darkMode}>
           <UserForm roles={roles} minLen={minLen} s={s} onCancel={close}
             onSubmit={(body) => save('POST', '/api/admin/users', body, `User ${body.username} ditambahkan.`)} />
         </Modal>
@@ -273,16 +273,16 @@ function UsersTab({ authUser, roles, minLen, darkMode, s, notify }) {
         </Modal>
       )}
       {dialog?.kind === 'delete' && (
-        <Modal title="Hapus user" onClose={close} darkMode={darkMode}>
-          <p className="text-sm mb-4">Hapus user <b>{dialog.user.username}</b> secara permanen? Untuk menahan akses sementara, pakai Nonaktifkan.</p>
+        <Modal title="Delete user" onClose={close} darkMode={darkMode}>
+          <p className="text-sm mb-4">Permanently delete user <b>{dialog.user.username}</b>? To block access temporarily, use Deactivate instead.</p>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={close} className={s.ghost}>Batal</button>
+            <button type="button" onClick={close} className={s.ghost}>Cancel</button>
             <button
               type="button"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
               onClick={() => save('DELETE', `/api/admin/users/${dialog.user.id}`, undefined, `${dialog.user.username} dihapus.`).catch((e) => { close(); notify('error', e.message); })}
             >
-              <Trash2 className="w-3.5 h-3.5" />Hapus
+              <Trash2 className="w-3.5 h-3.5" />Delete
             </button>
           </div>
         </Modal>
@@ -324,7 +324,7 @@ function RolesTab({ roles, menus, setRoles, darkMode, s, notify }) {
       }
       setRoles(latest);
       setDraft({});
-      notify('ok', 'Hak akses disimpan. User terkait melihat perubahan saat halaman dimuat ulang.');
+      notify('ok', 'Access rights saved. Affected users see the change after reloading the page.');
     } catch (e) {
       notify('error', e.message);
     } finally {
@@ -340,7 +340,7 @@ function RolesTab({ roles, menus, setRoles, darkMode, s, notify }) {
       setAdding(false);
       setNewName('');
       setNewDesc('');
-      notify('ok', `Role ${newName} ditambahkan. Centang menu yang boleh diakses lalu Simpan.`);
+      notify('ok', `Role ${newName} added. Tick the menus it may access, then Save.`);
     } catch (err) {
       notify('error', err.message);
     }
@@ -367,11 +367,11 @@ function RolesTab({ roles, menus, setRoles, darkMode, s, notify }) {
   return (
     <div className={s.card}>
       <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
-        <p className={`text-xs ${s.muted}`}>Centang menu yang boleh dibuka tiap role. SuperAdmin selalu punya semua akses.</p>
+        <p className={`text-xs ${s.muted}`}>Tick the menus each role may open. SuperAdmin always has full access.</p>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setAdding(true)} className={s.ghost}><Plus className="w-3.5 h-3.5" />Tambah role</button>
+          <button type="button" onClick={() => setAdding(true)} className={s.ghost}><Plus className="w-3.5 h-3.5" />Add role</button>
           <button type="button" onClick={saveAll} disabled={busy || dirtyIds.length === 0} className={s.primary}>
-            <Save className="w-3.5 h-3.5" />{busy ? 'Menyimpan...' : `Simpan${dirtyIds.length ? ` (${dirtyIds.length})` : ''}`}
+            <Save className="w-3.5 h-3.5" />{busy ? 'Saving...' : `Save${dirtyIds.length ? ` (${dirtyIds.length})` : ''}`}
           </button>
         </div>
       </div>
@@ -385,7 +385,7 @@ function RolesTab({ roles, menus, setRoles, darkMode, s, notify }) {
                   <div className="flex items-center justify-center gap-1">
                     <span>{r.name}</span>
                     {!r.builtin && (
-                      <button type="button" className={s.iconBtn} title={`Hapus role ${r.name}`} onClick={() => setConfirmDelete(r)}>
+                      <button type="button" className={s.iconBtn} title={`Delete role ${r.name}`} onClick={() => setConfirmDelete(r)}>
                         <Trash2 className="w-3 h-3 text-rose-500" />
                       </button>
                     )}
@@ -424,7 +424,7 @@ function RolesTab({ roles, menus, setRoles, darkMode, s, notify }) {
       </div>
 
       {adding && (
-        <Modal title="Tambah role" onClose={() => setAdding(false)} darkMode={darkMode}>
+        <Modal title="Add role"onClose={() => setAdding(false)} darkMode={darkMode}>
           <form onSubmit={addRole} className="space-y-3">
             <div>
               <label className={s.label} htmlFor="r-name">Nama role</label>
@@ -435,19 +435,19 @@ function RolesTab({ roles, menus, setRoles, darkMode, s, notify }) {
               <input id="r-desc" className={s.input} value={newDesc} onChange={(e) => setNewDesc(e.target.value)} />
             </div>
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setAdding(false)} className={s.ghost}>Batal</button>
-              <button type="submit" className={s.primary}><Plus className="w-3.5 h-3.5" />Tambah</button>
+              <button type="button" onClick={() => setAdding(false)} className={s.ghost}>Cancel</button>
+              <button type="submit" className={s.primary}><Plus className="w-3.5 h-3.5" />Add</button>
             </div>
           </form>
         </Modal>
       )}
       {confirmDelete && (
-        <Modal title="Hapus role" onClose={() => setConfirmDelete(null)} darkMode={darkMode}>
-          <p className="text-sm mb-4">Hapus role <b>{confirmDelete.name}</b>? Role yang masih dipakai user tidak bisa dihapus.</p>
+        <Modal title="Delete role" onClose={() => setConfirmDelete(null)} darkMode={darkMode}>
+          <p className="text-sm mb-4">Delete role <b>{confirmDelete.name}</b>? A role still assigned to users cannot be deleted.</p>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setConfirmDelete(null)} className={s.ghost}>Batal</button>
+            <button type="button" onClick={() => setConfirmDelete(null)} className={s.ghost}>Cancel</button>
             <button type="button" onClick={() => deleteRole(confirmDelete)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer">
-              <Trash2 className="w-3.5 h-3.5" />Hapus
+              <Trash2 className="w-3.5 h-3.5" />Delete
             </button>
           </div>
         </Modal>
@@ -473,7 +473,7 @@ function AuditTab({ darkMode, s, notify }) {
   return (
     <div className={s.card}>
       <div className={`flex items-center justify-between px-4 py-3 border-b ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
-        <p className={`text-xs ${s.muted}`}>300 aktivitas terakhir: login, perubahan user dan role.</p>
+        <p className={`text-xs ${s.muted}`}>Last 300 activities: logins, user and role changes.</p>
         <button type="button" onClick={load} className={s.ghost}><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />Muat ulang</button>
       </div>
       <div className="overflow-x-auto max-h-[65vh] overflow-y-auto">
@@ -513,7 +513,7 @@ function AuditTab({ darkMode, s, notify }) {
 
 const TABS = [
   { id: 'users', label: 'User', Icon: Users },
-  { id: 'roles', label: 'Role & Hak Akses', Icon: ShieldCheck },
+  { id: 'roles', label: 'Roles & Access', Icon: ShieldCheck },
   { id: 'audit', label: 'Log Aktivitas', Icon: History },
 ];
 

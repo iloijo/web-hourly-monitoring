@@ -208,7 +208,7 @@ export default function ClusterEditor({
                     <button type="button" onClick={() => onSave(true)} disabled={saving} className={ghostBtn} title="Save as a new cluster (needs a different name)">
                       <Copy className="w-3.5 h-3.5" /> Duplicate
                     </button>
-                    <button type="button" onClick={onDelete} disabled={saving || !canManage} className="px-2.5 py-1.5 rounded-lg border border-rose-300 text-rose-600 text-xs font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50" title={canManage ? 'Delete cluster' : 'Hanya pembuat atau SuperAdmin yang bisa menghapus'}>
+                    <button type="button" onClick={onDelete} disabled={saving || !canManage} className="px-2.5 py-1.5 rounded-lg border border-rose-300 text-rose-600 text-xs font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50" title={canManage ? 'Delete cluster' : 'Only the creator or SuperAdmin can delete'}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </>

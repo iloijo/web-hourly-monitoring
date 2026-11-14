@@ -406,10 +406,17 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
 
   const card = darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm';
   const field = `border rounded-lg px-2.5 py-1.5 text-xs font-semibold cursor-pointer ${fieldClass(darkMode)}`;
-  const periods = result ? [
-    { start: result.before.start, end: result.before.end, label: 'Before', color: PERIOD_COLORS.before },
-    { start: result.after.start, end: result.after.end, label: 'After', color: PERIOD_COLORS.after },
+  // Chart shading follows the Before / After being edited (e.g. the Fill value) as soon as they are valid,
+  // so the windows move without a new query; the table keeps the periods of the last Generate.
+  const draftPeriodsValid = !periodError(draft);
+  const shade = draftPeriodsValid
+    ? { bs: draft.before_start, be: draft.before_end, as: draft.after_start, ae: draft.after_end }
+    : result ? { bs: result.before.start, be: result.before.end, as: result.after.start, ae: result.after.end } : null;
+  const periods = result && shade ? [
+    { start: shade.bs, end: shade.be, label: 'Before', color: PERIOD_COLORS.before },
+    { start: shade.as, end: shade.ae, label: 'After', color: PERIOD_COLORS.after },
   ] : [];
+  const periodsChanged = Boolean(request) && draftPeriodsValid && PERIOD_KEYS.some(k => request[k] !== draft[k]);
 
   const renderCharts = () => {
     if (!result) return null;
@@ -499,6 +506,9 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
           {effectiveMembers.length} of {draft.members.length} members match the set filter. The chart shows Start – End
           (max {MAX_CHART_DAYS} days); the table compares the Before and After periods.
           {inputError && <span className="ml-1 font-semibold text-rose-500">{inputError}</span>}
+          {periodsChanged && (
+            <span className="ml-1 font-semibold text-amber-500">Before / After changed: the chart shows the new windows; press Generate to update the table.</span>
+          )}
         </div>
       </div>
 

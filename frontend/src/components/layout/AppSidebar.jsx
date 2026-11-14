@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Activity, BarChart3, Boxes, Calendar, ChevronDown, ChevronLeft, Clock, Database, LayoutDashboard, Moon, Radio, RadioTower, ShieldCheck, Smile, Target, TrendingDown, Wifi,
 } from 'lucide-react';
@@ -86,10 +86,19 @@ function DbStatusRow({ label, port, ok }) {
 // Left navigation: Overview, Main KPI, Worst Cell / ZTZP, Others, Administrasi.
 // can(menuId) hides every menu the user's role may not open; empty groups disappear too.
 export default function AppSidebar({ open, onClose, activeMenu, onSelectMenu, can = () => true, dbStatus, darkMode }) {
-  const [kpiOpen, setKpiOpen] = useState(true);
-  const [fourGOpen, setFourGOpen] = useState(true);
-  const [taOpen, setTaOpen] = useState(true);
-  const [okrOpen, setOkrOpen] = useState(true);
+  // Groups start collapsed; the user opens the one they need
+  const [kpiOpen, setKpiOpen] = useState(false);
+  const [fourGOpen, setFourGOpen] = useState(false);
+  const [taOpen, setTaOpen] = useState(false);
+  const [okrOpen, setOkrOpen] = useState(false);
+  // Groups start collapsed, but the group holding the active page opens so the selection stays visible
+  // (e.g. a role whose landing page sits inside a group, or a page opened from elsewhere)
+  useEffect(() => {
+    if (['2g', '4g-hourly', '4g-daily', '5g'].includes(activeMenu)) setKpiOpen(true);
+    if (activeMenu.startsWith('4g')) setFourGOpen(true);
+    if (activeMenu.startsWith('ta-')) setTaOpen(true);
+    if (activeMenu === 'cei') setOkrOpen(true);
+  }, [activeMenu]);
   const common = { activeMenu, onSelect: onSelectMenu, darkMode };
   const any = (...ids) => ids.some(can);
   const showKpi = any('2g', '4g-hourly', '4g-daily', '5g');
@@ -197,8 +206,8 @@ export default function AppSidebar({ open, onClose, activeMenu, onSelectMenu, ca
 
         {can('admin') && (
           <>
-            <SectionTitle>Administrasi</SectionTitle>
-            <MenuButton id="admin" label="User & Hak Akses" Icon={ShieldCheck} accent="violet" tag="Admin" size="lg" {...common} />
+            <SectionTitle>Administration</SectionTitle>
+            <MenuButton id="admin" label="User & Access Rights"Icon={ShieldCheck} accent="violet" tag="Admin" size="lg" {...common} />
           </>
         )}
       </div>
