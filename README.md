@@ -48,4 +48,18 @@ online_tunnel.bat
 ```
 Cloudflare akan memberikan tautan publik gratis berenkripsi HTTPS (misal: `https://xxxx.trycloudflare.com`) yang bisa langsung diakses dari perangkat mobile atau rekan kerja di luar jaringan lokal.
 
-Jika `DASHBOARD_USER` dan `DASHBOARD_PASS` diisi di `backend/.env`, browser akan meminta login sebelum dashboard dan API bisa dibuka (lokal maupun via tunnel).
+## Login, User & Hak Akses
+
+* User, role, sesi dan log aktivitas disimpan di `backend/data/netpulse_auth.sqlite3` (SQLite lokal, tidak ikut git). Password di-hash dengan scrypt; token login acak dan kedaluwarsa setelah 30 menit tanpa aktivitas.
+* **SuperAdmin pertama** dibuat otomatis saat server start jika database user masih kosong, memakai `DASHBOARD_USER` / `DASHBOARD_PASS` dari `backend/.env`. Setelah itu nilai di `.env` tidak dipakai lagi untuk login (boleh dikosongkan).
+* Role bawaan:
+
+  | Role | Akses |
+  |---|---|
+  | SuperAdmin | Semua menu + halaman **Administrasi** (kelola user, role, hak akses per menu, log aktivitas) |
+  | RNO | Semua menu monitoring |
+  | OSS/Viewer | Semua menu monitoring kecuali **OKR (CEI)** |
+
+* Hak akses diatur per menu dari halaman Administrasi → *Role & Hak Akses*. Menu yang tidak diizinkan disembunyikan di sidebar, dan API-nya ditolak server (HTTP 403).
+* Login dikunci 5 menit setelah 5 kali salah password. SuperAdmin bisa membuka kunci, reset password, atau menonaktifkan user. Setiap user bisa mengganti password sendiri dengan klik namanya di header.
+* Lupa password SuperAdmin: hentikan server, hapus `backend/data/netpulse_auth.sqlite3`, isi `DASHBOARD_USER` / `DASHBOARD_PASS`, lalu start ulang (semua user lain ikut terhapus).

@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { Trash2, X } from 'lucide-react';
-import { getAuthToken } from '../../api/client';
+import { authHeaders } from '../../api/client';
 import { weekLabel } from './charts';
 
 async function send(method, path, body) {
-  const token = getAuthToken();
   const res = await fetch(path, {
     method,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Basic ${token}` } : {}) },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));

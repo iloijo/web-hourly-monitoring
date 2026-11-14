@@ -37,6 +37,8 @@ ALTER TABLE netpulse_cluster ADD COLUMN IF NOT EXISTS before_end DATE;
 ALTER TABLE netpulse_cluster ADD COLUMN IF NOT EXISTS after_start DATE;
 ALTER TABLE netpulse_cluster ADD COLUMN IF NOT EXISTS after_end DATE;
 ALTER TABLE netpulse_cluster ADD COLUMN IF NOT EXISTS markers JSONB NOT NULL DEFAULT '[]';
+-- username of the dashboard user who created the cluster: only they (and SuperAdmin) may edit or delete it
+ALTER TABLE netpulse_cluster ADD COLUMN IF NOT EXISTS created_by TEXT NOT NULL DEFAULT '';
 CREATE UNIQUE INDEX IF NOT EXISTS netpulse_cluster_member_uq
     ON netpulse_cluster_member (cluster_id, site_id, COALESCE(sector, -1));
 """
@@ -82,12 +84,24 @@ def _row(r, members) -> Dict[str, Any]:
         "before_start": _iso(r[4]), "before_end": _iso(r[5]), "after_start": _iso(r[6]), "after_end": _iso(r[7]),
         "markers": r[8] or [],
         "created_at": r[9].isoformat(timespec="seconds"), "updated_at": r[10].isoformat(timespec="seconds"),
+        "created_by": r[11] or "",
         "members": members,
     }
 
 
 _SELECT = ("SELECT id, name, description, pic, before_start, before_end, after_start, after_end, markers, "
-           "created_at, updated_at FROM netpulse_cluster")
+           "created_at, updated_at, created_by FROM netpulse_cluster")
+
+
+def can_manage(actor: Optional[Dict[str, Any]], created_by: str) -> bool:
+    """SuperAdmin, or the user who created the cluster. Clusters without an owner are SuperAdmin only."""
+    if not actor:
+        return False
+    return bool(actor.get("is_super")) or (bool(created_by) and created_by == actor.get("username"))
+
+
+class Forbidden(Exception):
+    """Actor is not allowed to change this cluster."""
 
 
 def list_clusters() -> List[Dict[str, Any]]:
@@ -139,23 +153,34 @@ def _validate(payload: Dict[str, Any]):
             *dates, _markers(payload.get("markers"))), members
 
 
-def save_cluster(payload: Dict[str, Any], cluster_id: Optional[int] = None) -> Dict[str, Any]:
-    """Creates a cluster (cluster_id None) or replaces an existing one with its members."""
+def save_cluster(payload: Dict[str, Any], actor: Optional[Dict[str, Any]], cluster_id: Optional[int] = None) -> Dict[str, Any]:
+    """Creates a cluster (cluster_id None) or replaces an existing one with its members.
+
+    PIC is the creator's name and is set once; edits keep it. Only the creator or SuperAdmin may edit.
+    """
     fields, members = _validate(payload)
+    actor_name = str((actor or {}).get("username") or "")
+    pic_name = str((actor or {}).get("full_name") or actor_name)
     conn = _conn()
     try:
         with conn, conn.cursor() as cur:
             if cluster_id is None:
                 cur.execute(
                     "INSERT INTO netpulse_cluster (name, description, pic, before_start, before_end, after_start, after_end, "
-                    "markers) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id", fields)
+                    "markers, created_by) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                    fields[:2] + (pic_name,) + fields[3:] + (actor_name,))
                 cluster_id = cur.fetchone()[0]
             else:
+                cur.execute("SELECT pic, created_by FROM netpulse_cluster WHERE id=%s FOR UPDATE", (cluster_id,))
+                row = cur.fetchone()
+                if row is None:
+                    raise LookupError("Cluster not found.")
+                if not can_manage(actor, row[1]):
+                    raise Forbidden("Hanya pembuat cluster atau SuperAdmin yang bisa mengedit cluster ini.")
+                fields = fields[:2] + (row[0],) + fields[3:]  # keep the original PIC
                 cur.execute(
                     "UPDATE netpulse_cluster SET name=%s, description=%s, pic=%s, before_start=%s, before_end=%s, "
                     "after_start=%s, after_end=%s, markers=%s, updated_at=now() WHERE id=%s", fields + (cluster_id,))
-                if cur.rowcount == 0:
-                    raise LookupError("Cluster not found.")
                 cur.execute("DELETE FROM netpulse_cluster_member WHERE cluster_id=%s", (cluster_id,))
             cur.executemany(
                 "INSERT INTO netpulse_cluster_member (cluster_id, site_id, sector) VALUES (%s, %s, %s)",
@@ -166,10 +191,16 @@ def save_cluster(payload: Dict[str, Any], cluster_id: Optional[int] = None) -> D
         conn.close()
 
 
-def delete_cluster(cluster_id: int) -> bool:
+def delete_cluster(cluster_id: int, actor: Optional[Dict[str, Any]]) -> bool:
     conn = _conn()
     try:
         with conn, conn.cursor() as cur:
+            cur.execute("SELECT created_by FROM netpulse_cluster WHERE id=%s FOR UPDATE", (cluster_id,))
+            row = cur.fetchone()
+            if row is None:
+                return False
+            if not can_manage(actor, row[0]):
+                raise Forbidden("Hanya pembuat cluster atau SuperAdmin yang bisa menghapus cluster ini.")
             cur.execute("DELETE FROM netpulse_cluster WHERE id=%s", (cluster_id,))
             return cur.rowcount > 0
     finally:

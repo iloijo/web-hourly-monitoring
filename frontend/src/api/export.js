@@ -1,16 +1,11 @@
 // Excel export: pages describe sheets, the backend builds the .xlsx
-import { getAuthToken } from './client';
+import { authHeaders } from './client';
 
 // payload: { filename, sheets: [{ name, columns: [..], rows: [[..], ..] }] }
 export async function downloadXlsx(payload) {
-  const token = getAuthToken();
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) {
-    headers['Authorization'] = `Basic ${token}`;
-  }
   const res = await fetch('/api/export/xlsx', {
     method: 'POST',
-    headers,
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

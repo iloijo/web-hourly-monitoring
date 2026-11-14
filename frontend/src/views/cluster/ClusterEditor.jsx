@@ -14,6 +14,7 @@ const CHIP_LIMIT = 150;
 export default function ClusterEditor({
   clusters, selectedId, onSelect, onNew, onSave, onDelete, saving, storeError, storeInfo,
   draft, setDraft, hierarchyData, knownSites, siteSectors, darkMode,
+  canManage = true, owner = '', currentPic = '',
 }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [pick, setPick] = useState('site');
@@ -147,18 +148,20 @@ export default function ClusterEditor({
               </div>
               <div>
                 <FilterLabel>CLUSTER NAME</FilterLabel>
-                <input value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} placeholder="e.g. Antenna Swap Palu W45" className={`${field} w-full`} />
+                <input value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} disabled={!canManage} placeholder="e.g. Antenna Swap Palu W45" className={`${field} w-full`} />
               </div>
               <div>
-                <FilterLabel>PIC</FilterLabel>
-                <input value={draft.pic} onChange={e => setDraft({ ...draft, pic: e.target.value })} placeholder="Name" className={`${field} w-full`} />
+                <FilterLabel>PIC (otomatis: pembuat)</FilterLabel>
+                {/* PIC is the creator's name, set by the server; it cannot be typed */}
+                <input value={selectedId ? draft.pic : currentPic} readOnly disabled placeholder="Nama user login" className={`${field} w-full`} title="PIC diisi otomatis dengan nama user yang membuat cluster" />
               </div>
             </div>
             <div>
               <FilterLabel>DESCRIPTION</FilterLabel>
-              <input value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} placeholder="Activity / notes" className={`${field} w-full`} />
+              <input value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} disabled={!canManage} placeholder="Activity / notes" className={`${field} w-full`} />
             </div>
 
+            <fieldset disabled={!canManage} className="contents">
             <SegmentedToggle label="ADD MEMBERS FROM" options={PICK_OPTIONS} value={pick} onChange={(v) => { setPick(v); setPasteResult(null); }} darkMode={darkMode} />
 
             {pick === 'kabupaten' && (
@@ -187,6 +190,7 @@ export default function ClusterEditor({
               <MemberPicker mode="sector" options={sectorList} isChecked={sectorChecked} onToggle={toggleSectorId}
                 onPaste={applyPaste} pasteResult={pasteResult} darkMode={darkMode} />
             )}
+            </fieldset>
           </div>
 
           <div className={box}>
@@ -196,7 +200,7 @@ export default function ClusterEditor({
                 <button type="button" onClick={onNew} className={ghostBtn} title="Start a new cluster">
                   <FilePlus2 className="w-3.5 h-3.5" /> New
                 </button>
-                <button type="button" onClick={() => onSave(false)} disabled={saving} className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50">
+                <button type="button" onClick={() => onSave(false)} disabled={saving || !canManage} title={canManage ? undefined : 'Hanya pembuat atau SuperAdmin'} className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50">
                   <Save className="w-3.5 h-3.5" /> {selectedId ? 'Save' : 'Save cluster'}
                 </button>
                 {selectedId && (
@@ -204,7 +208,7 @@ export default function ClusterEditor({
                     <button type="button" onClick={() => onSave(true)} disabled={saving} className={ghostBtn} title="Save as a new cluster (needs a different name)">
                       <Copy className="w-3.5 h-3.5" /> Duplicate
                     </button>
-                    <button type="button" onClick={onDelete} disabled={saving} className="px-2.5 py-1.5 rounded-lg border border-rose-300 text-rose-600 text-xs font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50" title="Delete cluster">
+                    <button type="button" onClick={onDelete} disabled={saving || !canManage} className="px-2.5 py-1.5 rounded-lg border border-rose-300 text-rose-600 text-xs font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50" title={canManage ? 'Delete cluster' : 'Hanya pembuat atau SuperAdmin yang bisa menghapus'}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </>
@@ -216,12 +220,18 @@ export default function ClusterEditor({
             </div>
             {storeError && <div className="text-[11px] font-semibold text-rose-500">{storeError}</div>}
             {storeInfo && <div className="text-[11px] font-semibold text-emerald-600">{storeInfo}</div>}
+            {selectedId && !canManage && (
+              <div className="text-[11px] font-semibold text-amber-600">
+                Cluster ini dibuat oleh {owner || 'user lain'}. Hanya pembuat atau SuperAdmin yang bisa mengubah atau menghapusnya. Anda bisa menduplikasi.
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <div className={`text-xs font-semibold ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>
                 {siteCount} sites • {wholeCount} full sites • {sectorCount} site sectors
               </div>
-              <button type="button" disabled={!members.length} onClick={() => setMembers([])} className="text-[11px] font-bold text-rose-500 cursor-pointer disabled:opacity-30">Clear</button>
+              <button type="button" disabled={!members.length || !canManage} onClick={() => setMembers([])} className="text-[11px] font-bold text-rose-500 cursor-pointer disabled:opacity-30">Clear</button>
             </div>
+            <fieldset disabled={!canManage} className="contents">
             <div className="flex flex-wrap gap-1 max-h-60 overflow-y-auto">
               {members.length === 0 && <span className="text-[11px] opacity-60">No members yet. Pick from the left or paste a site list.</span>}
               {members.slice(0, CHIP_LIMIT).map(m => (
@@ -232,6 +242,7 @@ export default function ClusterEditor({
               ))}
               {members.length > CHIP_LIMIT && <span className="text-[11px] opacity-60">+{members.length - CHIP_LIMIT} more</span>}
             </div>
+            </fieldset>
           </div>
         </div>
       )}

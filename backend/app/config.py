@@ -30,8 +30,10 @@ class Settings(BaseModel):
     ONEDB_RW_USER: str = os.getenv("ONEDB_RW_USER", "")
     ONEDB_RW_PASS: str = os.getenv("ONEDB_RW_PASS", "")
 
-    # Dashboard login (HTTP Basic). Login is required when both are set.
+    # First SuperAdmin account. Only used to create it when the user database is still empty.
     DASHBOARD_USER: str = os.getenv("DASHBOARD_USER", "")
     DASHBOARD_PASS: str = os.getenv("DASHBOARD_PASS", "")
+    # User database (SQLite). Default: backend/data/netpulse_auth.sqlite3
+    AUTH_DB_PATH: str = os.getenv("AUTH_DB_PATH", "")
 
 settings = Settings()

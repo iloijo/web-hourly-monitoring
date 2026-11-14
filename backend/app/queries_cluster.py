@@ -230,6 +230,7 @@ def _compare(before: Optional[float], after: Optional[float], polarity: Optional
 
 
 MAX_CHART_DAYS = 180
+SITE_CURVE_LIMIT = 20  # the By Site curve is offered only for clusters with fewer sites than this
 
 
 def _day(value: Optional[str], name: str) -> date:
@@ -280,12 +281,21 @@ def get_cluster_compare(tech: str = "4g", members: Optional[List[str]] = None,
     period_sql = (f"CASE WHEN {day_sql} BETWEEN '{b_start}' AND '{b_end}' THEN 'before' "
                   f"WHEN {day_sql} BETWEEN '{a_start}' AND '{a_end}' THEN 'after' END")
     # every from_sql ends with a WHERE clause, so extra conditions are appended with AND
+    # per-site daily lines are only offered for small clusters (fewer than SITE_CURVE_LIMIT sites)
+    per_site = len(sites) < SITE_CURVE_LIMIT
     jobs = []
     for select, from_sql, params, band_sql in sources:
+        grouping = [f"({day_sql})", f"({day_sql}, {band_sql})"]
+        # a column in the select list must belong to some grouping set, so the site column is added only with its set
+        site_sql = "m._site"
+        if per_site:
+            grouping.append(f"({day_sql}, m._site)")
+        else:
+            site_sql = "NULL::text"
         jobs.append(("daily", f"""
-            SELECT {day_sql} AS dt, {band_sql} AS band, {select}
+            SELECT {day_sql} AS dt, {band_sql} AS band, {site_sql} AS site, {select}
             FROM {from_sql} AND {day_sql} BETWEEN '{c_start}' AND '{c_end}'
-            GROUP BY GROUPING SETS (({day_sql}), ({day_sql}, {band_sql}))""", params))
+            GROUP BY GROUPING SETS ({", ".join(grouping)})""", params))
         jobs.append(("period", f"""
             SELECT {period_sql} AS period, m._site AS site, COUNT(DISTINCT {day_sql}) AS n_days, {select}
             FROM {from_sql} AND ({day_sql} BETWEEN '{b_start}' AND '{b_end}' OR {day_sql} BETWEEN '{a_start}' AND '{a_end}')
@@ -300,11 +310,15 @@ def get_cluster_compare(tech: str = "4g", members: Optional[List[str]] = None,
 
     # daily[kpi][band or "Cluster"][date] ; period[(period, site or None)] = {kpi: value, "_days": n}
     daily = defaultdict(lambda: defaultdict(dict))
+    site_daily = defaultdict(lambda: defaultdict(dict))  # site_daily[kpi][site][date]
     period = defaultdict(dict)
     for kind, rows in results:
         for r in rows:
             kpis = {k: float(v) for k, v in r.items() if k in cfg_all and v is not None}
-            if kind == "daily":
+            if kind == "daily" and r.get("site") is not None:
+                for k, v in kpis.items():
+                    site_daily[k][r["site"]][r["dt"].isoformat()] = v
+            elif kind == "daily":
                 key = r["band"] if r["band"] is not None else "Cluster"
                 for k, v in kpis.items():
                     daily[k][key][r["dt"].isoformat()] = v
@@ -332,6 +346,9 @@ def get_cluster_compare(tech: str = "4g", members: Optional[List[str]] = None,
             "has_total": cfg.get("has_tot", False), "min_y": cfg.get("min_y"), "max_y": cfg.get("max_y"),
             "cluster_series": [daily[kid]["Cluster"].get(t) for t in timestamps],
             "band_series": {b: [daily[kid][b].get(t) for t in timestamps] for b in bands_found},
+            "site_series": {
+                s: [site_daily[kid][s].get(t) for t in timestamps] for s in sorted(site_daily[kid])
+            } if per_site else {},
             **_compare(period[("before", None)].get(kid), period[("after", None)].get(kid), pol),
         }
         site_rows[kid] = [
@@ -350,6 +367,7 @@ def get_cluster_compare(tech: str = "4g", members: Optional[List[str]] = None,
         "timestamps": timestamps,
         "bands": bands_found,
         "member_sites": sites,
+        "site_curve": per_site,  # True when the By Site curve is offered (fewer than SITE_CURVE_LIMIT sites)
         "sites_with_data": sites_with_data,
         "sites_without_data": [s for s in sites if s not in sites_with_data],
         "kpis": kpis_out,
