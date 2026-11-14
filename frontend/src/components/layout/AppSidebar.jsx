@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Activity, BarChart3, Boxes, Calendar, ChevronDown, ChevronLeft, Clock, Database, LayoutDashboard, Moon, Radio, RadioTower, Smile, Target, TrendingDown, Wifi,
+  Activity, BarChart3, Boxes, Calendar, ChevronDown, ChevronLeft, Clock, Database, LayoutDashboard, Moon, Radio, RadioTower, ShieldCheck, Smile, Target, TrendingDown, Wifi,
 } from 'lucide-react';
 import { APP_NAME, APP_VERSION } from '../../constants/kpis';
 
@@ -83,13 +83,26 @@ function DbStatusRow({ label, port, ok }) {
   );
 }
 
-// Left navigation: Overview, Main KPI, Worst Cell / ZTZP, Others
-export default function AppSidebar({ open, onClose, activeMenu, onSelectMenu, dbStatus, darkMode }) {
-  const [kpiOpen, setKpiOpen] = useState(true);
-  const [fourGOpen, setFourGOpen] = useState(true);
-  const [taOpen, setTaOpen] = useState(true);
-  const [okrOpen, setOkrOpen] = useState(true);
+// Left navigation: Overview, Main KPI, Worst Cell / ZTZP, Others, Administrasi.
+// can(menuId) hides every menu the user's role may not open; empty groups disappear too.
+export default function AppSidebar({ open, onClose, activeMenu, onSelectMenu, can = () => true, dbStatus, darkMode }) {
+  // Groups start collapsed; the user opens the one they need
+  const [kpiOpen, setKpiOpen] = useState(false);
+  const [fourGOpen, setFourGOpen] = useState(false);
+  const [taOpen, setTaOpen] = useState(false);
+  const [okrOpen, setOkrOpen] = useState(false);
+  // Groups start collapsed, but the group holding the active page opens so the selection stays visible
+  // (e.g. a role whose landing page sits inside a group, or a page opened from elsewhere)
+  useEffect(() => {
+    if (['2g', '4g-hourly', '4g-daily', '5g'].includes(activeMenu)) setKpiOpen(true);
+    if (activeMenu.startsWith('4g')) setFourGOpen(true);
+    if (activeMenu.startsWith('ta-')) setTaOpen(true);
+    if (activeMenu === 'cei') setOkrOpen(true);
+  }, [activeMenu]);
   const common = { activeMenu, onSelect: onSelectMenu, darkMode };
+  const any = (...ids) => ids.some(can);
+  const showKpi = any('2g', '4g-hourly', '4g-daily', '5g');
+  const showMainKpi = showKpi || any('cluster', 'cei');
 
   return (
     <aside className={`fixed inset-y-0 left-0 z-40 w-64 transition-transform duration-300 ease-in-out flex flex-col shadow-2xl border-r ${
@@ -116,15 +129,21 @@ export default function AppSidebar({ open, onClose, activeMenu, onSelectMenu, db
       </div>
 
       <div className="p-3 space-y-1 grow overflow-y-auto">
-        <div className="mb-2">
-          <MenuButton id="overview" label="Overview" Icon={LayoutDashboard} accent="blue" tag="OneDb" size="lg" {...common} />
-        </div>
-
-        <SectionTitle>Main KPI</SectionTitle>
-        <Group label="KPI Monitoring" Icon={RadioTower} iconClass="text-blue-500" open={kpiOpen} onToggle={() => setKpiOpen(!kpiOpen)} darkMode={darkMode}>
-          <div className="mb-0.5">
-            <MenuButton id="2g" label="2G Monitoring" Icon={Radio} accent="emerald" tag="OneDb" {...common} />
+        {can('overview') && (
+          <div className="mb-2">
+            <MenuButton id="overview" label="Overview" Icon={LayoutDashboard} accent="blue" tag="OneDb" size="lg" {...common} />
           </div>
+        )}
+
+        {showMainKpi && <SectionTitle>Main KPI</SectionTitle>}
+        {showKpi && (
+        <Group label="KPI Monitoring" Icon={RadioTower} iconClass="text-blue-500" open={kpiOpen} onToggle={() => setKpiOpen(!kpiOpen)} darkMode={darkMode}>
+          {can('2g') && (
+            <div className="mb-0.5">
+              <MenuButton id="2g" label="2G Monitoring" Icon={Radio} accent="emerald" tag="OneDb" {...common} />
+            </div>
+          )}
+          {any('4g-hourly', '4g-daily') && (
           <div className="mb-0.5">
             <button
               type="button"
@@ -143,37 +162,54 @@ export default function AppSidebar({ open, onClose, activeMenu, onSelectMenu, db
             </button>
             {fourGOpen && (
               <div className={`mt-1 ml-2.5 pl-2.5 border-l space-y-1 ${darkMode ? 'border-slate-800' : 'border-slate-200'}`}>
-                <MenuButton id="4g-hourly" label="4G Hourly" Icon={Clock} accent="blue" tag="TwoDb" size="sm" {...common} />
-                <MenuButton id="4g-daily" label="4G Daily" Icon={Calendar} accent="amber" tag="OneDb" size="sm" {...common} />
+                {can('4g-hourly') && <MenuButton id="4g-hourly" label="4G Hourly" Icon={Clock} accent="blue" tag="TwoDb" size="sm" {...common} />}
+                {can('4g-daily') && <MenuButton id="4g-daily" label="4G Daily" Icon={Calendar} accent="amber" tag="OneDb" size="sm" {...common} />}
               </div>
             )}
           </div>
-          <MenuButton id="5g" label="5G Monitoring" Icon={Wifi} accent="cyan" tag="OneDb" {...common} />
+          )}
+          {can('5g') && <MenuButton id="5g" label="5G Monitoring" Icon={Wifi} accent="cyan" tag="OneDb" {...common} />}
         </Group>
-        <div className="pt-1">
-          <MenuButton id="cluster" label="Cluster Monitoring" Icon={Boxes} accent="teal" tag="2G/4G/5G" size="lg" {...common} />
-        </div>
+        )}
+        {can('cluster') && (
+          <div className="pt-1">
+            <MenuButton id="cluster" label="Cluster Monitoring" Icon={Boxes} accent="teal" tag="2G/4G/5G" size="lg" {...common} />
+          </div>
+        )}
 
-        <div className="pt-1">
-          <Group label="OKR" Icon={Target} iconClass="text-emerald-500" open={okrOpen} onToggle={() => setOkrOpen(!okrOpen)} darkMode={darkMode}>
-            <MenuButton id="cei" label="CEI" Icon={Smile} accent="emerald" tag="OneDb/TwoDb" {...common} />
-          </Group>
-        </div>
+        {can('cei') && (
+          <div className="pt-1">
+            <Group label="OKR" Icon={Target} iconClass="text-emerald-500" open={okrOpen} onToggle={() => setOkrOpen(!okrOpen)} darkMode={darkMode}>
+              <MenuButton id="cei" label="CEI" Icon={Smile} accent="emerald" tag="OneDb/TwoDb" {...common} />
+            </Group>
+          </div>
+        )}
 
-        <SectionTitle>Worst Cell &amp; ZTZP</SectionTitle>
+        {any('worst-cell', 'ztzp') && <SectionTitle>Worst Cell &amp; ZTZP</SectionTitle>}
         <div className="space-y-1">
-          <MenuButton id="worst-cell" label="Worst Cell Top-N" Icon={TrendingDown} accent="rose" tag="2G/4G/5G" size="lg" {...common} />
-          <MenuButton id="ztzp" label="ZTZP" Icon={Moon} accent="violet" tag="2G/4G/5G" size="lg" {...common} />
+          {can('worst-cell') && <MenuButton id="worst-cell" label="Worst Cell Top-N" Icon={TrendingDown} accent="rose" tag="2G/4G/5G" size="lg" {...common} />}
+          {can('ztzp') && <MenuButton id="ztzp" label="ZTZP" Icon={Moon} accent="violet" tag="2G/4G/5G" size="lg" {...common} />}
         </div>
 
-        <SectionTitle>Others</SectionTitle>
-        <Group label="Timing Advance" Icon={Clock} iconClass="text-amber-500" open={taOpen} onToggle={() => setTaOpen(!taOpen)} darkMode={darkMode}>
-          <MenuButton id="ta-4g" label="Timing Advance 4G" Icon={BarChart3} accent="amber" tag="OneDb" {...common} />
-          <MenuButton id="ta-5g" label="Timing Advance 5G" Icon={BarChart3} accent="cyan" tag="OneDb" {...common} />
-        </Group>
-        <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-slate-800">
-          <MenuButton id="packet-loss" label="Packet Loss" Icon={Activity} accent="teal" tag="OneDb" size="lg" {...common} />
-        </div>
+        {any('ta-4g', 'ta-5g', 'packet-loss') && <SectionTitle>Others</SectionTitle>}
+        {any('ta-4g', 'ta-5g') && (
+          <Group label="Timing Advance" Icon={Clock} iconClass="text-amber-500" open={taOpen} onToggle={() => setTaOpen(!taOpen)} darkMode={darkMode}>
+            {can('ta-4g') && <MenuButton id="ta-4g" label="Timing Advance 4G" Icon={BarChart3} accent="amber" tag="OneDb" {...common} />}
+            {can('ta-5g') && <MenuButton id="ta-5g" label="Timing Advance 5G" Icon={BarChart3} accent="cyan" tag="OneDb" {...common} />}
+          </Group>
+        )}
+        {can('packet-loss') && (
+          <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-slate-800">
+            <MenuButton id="packet-loss" label="Packet Loss" Icon={Activity} accent="teal" tag="OneDb" size="lg" {...common} />
+          </div>
+        )}
+
+        {can('admin') && (
+          <>
+            <SectionTitle>Administration</SectionTitle>
+            <MenuButton id="admin" label="User & Access Rights"Icon={ShieldCheck} accent="violet" tag="Admin" size="lg" {...common} />
+          </>
+        )}
       </div>
 
       <div className={`p-3 border-t text-xs ${darkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'}`}>

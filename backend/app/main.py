@@ -1,6 +1,4 @@
 import os
-import base64
-import secrets
 import threading
 import time
 from collections import OrderedDict
@@ -11,7 +9,9 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response, JSONResponse
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 from .config import settings
+from . import auth_store
 from .db import check_db_health, get_twodb_connection, get_latest_data_date
 from .queries import get_site_payload_data
 from .queries_daily import (
@@ -99,76 +99,221 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 @app.on_event("startup")
 def startup_event():
+    auth_store.init_db()
     threading.Thread(target=prewarm_overview_cache, daemon=True).start()
 
 class LoginPayload(BaseModel):
     username: str
     password: str
 
-# HTTP Basic login for protected endpoints when DASHBOARD_USER and DASHBOARD_PASS are set in backend/.env
-@app.middleware("http")
-async def basic_auth(request: Request, call_next):
-    if not (settings.DASHBOARD_USER and settings.DASHBOARD_PASS):
-        return await call_next(request)
+# ------------------------------------------------------------------ login & privileges
+# Which menu permission an API path needs (first matching prefix wins). A user may call the
+# endpoint when their role has ANY of the listed menus. Paths not listed (site lists, KPI lists,
+# hierarchy, status, export) only need a valid login, since every page loads them.
+API_MENU_RULES = [
+    ("/api/admin/", ("admin",)),
+    ("/api/cei/", ("cei",)),
+    ("/api/clusters", ("cluster",)),
+    ("/api/cluster/", ("cluster",)),
+    ("/api/overview/", ("overview",)),
+    ("/api/worstcell", ("worst-cell",)),
+    ("/api/ztzp", ("ztzp",)),
+    ("/api/timing_advance/4g", ("ta-4g",)),
+    ("/api/timing_advance/5g", ("ta-5g",)),
+    ("/api/timing_advance/compare", ("ta-4g", "ta-5g")),
+    ("/api/packet_loss/", ("packet-loss",)),
+    ("/api/hourly/aggregation", ("4g-hourly",)),
+    ("/api/payload_sectors", ("4g-hourly",)),
+    ("/api/daily/aggregation", ("4g-daily",)),
+    ("/api/daily/payload_sectors", ("4g-daily",)),
+    ("/api/5g/aggregation", ("5g",)),
+    ("/api/5g/payload_sectors", ("5g",)),
+    ("/api/2g/aggregation", ("2g",)),
+    ("/api/2g/payload_sectors", ("2g",)),
+]
+PUBLIC_API = {"/api/auth/login", "/api/auth/check", "/api/auth/logout"}
+# Used when no user exists yet (fresh install without DASHBOARD_USER): everything stays open as before.
+OPEN_ACCESS_USER = {
+    "id": None, "username": "Admin", "full_name": "Admin", "role_id": auth_store.SUPERADMIN_ROLE,
+    "role_name": "SuperAdmin", "is_super": True, "permissions": list(auth_store.MENU_IDS),
+}
 
-    path = request.url.path
-    # Allow static assets, SPA routes, and auth endpoints through
-    if not path.startswith("/api/") or path.startswith("/api/auth/"):
-        return await call_next(request)
-
+def _bearer(request: Request) -> str:
     header = request.headers.get("authorization", "")
-    if header.lower().startswith("basic "):
-        try:
-            user, _, pw = base64.b64decode(header[6:]).decode("utf-8").partition(":")
-        except Exception:
-            user, pw = "", ""
-        if secrets.compare_digest(user, settings.DASHBOARD_USER) and secrets.compare_digest(pw, settings.DASHBOARD_PASS):
-            return await call_next(request)
+    return header[7:].strip() if header.lower().startswith("bearer ") else ""
 
-    # Return 401 JSON without WWW-Authenticate header to prevent native browser login dialog
-    return JSONResponse(
-        status_code=401,
-        content={"error": "Unauthorized", "message": "Authentication is required to access netPulse data."}
-    )
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else ""
+
+def _required_menus(path: str):
+    for prefix, menus in API_MENU_RULES:
+        if path.startswith(prefix):
+            return menus
+    return ()
+
+def _current_user(request: Request) -> Optional[dict]:
+    if not auth_store.auth_required():
+        return OPEN_ACCESS_USER
+    return auth_store.resolve_token(_bearer(request))
+
+@app.middleware("http")
+async def session_auth(request: Request, call_next):
+    path = request.url.path
+    # Static assets, SPA routes and the login endpoints are not protected
+    if not path.startswith("/api/") or path in PUBLIC_API:
+        return await call_next(request)
+
+    user = await run_in_threadpool(_current_user, request)
+    if not user:
+        # 401 JSON without WWW-Authenticate so the browser shows no native login dialog
+        return JSONResponse(status_code=401, content={"error": "Unauthorized", "message": "Silakan login ulang."})
+
+    menus = _required_menus(path)
+    if menus and not any(m in user["permissions"] for m in menus):
+        return JSONResponse(status_code=403, content={"error": "Forbidden", "message": "Role Anda tidak punya akses ke menu ini."})
+
+    request.state.user = user
+    return await call_next(request)
 
 @app.post("/api/auth/login")
-def api_login(payload: LoginPayload):
-    """Authenticate against DASHBOARD_USER and DASHBOARD_PASS from backend/.env."""
-    if not (settings.DASHBOARD_USER and settings.DASHBOARD_PASS):
-        return {"success": True, "user": payload.username or "Admin", "token": "open_access"}
-
-    if (
-        secrets.compare_digest(payload.username, settings.DASHBOARD_USER)
-        and secrets.compare_digest(payload.password, settings.DASHBOARD_PASS)
-    ):
-        raw = f"{payload.username}:{payload.password}"
-        token = base64.b64encode(raw.encode("utf-8")).decode("utf-8")
-        return {"success": True, "user": payload.username, "token": token}
-
-    return JSONResponse(
-        status_code=401,
-        content={"error": "Username and password do not match."}
-    )
+def api_login(payload: LoginPayload, request: Request):
+    """Checks username/password against the user database and returns a session token."""
+    if not auth_store.auth_required():
+        return {"success": True, "user": OPEN_ACCESS_USER, "token": "open_access", "auth_required": False}
+    try:
+        result = auth_store.authenticate(payload.username, payload.password)
+    except auth_store.AuthError as e:
+        auth_store.log(payload.username.strip()[:64], "login_failed", detail=str(e), ip=_client_ip(request))
+        return JSONResponse(status_code=401, content={"success": False, "error": str(e)})
+    auth_store.log(result["user"]["username"], "login", ip=_client_ip(request))
+    return {"success": True, "user": result["user"], "token": result["token"], "auth_required": True}
 
 @app.get("/api/auth/check")
 def api_check_auth(request: Request):
-    """Verify currently stored session token."""
-    if not (settings.DASHBOARD_USER and settings.DASHBOARD_PASS):
-        return {"authenticated": True, "auth_required": False, "user": "Admin"}
+    """Verifies the stored session token and returns the user with their menu permissions."""
+    if not auth_store.auth_required():
+        return {"authenticated": True, "auth_required": False, "user": OPEN_ACCESS_USER}
+    user = auth_store.resolve_token(_bearer(request))
+    if user:
+        return {"authenticated": True, "auth_required": True, "user": user}
+    return JSONResponse(status_code=401, content={"authenticated": False, "auth_required": True})
 
-    header = request.headers.get("authorization", "")
-    if header.lower().startswith("basic "):
-        try:
-            user, _, pw = base64.b64decode(header[6:]).decode("utf-8").partition(":")
-            if secrets.compare_digest(user, settings.DASHBOARD_USER) and secrets.compare_digest(pw, settings.DASHBOARD_PASS):
-                return {"authenticated": True, "auth_required": True, "user": user}
-        except Exception:
-            pass
+@app.post("/api/auth/logout")
+def api_logout(request: Request):
+    token = _bearer(request)
+    user = auth_store.resolve_token(token) if token else None
+    auth_store.revoke_token(token)
+    if user:
+        auth_store.log(user["username"], "logout", ip=_client_ip(request))
+    return {"success": True}
 
-    return JSONResponse(
-        status_code=401,
-        content={"authenticated": False, "auth_required": True}
-    )
+@app.post("/api/me/password")
+def api_change_own_password(body: dict, request: Request):
+    user = request.state.user
+    if user.get("id") is None:
+        return JSONResponse(status_code=400, content={"error": "Login belum diaktifkan di server ini."})
+    try:
+        auth_store.change_own_password(user["id"], str(body.get("old_password") or ""), str(body.get("new_password") or ""))
+    except auth_store.AuthError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    auth_store.log(user["username"], "change_password", user["username"], ip=_client_ip(request))
+    return {"success": True}
+
+# ------------------------------------------------------------------ Administrasi (SuperAdmin)
+def _admin_error(e: Exception):
+    if isinstance(e, auth_store.AuthError):
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    return JSONResponse(status_code=500, content={"error": f"Gagal menyimpan: {e}"})
+
+@app.get("/api/admin/meta")
+def admin_meta():
+    return {"menus": auth_store.MENUS, "min_password_len": auth_store.MIN_PASSWORD_LEN}
+
+@app.get("/api/admin/users")
+def admin_list_users():
+    return {"users": auth_store.list_users()}
+
+@app.post("/api/admin/users")
+def admin_create_user(body: dict, request: Request):
+    actor = request.state.user
+    try:
+        uid = auth_store.create_user(
+            str(body.get("username") or ""), str(body.get("full_name") or ""), str(body.get("password") or ""),
+            str(body.get("role_id") or ""), bool(body.get("is_active", True)),
+        )
+    except Exception as e:
+        return _admin_error(e)
+    created = auth_store.get_user(uid)
+    auth_store.log(actor["username"], "user_create", created["username"], f"role {created['role_id']}", _client_ip(request))
+    return {"user": created, "users": auth_store.list_users()}
+
+@app.put("/api/admin/users/{user_id}")
+def admin_update_user(user_id: int, body: dict, request: Request):
+    actor = request.state.user
+    try:
+        changes = auth_store.update_user(
+            user_id, actor.get("id"),
+            full_name=body.get("full_name"),
+            role_id=body.get("role_id"),
+            is_active=body.get("is_active"),
+            password=(body.get("password") or None),
+            unlock=bool(body.get("unlock")),
+        )
+    except Exception as e:
+        return _admin_error(e)
+    target = auth_store.get_user(user_id)
+    if changes:
+        auth_store.log(actor["username"], "user_update", target["username"], ", ".join(changes), _client_ip(request))
+    return {"user": target, "users": auth_store.list_users()}
+
+@app.delete("/api/admin/users/{user_id}")
+def admin_delete_user(user_id: int, request: Request):
+    actor = request.state.user
+    try:
+        username = auth_store.delete_user(user_id, actor.get("id"))
+    except Exception as e:
+        return _admin_error(e)
+    auth_store.log(actor["username"], "user_delete", username, ip=_client_ip(request))
+    return {"users": auth_store.list_users()}
+
+@app.get("/api/admin/roles")
+def admin_list_roles():
+    return {"roles": auth_store.list_roles(), "menus": auth_store.MENUS}
+
+@app.post("/api/admin/roles")
+def admin_create_role(body: dict, request: Request):
+    actor = request.state.user
+    try:
+        role_id = auth_store.create_role(str(body.get("name") or ""), str(body.get("description") or ""), body.get("permissions") or [])
+    except Exception as e:
+        return _admin_error(e)
+    auth_store.log(actor["username"], "role_create", role_id, ", ".join(body.get("permissions") or []), _client_ip(request))
+    return {"roles": auth_store.list_roles()}
+
+@app.put("/api/admin/roles/{role_id}")
+def admin_update_role(role_id: str, body: dict, request: Request):
+    actor = request.state.user
+    try:
+        auth_store.update_role(role_id, body.get("name"), body.get("description"), body.get("permissions"))
+    except Exception as e:
+        return _admin_error(e)
+    detail = ", ".join(body["permissions"]) if body.get("permissions") is not None else "nama/deskripsi"
+    auth_store.log(actor["username"], "role_update", role_id, detail, _client_ip(request))
+    return {"roles": auth_store.list_roles()}
+
+@app.delete("/api/admin/roles/{role_id}")
+def admin_delete_role(role_id: str, request: Request):
+    actor = request.state.user
+    try:
+        auth_store.delete_role(role_id)
+    except Exception as e:
+        return _admin_error(e)
+    auth_store.log(actor["username"], "role_delete", role_id, ip=_client_ip(request))
+    return {"roles": auth_store.list_roles()}
+
+@app.get("/api/admin/audit")
+def admin_audit(limit: int = Query(200)):
+    return {"entries": auth_store.list_audit(limit)}
 
 # In-memory cache for all site IDs from CellListRCI
 CACHED_SITES: List[str] = []
@@ -200,27 +345,43 @@ def get_sites():
     site_names = load_site_names()
     if CACHED_SITES:
         return {"sites": CACHED_SITES, "site_names": site_names, "total": len(CACHED_SITES)}
-    
-    try:
-        conn = get_twodb_connection(timeout=5)
-        if not conn:
-            CACHED_SITES = list(site_names.keys()) if site_names else ["MRW002", "UPD919", "UPD183", "COI350"]
-            return {"sites": CACHED_SITES, "site_names": site_names, "total": len(CACHED_SITES)}
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT DISTINCT site_id 
-            FROM "CellListRCI" 
-            WHERE site_id IS NOT NULL AND site_id != '' 
-            ORDER BY site_id;
-        """)
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        CACHED_SITES = [r[0].strip() for r in rows if r[0]]
-        return {"sites": CACHED_SITES, "site_names": site_names, "total": len(CACHED_SITES)}
-    except Exception as e:
-        CACHED_SITES = list(site_names.keys()) if site_names else ["MRW002", "UPD919", "UPD183", "COI350"]
-        return {"sites": CACHED_SITES, "site_names": site_names, "error": str(e), "total": len(CACHED_SITES)}
+
+    # CellListRCI exists in both TwoDb and OneDb: try TwoDb first, then OneDb, so the full site list
+    # still loads when the TwoDb tunnel is down. Only a real DB result is cached; a fallback is not,
+    # so the next call retries instead of keeping a short list until the server restarts.
+    sql = """
+        SELECT DISTINCT site_id
+        FROM "CellListRCI"
+        WHERE site_id IS NOT NULL AND site_id != ''
+        ORDER BY site_id;
+    """
+    errors = []
+    for name, connect in (("twodb", lambda: get_twodb_connection(timeout=5)), ("onedb", lambda: get_onedb_connection(timeout=10))):
+        conn = None
+        try:
+            conn = connect()
+            if not conn:
+                errors.append(f"{name} unreachable")
+                continue
+            cur = conn.cursor()
+            cur.execute(sql)
+            rows = cur.fetchall()
+            cur.close()
+            sites = sorted({r[0].strip() for r in rows if r[0] and r[0].strip()})
+            if sites:
+                CACHED_SITES = sites
+                return {"sites": CACHED_SITES, "site_names": site_names, "total": len(CACHED_SITES), "source": name}
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    fallback = sorted(site_names.keys()) if site_names else ["MRW002", "UPD919", "UPD183", "COI350"]
+    return {"sites": fallback, "site_names": site_names, "error": "; ".join(errors), "total": len(fallback)}
 
 @app.get("/api/site_names")
 def get_site_names():
@@ -831,7 +992,17 @@ def get_packet_loss_aggregation_endpoint(
 # =============================================================================
 # Cluster Monitoring: saved clusters (shared, onedb) and before/after comparison
 # =============================================================================
+def _cluster_actor(request: Request) -> dict:
+    user = request.state.user
+    return {
+        "username": user.get("username") or "",
+        "full_name": user.get("full_name") or user.get("username") or "",
+        "is_super": bool(user.get("is_super")),
+    }
+
 def _cluster_error(e: Exception) -> JSONResponse:
+    if isinstance(e, cluster_store.Forbidden):
+        return JSONResponse(status_code=403, content={"error": str(e)})
     if isinstance(e, ValueError):
         return JSONResponse(status_code=400, content={"error": str(e)})
     if isinstance(e, LookupError):
@@ -850,21 +1021,21 @@ def list_clusters_endpoint():
 @app.post("/api/clusters")
 async def create_cluster_endpoint(request: Request):
     try:
-        return cluster_store.save_cluster(await request.json())
+        return cluster_store.save_cluster(await request.json(), _cluster_actor(request))
     except Exception as e:
         return _cluster_error(e)
 
 @app.put("/api/clusters/{cluster_id}")
 async def update_cluster_endpoint(cluster_id: int, request: Request):
     try:
-        return cluster_store.save_cluster(await request.json(), cluster_id)
+        return cluster_store.save_cluster(await request.json(), _cluster_actor(request), cluster_id)
     except Exception as e:
         return _cluster_error(e)
 
 @app.delete("/api/clusters/{cluster_id}")
-def delete_cluster_endpoint(cluster_id: int):
+def delete_cluster_endpoint(cluster_id: int, request: Request):
     try:
-        if not cluster_store.delete_cluster(cluster_id):
+        if not cluster_store.delete_cluster(cluster_id, _cluster_actor(request)):
             raise LookupError("Cluster not found.")
         return {"deleted": cluster_id}
     except Exception as e:

@@ -95,6 +95,44 @@
   --color-blue-950: #1c1003;
 }
 
+/* Muted Rainbow: soft, desaturated accents on a warm off-white base */
+:root[data-palette="muted"] {
+  --color-slate-50: #f7f6f3;
+  --color-slate-100: #eeece7;
+  --color-slate-200: #dedad2;
+  --color-slate-300: #c4bfb4;
+  --color-blue-50: #f3f1f8;
+  --color-blue-100: #e6e2f1;
+  --color-blue-200: #d0c9e5;
+  --color-blue-300: #b2a8d4;
+  --color-blue-400: #9488c0;
+  --color-blue-500: #7b6fae;
+  --color-blue-600: #66599a;
+  --color-blue-700: #54487f;
+  --color-blue-800: #443a66;
+  --color-blue-900: #362f52;
+  --color-blue-950: #1f1b33;
+}
+
+/* Tonal Indigo: one hue, strong light/dark steps so light and dark elements clearly separate */
+:root[data-palette="tonal"] {
+  --color-slate-50: #eef2ff;
+  --color-slate-100: #e0e7ff;
+  --color-slate-200: #c7d2fe;
+  --color-slate-300: #a5b4fc;
+  --color-blue-50: #eef2ff;
+  --color-blue-100: #c7d2fe;
+  --color-blue-200: #a5b4fc;
+  --color-blue-300: #818cf8;
+  --color-blue-400: #6366f1;
+  --color-blue-500: #4f46e5;
+  --color-blue-600: #4338ca;
+  --color-blue-700: #3730a3;
+  --color-blue-800: #312e81;
+  --color-blue-900: #1e1b4b;
+  --color-blue-950: #0f0d2e;
+}
+
 /* Custom scrollbar for data tables and sidebars */
 ::-webkit-scrollbar {
   width: 6px;

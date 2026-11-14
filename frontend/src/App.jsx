@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import DataLoadingOverlay from './components/DataLoadingOverlay';
 import AppSidebar from './components/layout/AppSidebar';
 import AppHeader from './components/layout/AppHeader';
@@ -12,7 +12,8 @@ import useReferenceData from './hooks/useReferenceData';
 import useKpiMonitoring from './hooks/useKpiMonitoring';
 import useIdleLogout from './hooks/useIdleLogout';
 import { KPI_MENUS } from './constants/kpis';
-import { getAuthToken, getStoredAuthUser, setAuthSession, getJson } from './api/client';
+import { getAuthToken, getStoredAuthUser, setAuthSession, updateStoredAuthUser, getJson, postJson } from './api/client';
+import { MENU_ORDER } from './constants/menus';
 
 const OverviewView = lazy(() => import('./views/OverviewView'));
 const TimingAdvanceView = lazy(() => import('./components/TimingAdvanceView'));
@@ -21,6 +22,7 @@ const WorstCellView = lazy(() => import('./views/WorstCellView'));
 const ZtzpView = lazy(() => import('./views/ZtzpView'));
 const ClusterMonitoringView = lazy(() => import('./views/ClusterMonitoringView'));
 const CeiView = lazy(() => import('./views/CeiView'));
+const AdminView = lazy(() => import('./views/AdminView'));
 
 // Worst Cell / ZTZP rows open the daily sector charts of that technology
 const TECH_TO_MENU = { '2g': '2g', '4g': '4g-daily', '5g': '5g' };
@@ -34,17 +36,17 @@ export default function App() {
   const [markers, setMarkers] = useState([]); // temporary chart markers, cleared on reload
   const [exportGetter, setExportGetter] = useState(null);
 
-  // Authentication State
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return Boolean(getAuthToken() || sessionStorage.getItem('netpulse_auth_token'));
-  });
-  const [authUser, setAuthUser] = useState(() => {
-    return getStoredAuthUser() || sessionStorage.getItem('netpulse_auth_user') || 'Admin';
-  });
+  // Authentication state. authUser = { username, full_name, role_name, is_super, permissions: [menuId] }
+  const [authUser, setAuthUser] = useState(getStoredAuthUser);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(getAuthToken() && getStoredAuthUser()));
 
-  const ref = useReferenceData();
+  // Menus this role may open (the server enforces the same rules on the API)
+  const permissions = useMemo(() => authUser?.permissions || [], [authUser]);
+  const can = useCallback((menu) => permissions.includes(menu), [permissions]);
+
+  const ref = useReferenceData(isAuthenticated);
   const km = useKpiMonitoring(activeMenu, ref);
-  const isKpiMenu = KPI_MENUS.includes(activeMenu);
+  const isKpiMenu = KPI_MENUS.includes(activeMenu) && permissions.includes(activeMenu);
 
   // Pages register a function returning their Excel sheets (or null when there is nothing to export)
   const registerExport = useCallback((getter) => setExportGetter(() => getter), []);
@@ -55,72 +57,75 @@ export default function App() {
     storeTheme(themeId);
   }, [themeId, darkMode]);
 
-  // Check auth session on startup
+  const clearSession = useCallback(() => {
+    setAuthSession(null);
+    try {
+      sessionStorage.removeItem('netpulse_last_activity');
+    } catch {
+      // Ignore storage errors
+    }
+    setAuthUser(null);
+    setIsAuthenticated(false);
+  }, []);
+
+  // Check the session on startup and refresh the user's role / permissions from the server
   useEffect(() => {
     getJson('/api/auth/check')
       .then((data) => {
-        if (data?.authenticated) {
+        if (data?.authenticated && data.user) {
+          setAuthUser(data.user);
           setIsAuthenticated(true);
-          if (data?.user) setAuthUser(data.user);
+          // Open-access server (no users yet) needs no stored token
+          if (getAuthToken()) updateStoredAuthUser(data.user);
         }
       })
       .catch(() => {
         // Unauthenticated or expired session
-        if (getAuthToken() || sessionStorage.getItem('netpulse_auth_token')) {
-          setIsAuthenticated(false);
-        }
+        clearSession();
       });
 
-    const handleUnauthorized = () => {
-      setAuthSession(null);
-      try {
-        sessionStorage.removeItem('netpulse_auth_token');
-        sessionStorage.removeItem('netpulse_auth_user');
-        sessionStorage.removeItem('netpulse_last_activity');
-      } catch {
-        // Ignore storage errors
-      }
-      setIsAuthenticated(false);
-    };
+    window.addEventListener('netpulse:unauthorized', clearSession);
+    return () => window.removeEventListener('netpulse:unauthorized', clearSession);
+  }, [clearSession]);
 
-    window.addEventListener('netpulse:unauthorized', handleUnauthorized);
-    return () => window.removeEventListener('netpulse:unauthorized', handleUnauthorized);
-  }, []);
+  // Never stay on a page the role cannot open (e.g. role changed by the SuperAdmin)
+  useEffect(() => {
+    if (!isAuthenticated || !authUser || permissions.includes(activeMenu)) return;
+    const first = MENU_ORDER.find((m) => permissions.includes(m));
+    if (first) setActiveMenu(first);
+  }, [isAuthenticated, authUser, permissions, activeMenu]);
 
   const handleLoginSuccess = (user) => {
-    setAuthUser(user || 'Admin');
+    setAuthUser(user);
     setIsAuthenticated(true);
     setThemeId('ocean');
     storeTheme('ocean');
   };
 
-  const handleLogout = () => {
-    setAuthSession(null);
-    try {
-      sessionStorage.removeItem('netpulse_auth_token');
-      sessionStorage.removeItem('netpulse_auth_user');
-      sessionStorage.removeItem('netpulse_last_activity');
-    } catch {
-      // Ignore storage errors
-    }
-    setIsAuthenticated(false);
-  };
+  const handleLogout = useCallback(() => {
+    // Revoke the token on the server; the local session is cleared either way
+    if (getAuthToken()) postJson('/api/auth/logout').catch(() => {});
+    clearSession();
+  }, [clearSession]);
 
   // Auto logout after 30 minutes without mouse/keyboard/touch/scroll activity
   useIdleLogout(isAuthenticated, handleLogout, 30 * 60 * 1000);
 
   // Opening a menu never queries KPI data; the user picks a site or clicks Generate
   const handleSwitchMenu = (menu) => {
-    if (menu === activeMenu) return;
+    if (menu === activeMenu || !can(menu)) return;
     setActiveMenu(menu);
     if (KPI_MENUS.includes(menu)) km.prepareMenu(menu);
   };
 
   const openSite = (tech, site) => {
     const menu = TECH_TO_MENU[tech];
+    if (!can(menu)) return;
     setActiveMenu(menu);
     km.openSiteInMenu(menu, site);
   };
+
+  const show = (menu) => activeMenu === menu && can(menu);
 
   const common = { darkMode, onExportData: registerExport };
 
@@ -138,6 +143,7 @@ export default function App() {
         onClose={() => setSidebarOpen(false)}
         activeMenu={activeMenu}
         onSelectMenu={handleSwitchMenu}
+        can={can}
         dbStatus={ref.dbStatus}
         darkMode={darkMode}
       />
@@ -162,10 +168,10 @@ export default function App() {
 
         <main className="p-4 sm:p-5 grow space-y-4">
           <Suspense fallback={<DataLoadingOverlay />}>
-            {activeMenu === 'overview' && (
+            {show('overview') && (
               <OverviewView onOpenSite={openSite} hierarchyData={ref.hierarchyData} {...common} />
             )}
-            {(activeMenu === 'ta-4g' || activeMenu === 'ta-5g') && (
+            {(show('ta-4g') || show('ta-5g')) && (
               <TimingAdvanceView
                 key={activeMenu}
                 tech={activeMenu === 'ta-5g' ? '5g' : '4g'}
@@ -174,19 +180,20 @@ export default function App() {
                 {...common}
               />
             )}
-            {activeMenu === 'packet-loss' && (
+            {show('packet-loss') && (
               <PacketLossView allSites={ref.allSites} siteNamesMap={ref.siteNamesMap} hierarchyData={ref.hierarchyData} {...common} />
             )}
-            {activeMenu === 'worst-cell' && (
+            {show('worst-cell') && (
               <WorstCellView hierarchyData={ref.hierarchyData} onOpenSite={openSite} {...common} />
             )}
-            {activeMenu === 'cluster' && (
-              <ClusterMonitoringView refData={ref} chartsPerRow={chartsPerRow} {...common} />
+            {show('cluster') && (
+              <ClusterMonitoringView refData={ref} chartsPerRow={chartsPerRow} authUser={authUser} {...common} />
             )}
-            {activeMenu === 'cei' && <CeiView {...common} />}
-            {activeMenu === 'ztzp' && (
+            {show('cei') && <CeiView {...common} />}
+            {show('ztzp') && (
               <ZtzpView hierarchyData={ref.hierarchyData} onOpenSite={openSite} {...common} />
             )}
+            {show('admin') && <AdminView authUser={authUser} darkMode={darkMode} />}
           </Suspense>
 
           {isKpiMenu && (

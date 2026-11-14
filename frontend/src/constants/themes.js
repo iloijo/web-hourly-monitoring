@@ -6,6 +6,8 @@ export const THEMES = [
   { id: 'midnight', label: 'Midnight Navy', dark: true, swatch: ['#0d1430', '#7c6cff'] },
   { id: 'ocean', label: 'Ocean Teal', dark: false, swatch: ['#f2f8f9', '#0d9488'] },
   { id: 'crimson', label: 'Crimson', dark: false, swatch: ['#faf7f7', '#dc2626'] },
+  { id: 'muted', label: 'Muted Rainbow', dark: false, swatch: ['#f7f6f3', '#7b6fae'] },
+  { id: 'tonal', label: 'Tonal Indigo', dark: false, swatch: ['#eef2ff', '#312e81'] },
   { id: 'contrast', label: 'High Contrast', dark: true, swatch: ['#000000', '#facc15'] },
 ];
 

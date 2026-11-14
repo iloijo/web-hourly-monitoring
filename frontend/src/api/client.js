@@ -1,35 +1,51 @@
 // Small fetch helpers shared by all views
 
-export const getAuthToken = () => {
+const TOKEN_KEY = 'netpulse_auth_token';
+const USER_KEY = 'netpulse_auth_user';
+
+const safe = (fn, fallback) => {
   try {
-    return localStorage.getItem('netpulse_auth_token') || sessionStorage.getItem('netpulse_auth_token') || '';
+    return fn();
   } catch {
-    return '';
+    return fallback;
   }
 };
 
-export const setAuthSession = (token, user) => {
-  try {
+export const getAuthToken = () =>
+  safe(() => localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || '', '');
+
+// remember=true keeps the session in localStorage (survives closing the browser), otherwise sessionStorage
+export const setAuthSession = (token, user, remember = true) => {
+  safe(() => {
+    [localStorage, sessionStorage].forEach((s) => {
+      s.removeItem(TOKEN_KEY);
+      s.removeItem(USER_KEY);
+    });
     if (token) {
-      localStorage.setItem('netpulse_auth_token', token);
-      localStorage.setItem('netpulse_auth_user', user || 'Admin');
-    } else {
-      localStorage.removeItem('netpulse_auth_token');
-      localStorage.removeItem('netpulse_auth_user');
-      sessionStorage.removeItem('netpulse_auth_token');
-      sessionStorage.removeItem('netpulse_auth_user');
+      const store = remember ? localStorage : sessionStorage;
+      store.setItem(TOKEN_KEY, token);
+      store.setItem(USER_KEY, JSON.stringify(user || null));
     }
-  } catch {
-    // Ignore storage availability errors
-  }
+  });
 };
 
-export const getStoredAuthUser = () => {
-  try {
-    return localStorage.getItem('netpulse_auth_user') || sessionStorage.getItem('netpulse_auth_user') || 'Admin';
-  } catch {
-    return 'Admin';
-  }
+// Logged-in user: { username, full_name, role_id, role_name, is_super, permissions: [menuId] }
+export const getStoredAuthUser = () =>
+  safe(() => {
+    const raw = localStorage.getItem(USER_KEY) || sessionStorage.getItem(USER_KEY);
+    const user = raw ? JSON.parse(raw) : null;
+    return user && typeof user === 'object' ? user : null;
+  }, null);
+
+export const updateStoredAuthUser = (user) =>
+  safe(() => {
+    const store = localStorage.getItem(TOKEN_KEY) ? localStorage : sessionStorage;
+    store.setItem(USER_KEY, JSON.stringify(user || null));
+  });
+
+export const authHeaders = (extra = {}) => {
+  const token = getAuthToken();
+  return token ? { ...extra, Authorization: `Bearer ${token}` } : { ...extra };
 };
 
 // Builds a query string; array values become repeated keys, null/undefined/'' are skipped
@@ -42,41 +58,42 @@ export const buildQuery = (params = {}) => {
   return q.toString();
 };
 
+const notifyUnauthorized = (path) => {
+  // A failed login attempt is not an expired session
+  if (path !== '/api/auth/login') window.dispatchEvent(new CustomEvent('netpulse:unauthorized'));
+};
+
 export const getJson = async (path, params) => {
   const qs = params ? buildQuery(params) : '';
   const url = qs ? `${path}?${qs}` : path;
-  const token = getAuthToken();
-  const headers = {};
-  if (token) {
-    headers['Authorization'] = `Basic ${token}`;
-  }
-  const res = await fetch(url, { headers });
+  const res = await fetch(url, { headers: authHeaders() });
   if (res.status === 401) {
-    window.dispatchEvent(new CustomEvent('netpulse:unauthorized'));
-    throw new Error(`HTTP 401: Unauthorized`);
+    notifyUnauthorized(path);
+    throw new Error('HTTP 401: Unauthorized');
   }
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
+  }
   return res.json();
 };
 
-export const postJson = async (path, body = {}) => {
-  const token = getAuthToken();
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) {
-    headers['Authorization'] = `Basic ${token}`;
-  }
+// JSON request with any method; the server's error text is kept in the thrown Error
+export const sendJson = async (method, path, body) => {
   const res = await fetch(path, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
+    method,
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) notifyUnauthorized(path);
   if (!res.ok) {
-    const errorMsg = data?.error || data?.message || `HTTP ${res.status}`;
-    const err = new Error(errorMsg);
+    const err = new Error(data?.error === 'Forbidden' ? data.message : data?.error || data?.message || `HTTP ${res.status}`);
     err.status = res.status;
     err.data = data;
     throw err;
   }
   return data;
 };
+
+export const postJson = (path, body = {}) => sendJson('POST', path, body);

@@ -96,13 +96,11 @@ export default function LoginPage({ onLoginSuccess }) {
   const [splashProgress, setSplashProgress] = useState(0);
   const [splashText, setSplashText] = useState('Initializing NetPulse Geodesic Core...');
 
-  // Auth Form State
-  const [authTab, setAuthTab] = useState('signin'); // 'signin' | 'signup'
-  const [username, setUsername] = useState('ilo');
-  const [password, setPassword] = useState('ijo');
-  const [fullName, setFullName] = useState('');
+  // Auth Form State (accounts are created by the SuperAdmin on the Administrasi page)
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
+  const rememberMe = true;
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -242,12 +240,8 @@ export default function LoginPage({ onLoginSuccess }) {
 
       if (data?.success) {
         setSuccessMsg('Signed in! Redirecting to the dashboard...');
-        if (rememberMe) {
-          setAuthSession(data.token, data.user);
-        } else {
-          sessionStorage.setItem('netpulse_auth_token', data.token);
-          sessionStorage.setItem('netpulse_auth_user', data.user);
-        }
+        setAuthSession(data.token, data.user, rememberMe);
+        setPassword('');
         playPulseBeep(true);
         setTimeout(() => {
           if (onLoginSuccess) {
@@ -262,14 +256,6 @@ export default function LoginPage({ onLoginSuccess }) {
     } finally {
       setLoading(false);
     }
-  };
-
-  // Quick Demo / SSO handler
-  const handleQuickDemoAccess = () => {
-    setUsername('ilo');
-    setPassword('ijo');
-    setErrorMsg('');
-    setSuccessMsg('NOC credentials filled in automatically. Click "Sign In".');
   };
 
   // Canvas Animation Loops
@@ -770,6 +756,8 @@ export default function LoginPage({ onLoginSuccess }) {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     placeholder="Enter username"
+                    autoComplete="username"
+                    autoFocus
                     required
                     className="w-full pl-3.5 pr-10 py-2.5 rounded-xl text-sm transition focus:outline-none focus:ring-2 focus:ring-teal-400 bg-slate-900/80 border border-teal-500/30 text-white placeholder-slate-400"
                   />
@@ -790,6 +778,7 @@ export default function LoginPage({ onLoginSuccess }) {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter password"
+                    autoComplete="current-password"
                     required
                     className="w-full pl-3.5 pr-16 py-2.5 rounded-xl text-sm transition focus:outline-none focus:ring-2 focus:ring-teal-400 bg-slate-900/80 border border-teal-500/30 text-white placeholder-slate-400"
                   />

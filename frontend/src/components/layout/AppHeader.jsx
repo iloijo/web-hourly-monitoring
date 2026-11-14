@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { CheckCircle2, Menu, RefreshCw, LogOut } from 'lucide-react';
 import { MENU_META } from '../../constants/menus';
+import ChangePasswordModal from './ChangePasswordModal';
 
 const BADGE = {
   rose: 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800',
@@ -16,6 +18,7 @@ export default function AppHeader({
   activeMenu, sidebarOpen, onOpenSidebar, km, isKpiMenu, onSwitchMenu,
   chartsPerRow, setChartsPerRow, darkMode, authUser, onLogout, children,
 }) {
+  const [pwOpen, setPwOpen] = useState(false);
   const meta = MENU_META[activeMenu] || { title: activeMenu, crumbGroup: '', crumb: '', db: 'onedb' };
   const isTwoDb = meta.db === 'twodb';
   const isDaily = activeMenu === '4g-daily';
@@ -52,10 +55,12 @@ export default function AppHeader({
           </div>
         </div>
 
-        <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${BADGE[isTwoDb ? 'emerald' : 'amber']}`}>
-          <CheckCircle2 className={`w-3 h-3 ${isTwoDb ? 'text-emerald-500' : 'text-amber-500'}`} />
-          <span>{isTwoDb ? 'TwoDb Live' : 'OneDb Live'}</span>
-        </div>
+        {meta.db !== 'local' && (
+          <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${BADGE[isTwoDb ? 'emerald' : 'amber']}`}>
+            <CheckCircle2 className={`w-3 h-3 ${isTwoDb ? 'text-emerald-500' : 'text-amber-500'}`} />
+            <span>{isTwoDb ? 'TwoDb Live' : 'OneDb Live'}</span>
+          </div>
+        )}
       </div>
 
       <form onSubmit={km.handleGetData} className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
@@ -101,7 +106,7 @@ export default function AppHeader({
           </>
         )}
 
-        {activeMenu !== 'overview' && activeMenu !== 'cei' && (
+        {!['overview', 'cei', 'admin'].includes(activeMenu) && (
           <div className={`hidden lg:flex ${pillBox}`}>
             {[1, 2, 3].map(num => (
               <button
@@ -124,12 +129,26 @@ export default function AppHeader({
 
         {authUser && (
           <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200 dark:border-slate-800">
-            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${
-              darkMode ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-200 text-slate-700'
-            }`}>
+            <button
+              type="button"
+              onClick={() => authUser.id != null && setPwOpen(true)}
+              title={authUser.id != null ? 'Ganti password' : undefined}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
+                authUser.id != null ? 'cursor-pointer' : 'cursor-default'
+              } ${
+                darkMode ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700' : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>{authUser}</span>
-            </div>
+              <span>{authUser.full_name || authUser.username}</span>
+              {authUser.role_name && (
+                <span className={`px-1.5 py-px rounded text-[10px] font-bold ${
+                  authUser.is_super ? 'bg-violet-600 text-white' : darkMode ? 'bg-slate-700 text-slate-300' : 'bg-white text-slate-600 border border-slate-200'
+                }`}>
+                  {authUser.role_name}
+                </span>
+              )}
+            </button>
             {onLogout && (
               <button
                 type="button"
@@ -147,6 +166,7 @@ export default function AppHeader({
           </div>
         )}
       </form>
+      {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} darkMode={darkMode} />}
     </header>
   );
 }

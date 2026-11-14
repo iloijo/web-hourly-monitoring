@@ -3,12 +3,12 @@ import { AlertTriangle, BarChart3, ChevronDown, LayoutGrid, MousePointerClick, R
 import DataLoadingOverlay from '../components/DataLoadingOverlay';
 import KpiDropdownPopover from '../components/KpiDropdownPopover';
 import MultiSelectDropdown from '../components/MultiSelectDropdown';
-import SectorPayloadChart, { BAND_COLORS } from '../components/SectorPayloadChart';
+import SectorPayloadChart, { BAND_COLORS, ENTITY_PALETTE } from '../components/SectorPayloadChart';
 import SegmentedToggle from '../components/filters/SegmentedToggle';
 import { FilterLabel } from '../components/filters/FilterLabel';
 import { fieldClass } from '../components/filters/styles';
 import useClickOutside from '../hooks/useClickOutside';
-import { getAuthToken, getJson, postJson } from '../api/client';
+import { authHeaders, getJson, postJson } from '../api/client';
 import { DEFAULT_DAILY_KPIS } from '../constants/kpis';
 import { loadLatestDates, shiftDate } from '../constants/dates';
 import ClusterEditor from './cluster/ClusterEditor';
@@ -52,10 +52,9 @@ const toPayload = (d) => ({
 
 // Cluster store calls; the server's error text (e.g. write role not configured) is kept in the thrown Error
 async function sendJson(method, path, body) {
-  const token = getAuthToken();
   const res = await fetch(path, {
     method,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Basic ${token}` } : {}) },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
@@ -93,7 +92,9 @@ function ClusterKpiFilter({ catalog, selected, setSelected, defaults, darkMode }
 }
 
 // Cluster Monitoring: custom site / site-sector cluster, daily trend and Before vs After on 2G / 4G / 5G
-export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode, onExportData }) {
+const SITE_CURVE_LIMIT = 20; // keep in sync with queries_cluster.SITE_CURVE_LIMIT
+
+export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode, onExportData, authUser }) {
   const { hierarchyData, allSites, sites2g, sites5g, siteNamesMap, dailyKpisList, kpis2gList, kpis5gList } = refData;
   const catalogs = { '2g': kpis2gList, '4g': dailyKpisList, '5g': kpis5gList };
 
@@ -192,6 +193,17 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
     (!setFilter.nops.length || setFilter.nops.includes(meta.nop))
     && (!setFilter.cities.length || setFilter.cities.includes(meta.kabupaten))
     && (!setFilter.kecamatans.length || setFilter.kecamatans.includes(meta.kecamatan))).map(x => x.m);
+
+  // ---- ownership: the creator and SuperAdmin may edit / delete a saved cluster ----
+  const selectedCluster = clusters.find(c => c.id === selectedId) || null;
+  const canManage = !selectedCluster || !!authUser?.is_super
+    || (!!selectedCluster.created_by && selectedCluster.created_by === authUser?.username);
+
+  // ---- By Site curve: only offered when the cluster has fewer than SITE_CURVE_LIMIT sites ----
+  const curveSiteCount = useMemo(() => new Set(effectiveMembers.map(memberSite)).size, [effectiveMembers]);
+  const siteCurveOffered = curveSiteCount < SITE_CURVE_LIMIT;
+  const curveMode = chartMode === 'site' && !siteCurveOffered ? 'cluster' : chartMode;
+  const curveOptions = [['cluster', 'Cluster'], ['band', 'Per Band'], ...(siteCurveOffered ? [['site', 'Per Site']] : [])];
 
   // ---- data ----
   const fetchTech = useCallback((t, req) => {
@@ -311,11 +323,23 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
       // 3. Charts sheet
       const clusterCharts = [];
       if (result.timestamps && result.timestamps.length > 0) {
-        const byBand = chartMode === 'band';
+        const byBand = curveMode === 'band';
         ids.forEach(id => {
           const k = result.kpis[id];
           if (!k) return;
-          if (byBand && k.band_series) {
+          if (curveMode === 'site' && k.site_series) {
+            clusterCharts.push({
+              title: `${k.title} (${k.unit})`,
+              unit: k.unit,
+              categories: result.timestamps,
+              series: Object.entries(k.site_series).map(([site, vals], idx) => ({
+                name: site,
+                band: 'ENTITY',
+                color: ENTITY_PALETTE[idx % ENTITY_PALETTE.length],
+                values: vals
+              }))
+            });
+          } else if (byBand && k.band_series) {
             const bEntries = Object.entries(k.band_series);
             clusterCharts.push({
               title: `${k.title} (${k.unit})`,
@@ -378,14 +402,21 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
       };
     });
     return () => onExportData(null);
-  }, [result, chartMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [result, curveMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const card = darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm';
   const field = `border rounded-lg px-2.5 py-1.5 text-xs font-semibold cursor-pointer ${fieldClass(darkMode)}`;
-  const periods = result ? [
-    { start: result.before.start, end: result.before.end, label: 'Before', color: PERIOD_COLORS.before },
-    { start: result.after.start, end: result.after.end, label: 'After', color: PERIOD_COLORS.after },
+  // Chart shading follows the Before / After being edited (e.g. the Fill value) as soon as they are valid,
+  // so the windows move without a new query; the table keeps the periods of the last Generate.
+  const draftPeriodsValid = !periodError(draft);
+  const shade = draftPeriodsValid
+    ? { bs: draft.before_start, be: draft.before_end, as: draft.after_start, ae: draft.after_end }
+    : result ? { bs: result.before.start, be: result.before.end, as: result.after.start, ae: result.after.end } : null;
+  const periods = result && shade ? [
+    { start: shade.bs, end: shade.be, label: 'Before', color: PERIOD_COLORS.before },
+    { start: shade.as, end: shade.ae, label: 'After', color: PERIOD_COLORS.after },
   ] : [];
+  const periodsChanged = Boolean(request) && draftPeriodsValid && PERIOD_KEYS.some(k => request[k] !== draft[k]);
 
   const renderCharts = () => {
     if (!result) return null;
@@ -394,15 +425,18 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
         {selectedKpis.map(id => {
           const k = result.kpis[id];
           if (!k) return null;
-          const byBand = chartMode === 'band';
+          const byBand = curveMode === 'band';
+          const siteSeries = curveMode === 'site' ? k.site_series : null;
           return (
             <SectorPayloadChart
-              key={`cluster_${tech}_${chartMode}_${id}`}
+              key={`cluster_${tech}_${curveMode}_${id}`}
               title={k.title}
               unit={k.unit}
               timestamps={result.timestamps}
-              carrierSeries={byBand ? k.band_series : { Cluster: k.cluster_series }}
-              carrierBands={byBand ? Object.fromEntries(result.bands.map(b => [b, b])) : { Cluster: 'ENTITY' }}
+              carrierSeries={siteSeries || (byBand ? k.band_series : { Cluster: k.cluster_series })}
+              carrierBands={siteSeries
+                ? Object.fromEntries(Object.keys(siteSeries).map(s => [s, 'ENTITY']))
+                : byBand ? Object.fromEntries(result.bands.map(b => [b, b])) : { Cluster: 'ENTITY' }}
               availableBands={byBand ? result.bands : null}
               hasTotal={byBand && k.has_total}
               minY={k.min_y}
@@ -437,6 +471,9 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
         knownSites={knownSites}
         siteSectors={siteSectors}
         darkMode={darkMode}
+        canManage={canManage}
+        owner={selectedCluster?.created_by || ''}
+        currentPic={authUser?.full_name || authUser?.username || ''}
       />
 
       <div className={`rounded-xl border p-4 shadow-2xs ${darkMode ? 'bg-slate-800/80 border-slate-700/80' : 'bg-white border-slate-200/90'}`}>
@@ -469,6 +506,9 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
           {effectiveMembers.length} of {draft.members.length} members match the set filter. The chart shows Start – End
           (max {MAX_CHART_DAYS} days); the table compares the Before and After periods.
           {inputError && <span className="ml-1 font-semibold text-rose-500">{inputError}</span>}
+          {periodsChanged && (
+            <span className="ml-1 font-semibold text-amber-500">Before / After changed: the chart shows the new windows; press Generate to update the table.</span>
+          )}
         </div>
       </div>
 
@@ -478,7 +518,7 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
             <SegmentedToggle label="TECHNOLOGY" options={TECHS} value={tech} onChange={setTech} darkMode={darkMode} />
             <SegmentedToggle label="VIEW" options={[['combine', 'Combine'], ['chart', 'Chart'], ['table', 'Table']]} value={viewMode} onChange={setViewMode} darkMode={darkMode} />
             {(viewMode === 'chart' || viewMode === 'combine') && (
-              <SegmentedToggle label="CURVE" options={[['cluster', 'Cluster'], ['band', 'Per Band']]} value={chartMode} onChange={setChartMode} darkMode={darkMode} />
+              <SegmentedToggle label="CURVE" options={curveOptions} value={curveMode} onChange={setChartMode} darkMode={darkMode} />
             )}
             <ClusterKpiFilter
               catalog={catalogs[tech]}

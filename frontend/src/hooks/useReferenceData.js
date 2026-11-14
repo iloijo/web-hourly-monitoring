@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { getJson } from '../api/client';
 import { FALLBACK_DAILY_KPIS, FALLBACK_5G_KPIS, FALLBACK_2G_KPIS } from '../constants/kpis';
 
-// Reference data loaded once on mount: DB status, site lists, site names, hierarchy and KPI catalogs.
+// Reference data loaded once the user is logged in: DB status, site lists, site names, hierarchy and KPI catalogs.
 // These are small lookups, not KPI queries.
-export default function useReferenceData() {
+export default function useReferenceData(enabled = true) {
   const [dbStatus, setDbStatus] = useState({ twodb_connected: null, onedb_connected: null });
   const [allSites, setAllSites] = useState([]);
   const [sites5g, setSites5g] = useState([]);
@@ -16,6 +16,8 @@ export default function useReferenceData() {
   const [kpis2gList, setKpis2gList] = useState(FALLBACK_2G_KPIS);
 
   useEffect(() => {
+    // The API needs a session; loading on the login page would only return 401s
+    if (!enabled) return;
     const mergeNames = (names) => {
       if (names && typeof names === 'object') setSiteNamesMap(prev => ({ ...prev, ...names }));
     };
@@ -39,7 +41,7 @@ export default function useReferenceData() {
       mergeNames(json.site_names);
     }).catch(warn('2G sites'));
     getJson('/api/2g/kpi_list').then(json => { if (Array.isArray(json?.kpis)) setKpis2gList(json.kpis); }).catch(warn('2G KPI catalog'));
-  }, []);
+  }, [enabled]);
 
   return {
     dbStatus, allSites, sites5g, sites2g, siteNamesMap, hierarchyData,
