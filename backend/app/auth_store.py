@@ -31,6 +31,7 @@ MENUS = [
     {"id": "5g", "label": "5G Monitoring", "group": "KPI Monitoring"},
     {"id": "cluster", "label": "Cluster Monitoring", "group": "Cluster Monitoring"},
     {"id": "cei", "label": "CEI", "group": "OKR"},
+    {"id": "crowdsource", "label": "Crowdsource", "group": "OKR"},
     {"id": "worst-cell", "label": "Worst Cell Top-N", "group": "Worst Cell & ZTZP"},
     {"id": "ztzp", "label": "ZTZP", "group": "Worst Cell & ZTZP"},
     {"id": "ta-4g", "label": "Timing Advance 4G", "group": "Timing Advance"},
@@ -45,7 +46,7 @@ DEFAULT_ROLES = [
     # (id, name, description, is_super, permissions)
     (SUPERADMIN_ROLE, "SuperAdmin", "Semua menu, kelola user, role dan hak akses", 1, MENU_IDS),
     ("rno", "RNO", "Semua menu monitoring", 0, [m for m in MENU_IDS if m != "admin"]),
-    ("oss", "OSS/Viewer", "Semua menu monitoring kecuali OKR", 0, [m for m in MENU_IDS if m not in ("admin", "cei")]),
+    ("oss", "OSS/Viewer", "Semua menu monitoring kecuali OKR", 0, [m for m in MENU_IDS if m not in ("admin", "cei", "crowdsource")]),
 ]
 
 SESSION_IDLE_SEC = 30 * 60          # matches the frontend idle logout

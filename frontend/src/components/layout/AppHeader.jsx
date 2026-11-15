@@ -106,7 +106,7 @@ export default function AppHeader({
           </>
         )}
 
-        {!['overview', 'cei', 'admin'].includes(activeMenu) && (
+        {!['overview', 'cei', 'crowdsource', 'admin'].includes(activeMenu) && (
           <div className={`hidden lg:flex ${pillBox}`}>
             {[1, 2, 3].map(num => (
               <button

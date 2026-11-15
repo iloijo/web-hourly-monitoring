@@ -11,12 +11,13 @@ export const MENU_META = {
   'ta-4g': { title: 'Timing Advance 4G', crumbGroup: 'Timing Advance', crumb: '4G TA', source: 'OneDb Live (measTa4g)', db: 'onedb' },
   'ta-5g': { title: 'Timing Advance 5G', crumbGroup: 'Timing Advance', crumb: '5G TA', source: 'OneDb Live (measTa5g)', db: 'onedb' },
   'cei': { title: 'CEI', crumbGroup: 'OKR', crumb: 'Customer Experience Index', source: 'OneDb (measCEIweekly, measBdbh4g) & TwoDb (ceiKQI_daily_site)', db: 'onedb' },
+  'crowdsource': { title: 'Crowdsource', crumbGroup: 'OKR', crumb: 'OpenSignal & Ookla', source: 'OneDb (measONX, measOoklaRegion, measOoklaCity, raw_desiqa)', db: 'onedb' },
   'packet-loss': { title: 'TWAMP Packet Loss', crumbGroup: 'Quality & Transport', crumb: 'TWAMP 4G', source: 'OneDb Live (measTwamp4g)', db: 'onedb' },
   'admin': { title: 'Administration', crumbGroup: 'Administration', crumb: 'User & Access Rights', source: 'Local (netpulse_auth.sqlite3)', db: 'local' },
 };
 
 // Sidebar order: the first menu a role may open becomes its landing page
 export const MENU_ORDER = [
-  'overview', '2g', '4g-hourly', '4g-daily', '5g', 'cluster', 'cei',
+  'overview', '2g', '4g-hourly', '4g-daily', '5g', 'cluster', 'cei', 'crowdsource',
   'worst-cell', 'ztzp', 'ta-4g', 'ta-5g', 'packet-loss', 'admin',
 ];
