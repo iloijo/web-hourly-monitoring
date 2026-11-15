@@ -39,8 +39,13 @@ from .queries_overview import (
 )
 from . import clusters as cluster_store
 from . import cei_store
+from . import crowd_store
 from .queries_cei import (
     get_cei_weeks, get_cei_weekly, get_cei_throughput, get_cei_contributors, get_cei_daily, get_cei_hierarchy,
+)
+from .queries_crowdsource import (
+    get_crowd_meta, get_crowd_summary, get_crowd_achievement,
+    get_crowd_trend, get_crowd_contributors, get_crowd_map, get_crowd_trend_grid,
 )
 
 # Short-lived result cache: switching back to a scope/site already viewed returns instantly.
@@ -94,6 +99,13 @@ get_cei_throughput = _cached(get_cei_throughput)
 get_cei_contributors = _cached(get_cei_contributors)
 get_cei_daily = _cached(get_cei_daily)
 get_cei_hierarchy = _cached(get_cei_hierarchy)
+get_crowd_meta = _cached(get_crowd_meta)
+get_crowd_summary = _cached(get_crowd_summary)
+get_crowd_achievement = _cached(get_crowd_achievement)
+get_crowd_trend = _cached(get_crowd_trend)
+get_crowd_trend_grid = _cached(get_crowd_trend_grid)
+get_crowd_contributors = _cached(get_crowd_contributors)
+get_crowd_map = _cached(get_crowd_map)
 app = FastAPI(title="netPulse - KPI Monitoring Dashboard", version="3.8.0")
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
@@ -113,6 +125,7 @@ class LoginPayload(BaseModel):
 API_MENU_RULES = [
     ("/api/admin/", ("admin",)),
     ("/api/cei/", ("cei",)),
+    ("/api/crowdsource/", ("crowdsource",)),
     ("/api/clusters", ("cluster",)),
     ("/api/cluster/", ("cluster",)),
     ("/api/overview/", ("overview",)),
@@ -1086,7 +1099,9 @@ _CEI_SCOPE = Query("all", description="all, nop, kabupaten or kecamatan")
 _CEI_VALUES = Query(None, description="NOP / kabupaten names, or KABUPATEN|KECAMATAN")
 
 def _cei_values(values):
-    return sorted({v.strip().upper() for v in values or [] if v and v.strip()})
+    if not isinstance(values, (list, tuple, set)):
+        return []
+    return sorted({v.strip().upper() for v in values if v and isinstance(v, str) and v.strip()})
 
 @app.get("/api/cei/hierarchy")
 def cei_hierarchy_endpoint():
@@ -1173,6 +1188,190 @@ def cei_delete_event_endpoint(event_id: int):
         return {"events": cei_store.list_events()}
     except Exception as e:
         return _cei_error(e)
+
+# ---------------------------------------------------------------------------
+# OKR > Crowdsource (OpenSignal + Ookla)
+# ---------------------------------------------------------------------------
+def _crowd_error(e: Exception):
+    if isinstance(e, PermissionError):
+        return JSONResponse(status_code=403, content={"error": str(e)})
+    return JSONResponse(status_code=400 if isinstance(e, ValueError) else 503, content={"error": str(e)})
+
+def _drop_crowd_cache():
+    with _RESULT_CACHE_LOCK:
+        for key in [k for k in _RESULT_CACHE if str(k[0]).startswith("get_crowd")]:
+            del _RESULT_CACHE[key]
+
+def _check_superadmin(request: Request):
+    user = getattr(request.state, "user", None) or {}
+    if not user.get("is_super"):
+        raise PermissionError("Only SuperAdmin can change targets")
+
+@app.get("/api/crowdsource/meta")
+def crowdsource_meta_endpoint():
+    try:
+        return get_crowd_meta()
+    except Exception as e:
+        return _crowd_error(e)
+
+@app.get("/api/crowdsource/summary")
+def crowdsource_summary_endpoint(week: Optional[int] = Query(None), region: str = Query("SULAWESI")):
+    try:
+        return get_crowd_summary(week=week, region=region)
+    except Exception as e:
+        return _crowd_error(e)
+
+@app.get("/api/crowdsource/achievement")
+def crowdsource_achievement_endpoint(
+    week: Optional[int] = Query(None),
+    weeks: int = Query(8, ge=1, le=26),
+    region: str = Query("SULAWESI"),
+    level: str = Query("region"),
+    kabupaten: Optional[List[str]] = Query(None),
+    source: str = Query("all"),
+    tech: str = Query("all"),
+    competitor: str = Query("all"),
+):
+    try:
+        return get_crowd_achievement(
+            week=week,
+            weeks=weeks,
+            region=region,
+            level=level,
+            kabupaten=_cei_values(kabupaten),
+            source=source,
+            tech=tech,
+            competitor=competitor,
+        )
+    except Exception as e:
+        return _crowd_error(e)
+
+@app.get("/api/crowdsource/trend")
+def crowdsource_trend_endpoint(
+    key: str = Query(...),
+    region: str = Query("SULAWESI"),
+    kabupaten: Optional[str] = Query(None),
+    weeks: int = Query(26, ge=4, le=104),
+):
+    try:
+        return get_crowd_trend(key=key, region=region, kabupaten=kabupaten, weeks=weeks)
+    except Exception as e:
+        return _crowd_error(e)
+
+@app.get("/api/crowdsource/trend-grid")
+def crowdsource_trend_grid_endpoint(
+    group: str = Query("onx_overall"),
+    region: str = Query("SULAWESI"),
+    week: Optional[int] = Query(None),
+    weeks: int = Query(0, ge=0, le=104),
+):
+    try:
+        return get_crowd_trend_grid(group=group, region=region, week=week, weeks=weeks)
+    except Exception as e:
+        return _crowd_error(e)
+
+@app.get("/api/crowdsource/contributors")
+def crowdsource_contributors_endpoint(
+    week: Optional[int] = Query(None),
+    region: str = Query("SULAWESI"),
+    source: str = Query("all"),
+    tech: str = Query("all"),
+    key: Optional[str] = Query(None),
+):
+    try:
+        return get_crowd_contributors(week=week, region=region, source=source, tech=tech, key=key)
+    except Exception as e:
+        return _crowd_error(e)
+
+@app.get("/api/crowdsource/map")
+def crowdsource_map_endpoint(
+    week: Optional[int] = Query(None),
+    region: str = Query("SULAWESI"),
+    source: str = Query("ONX"),
+    tech: str = Query("overall"),
+    key: str = Query("all"),
+):
+    try:
+        return get_crowd_map(week=week, region=region, source=source, tech=tech, key=key)
+    except Exception as e:
+        return _crowd_error(e)
+
+@app.get("/api/crowdsource/settings")
+def crowdsource_settings_endpoint():
+    try:
+        return {
+            "targets": crowd_store.list_targets(),
+            "manual": crowd_store.list_manual(),
+        }
+    except Exception as e:
+        return _crowd_error(e)
+
+@app.post("/api/crowdsource/targets")
+async def crowdsource_save_target_endpoint(request: Request):
+    try:
+        _check_superadmin(request)
+        body = await request.json()
+        crowd_store.save_target(
+            source=body.get("source"),
+            region=body.get("region"),
+            start_week=int(body.get("start_week")),
+            target_win=int(body.get("target_win")),
+            show_on_chart=bool(body.get("show_on_chart", False)),
+        )
+        _drop_crowd_cache()
+        return {
+            "targets": crowd_store.list_targets(),
+            "manual": crowd_store.list_manual(),
+        }
+    except Exception as e:
+        return _crowd_error(e)
+
+@app.delete("/api/crowdsource/targets/{source}/{region}/{start_week}")
+def crowdsource_delete_target_endpoint(source: str, region: str, start_week: int, request: Request):
+    try:
+        _check_superadmin(request)
+        crowd_store.delete_target(source=source, region=region, start_week=int(start_week))
+        _drop_crowd_cache()
+        return {
+            "targets": crowd_store.list_targets(),
+            "manual": crowd_store.list_manual(),
+        }
+    except Exception as e:
+        return _crowd_error(e)
+
+@app.post("/api/crowdsource/manual")
+async def crowdsource_save_manual_endpoint(request: Request):
+    try:
+        _check_superadmin(request)
+        body = await request.json()
+        val = float(body["tsel_value"]) if body.get("tsel_value") is not None else None
+        crowd_store.save_manual(
+            region=body.get("region"),
+            yearweek=int(body.get("yearweek")),
+            kpi_key=body.get("kpi_key"),
+            tsel_value=val,
+            status=body.get("status"),
+        )
+        _drop_crowd_cache()
+        return {
+            "targets": crowd_store.list_targets(),
+            "manual": crowd_store.list_manual(),
+        }
+    except Exception as e:
+        return _crowd_error(e)
+
+@app.delete("/api/crowdsource/manual/{region}/{yearweek}/{kpi_key}")
+def crowdsource_delete_manual_endpoint(region: str, yearweek: int, kpi_key: str, request: Request):
+    try:
+        _check_superadmin(request)
+        crowd_store.delete_manual(region=region, yearweek=int(yearweek), kpi_key=kpi_key)
+        _drop_crowd_cache()
+        return {
+            "targets": crowd_store.list_targets(),
+            "manual": crowd_store.list_manual(),
+        }
+    except Exception as e:
+        return _crowd_error(e)
 
 # Static file serving for React frontend production build
 DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"

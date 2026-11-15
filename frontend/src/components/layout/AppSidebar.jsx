@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Activity, BarChart3, Boxes, Calendar, ChevronDown, ChevronLeft, Clock, Database, LayoutDashboard, Moon, Radio, RadioTower, ShieldCheck, Smile, Target, TrendingDown, Wifi,
+  Activity, BarChart3, Boxes, Calendar, ChevronDown, ChevronLeft, Clock, Database, LayoutDashboard, Moon, Radar, Radio, RadioTower, ShieldCheck, Smile, Target, TrendingDown, Wifi,
 } from 'lucide-react';
 import { APP_NAME, APP_VERSION } from '../../constants/kpis';
 
@@ -97,12 +97,12 @@ export default function AppSidebar({ open, onClose, activeMenu, onSelectMenu, ca
     if (['2g', '4g-hourly', '4g-daily', '5g'].includes(activeMenu)) setKpiOpen(true);
     if (activeMenu.startsWith('4g')) setFourGOpen(true);
     if (activeMenu.startsWith('ta-')) setTaOpen(true);
-    if (activeMenu === 'cei') setOkrOpen(true);
+    if (activeMenu === 'cei' || activeMenu === 'crowdsource') setOkrOpen(true);
   }, [activeMenu]);
   const common = { activeMenu, onSelect: onSelectMenu, darkMode };
   const any = (...ids) => ids.some(can);
   const showKpi = any('2g', '4g-hourly', '4g-daily', '5g');
-  const showMainKpi = showKpi || any('cluster', 'cei');
+  const showMainKpi = showKpi || any('cluster', 'cei', 'crowdsource');
 
   return (
     <aside className={`fixed inset-y-0 left-0 z-40 w-64 transition-transform duration-300 ease-in-out flex flex-col shadow-2xl border-r ${
@@ -177,10 +177,11 @@ export default function AppSidebar({ open, onClose, activeMenu, onSelectMenu, ca
           </div>
         )}
 
-        {can('cei') && (
+        {any('cei', 'crowdsource') && (
           <div className="pt-1">
             <Group label="OKR" Icon={Target} iconClass="text-emerald-500" open={okrOpen} onToggle={() => setOkrOpen(!okrOpen)} darkMode={darkMode}>
-              <MenuButton id="cei" label="CEI" Icon={Smile} accent="emerald" tag="OneDb/TwoDb" {...common} />
+              {can('cei') && <MenuButton id="cei" label="CEI" Icon={Smile} accent="emerald" tag="OneDb/TwoDb" {...common} />}
+              {can('crowdsource') && <MenuButton id="crowdsource" label="Crowdsource" Icon={Radar} accent="emerald" tag="OneDb" {...common} />}
             </Group>
           </div>
         )}

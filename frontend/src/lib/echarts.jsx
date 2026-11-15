@@ -7,11 +7,12 @@ import {
   GraphicComponent, GridComponent, LegendComponent, MarkAreaComponent, MarkLineComponent,
   TitleComponent, TooltipComponent,
 } from 'echarts/components';
+import { LabelLayout } from 'echarts/features';
 import { CanvasRenderer } from 'echarts/renderers';
 
 echarts.use([
   LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent,
-  MarkLineComponent, MarkAreaComponent, GraphicComponent, CanvasRenderer,
+  MarkLineComponent, MarkAreaComponent, GraphicComponent, LabelLayout, CanvasRenderer,
 ]);
 
 export default function ReactECharts(props) {

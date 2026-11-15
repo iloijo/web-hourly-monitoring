@@ -22,6 +22,7 @@ const WorstCellView = lazy(() => import('./views/WorstCellView'));
 const ZtzpView = lazy(() => import('./views/ZtzpView'));
 const ClusterMonitoringView = lazy(() => import('./views/ClusterMonitoringView'));
 const CeiView = lazy(() => import('./views/CeiView'));
+const CrowdsourceView = lazy(() => import('./views/CrowdsourceView'));
 const AdminView = lazy(() => import('./views/AdminView'));
 
 // Worst Cell / ZTZP rows open the daily sector charts of that technology
@@ -148,7 +149,7 @@ export default function App() {
         darkMode={darkMode}
       />
 
-      <div className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
+      <div className={`flex-1 min-w-0 flex flex-col min-h-screen transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
         <AppHeader
           activeMenu={activeMenu}
           sidebarOpen={sidebarOpen}
@@ -190,6 +191,7 @@ export default function App() {
               <ClusterMonitoringView refData={ref} chartsPerRow={chartsPerRow} authUser={authUser} {...common} />
             )}
             {show('cei') && <CeiView {...common} />}
+            {show('crowdsource') && <CrowdsourceView {...common} />}
             {show('ztzp') && (
               <ZtzpView hierarchyData={ref.hierarchyData} onOpenSite={openSite} {...common} />
             )}
