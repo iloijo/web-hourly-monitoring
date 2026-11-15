@@ -237,3 +237,77 @@ def get_map_sites_in_bbox(south: float, west: float, north: float, east: float, 
         if south <= s["lat"] <= north and west <= s["lon"] <= east
     ]
     return {"week": cache["week"], "total": len(inside), "truncated": len(inside) > limit, "sites": inside[:limit]}
+
+
+# --- Covmo grid (MR coverage, one snapshot per week) ---------------------------------------------------------
+# Each covmo row is the centre of a zoom-20 web-mercator tile (~38 m). Tiles are aggregated per z20 x/y in SQL
+# and sent as one compact string, because moving 25k+ rows from the remote OneDb dominated the response time.
+COVMO_ZOOM = 20
+COVMO_MAX_AREA_DEG2 = 0.03   # about 19 x 19 km at the equator; the map asks only from zoom 13
+COVMO_LIMIT = 150000
+_covmo_week: Dict[str, Any] = {"at": 0.0, "week": None, "date": None}
+
+
+def _covmo_latest() -> Dict[str, Any]:
+    if _covmo_week["week"] and time.time() - _covmo_week["at"] < _SITES_TTL_SEC:
+        return _covmo_week
+    conn = get_onedb_connection(timeout=10)
+    if not conn:
+        return _covmo_week
+    try:
+        cur = conn.cursor()
+        # week is text ('44', '9'), so the latest week comes from the latest date (date_raw is indexed)
+        cur.execute("SELECT week, date_raw FROM covmo WHERE date_raw = (SELECT MAX(date_raw) FROM covmo) LIMIT 1")
+        row = cur.fetchone()
+        cur.close()
+    finally:
+        conn.close()
+    if row:
+        _covmo_week.update(at=time.time(), week=row[0], date=row[1].strftime("%Y-%m-%d"))
+    return _covmo_week
+
+
+def get_map_covmo(south: float, west: float, north: float, east: float) -> Dict[str, Any]:
+    """Covmo tiles of the latest week inside the bbox.
+
+    `tiles` is "dx,dy,rsrp,rsrq,mr;..." where the zoom-20 tile is (x0 + dx, y0 + dy). A tile split over two
+    kabupaten rows gets the MR-weighted average.
+    """
+    if (north - south) * (east - west) > COVMO_MAX_AREA_DEG2:
+        return {"error": "Area too large, zoom in to load the covmo grid.", "tiles": ""}
+    latest = _covmo_latest()
+    if not latest["week"]:
+        return {"error": "OneDb is not reachable.", "tiles": ""}
+    conn = get_onedb_connection(timeout=15)
+    if not conn:
+        return {"error": "OneDb is not reachable.", "tiles": ""}
+    n = 2 ** COVMO_ZOOM
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            WITH t AS (
+                SELECT floor((longitude + 180.0) / 360.0 * %(n)s)::int AS x,
+                       floor((1.0 - ln(tan(radians(latitude)) + 1.0 / cos(radians(latitude))) / pi()) / 2.0 * %(n)s)::int AS y,
+                       "immediate_serv_RSRP_dbm" AS rsrp, "immediate_serv_RSRQ_db" AS rsrq,
+                       GREATEST(COALESCE(immediate_mr_count, 0), 0) AS mr
+                FROM covmo
+                WHERE week = %(week)s AND longlat && ST_MakeEnvelope(%(w)s, %(s)s, %(e)s, %(nn)s, 4326)
+                LIMIT %(lim)s
+            ), g AS (
+                SELECT x, y,
+                       round((SUM(rsrp * GREATEST(mr, 1)) / NULLIF(SUM(GREATEST(mr, 1)) FILTER (WHERE rsrp IS NOT NULL), 0))::numeric, 1) AS rsrp,
+                       round((SUM(rsrq * GREATEST(mr, 1)) / NULLIF(SUM(GREATEST(mr, 1)) FILTER (WHERE rsrq IS NOT NULL), 0))::numeric, 1) AS rsrq,
+                       SUM(mr) AS mr
+                FROM t GROUP BY x, y
+            ), o AS (SELECT MIN(x) AS x0, MIN(y) AS y0 FROM g)
+            SELECT o.x0, o.y0, COUNT(*),
+                   string_agg(concat_ws(',', g.x - o.x0, g.y - o.y0, COALESCE(g.rsrp::text, ''), COALESCE(g.rsrq::text, ''), g.mr), ';')
+            FROM g, o GROUP BY o.x0, o.y0
+        """, {"n": n, "week": latest["week"], "w": west, "s": south, "e": east, "nn": north, "lim": COVMO_LIMIT + 1})
+        row = cur.fetchone()
+        cur.close()
+    finally:
+        conn.close()
+    x0, y0, count, tiles = row if row else (0, 0, 0, "")
+    return {"week": latest["week"], "last_date": latest["date"], "zoom": COVMO_ZOOM,
+            "x0": x0, "y0": y0, "count": count or 0, "truncated": (count or 0) > COVMO_LIMIT, "tiles": tiles or ""}

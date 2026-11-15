@@ -25,7 +25,7 @@ from .queries_ta import get_ta_4g_data, get_ta_5g_data, get_ta_compare_data
 from .queries_twamp import get_twamp_packet_loss_data, get_twamp_scope_aggregation
 from .site_names import load_site_names, get_site_display_name, get_site_name
 from .queries_properties import get_site_properties
-from .queries_map import get_map_cells, get_map_sites_in_bbox
+from .queries_map import get_map_cells, get_map_covmo, get_map_sites_in_bbox
 from .queries_map_kpi import get_map_kpi
 from .queries_scope_4g import get_scope_aggregation_data, get_hourly_scope_aggregation_data
 from .queries_worstcell import get_worst_cells, get_ztzp
@@ -94,6 +94,7 @@ get_twamp_scope_aggregation = _cached(get_twamp_scope_aggregation)
 get_site_properties = _cached(get_site_properties)
 get_map_cells = _cached(get_map_cells)
 get_map_kpi = _cached(get_map_kpi)
+get_map_covmo = _cached(get_map_covmo)
 get_worst_cells = _cached(get_worst_cells)
 get_ztzp = _cached(get_ztzp)
 get_cluster_compare = _cached(get_cluster_compare)
@@ -516,6 +517,14 @@ def map_kpi(site_ids: str = Query(..., description="Comma separated site IDs (ma
         return get_map_kpi(site_ids=sorted({s.strip().upper() for s in site_ids.split(",") if s.strip()}))
     except Exception as e:
         return {"error": str(e), "cells": {}}
+
+@app.get("/api/map/covmo")
+def map_covmo(south: float = Query(...), west: float = Query(...), north: float = Query(...), east: float = Query(...)):
+    """Covmo RSRP/RSRQ grid (latest week) inside the map viewport, as zoom-20 tile indices."""
+    try:
+        return get_map_covmo(south=south, west=west, north=north, east=east)
+    except Exception as e:
+        return {"error": str(e), "tiles": []}
 
 @app.get("/api/map/sites")
 def map_sites(south: float = Query(...), west: float = Query(...), north: float = Query(...), east: float = Query(...)):

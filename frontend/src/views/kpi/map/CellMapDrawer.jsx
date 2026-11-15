@@ -8,6 +8,8 @@ import { getJson } from '../../../api/client';
 import MeasureLayer from './MeasureLayer';
 import useCellMap from './useCellMap';
 import useCellKpi from './useCellKpi';
+import CovmoLayer from './CovmoLayer';
+import { COVMO_METRICS, COVMO_MIN_ZOOM } from './covmo';
 import { bandColor, COLOR_MODES, NO_DATA, statusColor } from './colorModes';
 import { bandLength, distanceM, formatDistance, sectorPolygon, siteSectorBase } from './geo';
 
@@ -256,6 +258,37 @@ function Legend({ bands, darkMode, tier, mode, kpiMeta, ta }) {
   );
 }
 
+function CovmoLegend({ metric, status, hover, darkMode }) {
+  const m = COVMO_METRICS[metric];
+  const v = hover ? hover[metric] : null;
+  let note = null;
+  if (status.state === 'zoom') note = `Zoom in to ${COVMO_MIN_ZOOM}+ to load the grid`;
+  else if (status.state === 'loading') note = 'Loading grid...';
+  else if (status.state === 'error') note = status.error;
+  else if (status.state === 'ready') note = `${status.count.toLocaleString()} tiles${status.truncated ? ' (limit reached)' : ''}`;
+  return (
+    <div className={`absolute bottom-9 left-2 z-[500] rounded-lg border px-2.5 py-2 text-[10px] shadow-md space-y-1 w-44 ${
+      darkMode ? 'bg-slate-900/90 border-slate-700 text-slate-200' : 'bg-white/95 border-slate-200 text-slate-700'
+    }`}>
+      <div className="font-bold uppercase tracking-wider opacity-70">
+        Covmo {m.label} ({m.unit}){status.week ? ` W${status.week}` : ''}
+      </div>
+      {m.bins.map(([, color, label]) => (
+        <div key={label} className="flex items-center gap-1.5">
+          <span className="w-3 h-2.5 rounded-sm shrink-0" style={{ background: color, opacity: 0.7 }} />
+          <span>{label}</span>
+        </div>
+      ))}
+      <div className={`pt-1 border-t border-slate-500/30 ${status.state === 'error' ? 'text-rose-500' : 'opacity-70'}`}>{note}</div>
+      {hover && (
+        <div className="font-semibold">
+          {v !== null && v !== undefined ? `${v} ${m.unit}` : 'n/a'} · {hover.mr} MR
+        </div>
+      )}
+    </div>
+  );
+}
+
 const ToolbarButton = ({ active, onClick, title, children, darkMode }) => (
   <button
     type="button"
@@ -276,8 +309,11 @@ export default function CellMapDrawer({
   open, onClose, siteId, sectors = [], darkMode, width, onWidthChange, canSelectSector, onSelectSector,
 }) {
   const [prefs, setPrefs] = useState(() => ({
-    basemap: 'osm', tier: 0, otherSites: true, colorBy: 'band', ta: 0, opacity: 0.35, ...readPrefs(),
+    basemap: 'osm', tier: 0, otherSites: true, colorBy: 'band', ta: 0, opacity: 0.35, covmo: 'off', ...readPrefs(),
   }));
+  const covmoMetric = COVMO_METRICS[prefs.covmo] ? prefs.covmo : null;
+  const [covmoStatus, setCovmoStatus] = useState({ state: 'zoom' });
+  const [covmoHover, setCovmoHover] = useState(null);
   const updatePrefs = (patch) => setPrefs(p => { const next = { ...p, ...patch }; writePrefs(next); return next; });
   const [measuring, setMeasuring] = useState(false);
   const [measurePoints, setMeasurePoints] = useState([]);
@@ -407,7 +443,7 @@ export default function CellMapDrawer({
         <ToolbarButton onClick={recenter} darkMode={darkMode} title="Center on the searched site">
           <Crosshair className="w-3.5 h-3.5" />
         </ToolbarButton>
-        <div className="basis-full h-0" />
+        <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
         <label className="flex items-center gap-1 text-[11px] font-semibold" title="Colour sectors by">
           <Palette className="w-3.5 h-3.5 opacity-60" />
           <select
@@ -421,6 +457,7 @@ export default function CellMapDrawer({
           </select>
         </label>
         <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
+        <div className="flex items-center gap-1">
         <Radar className="w-3.5 h-3.5 opacity-60" />
         {TA_OPTIONS.map(t => (
           <ToolbarButton
@@ -433,6 +470,7 @@ export default function CellMapDrawer({
             {t ? `TA${t}` : 'TA off'}
           </ToolbarButton>
         ))}
+        </div>
         <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
         <label className="flex items-center gap-1.5 text-[11px] font-semibold" title="Sector fill opacity">
           <span className="opacity-60">Opacity</span>
@@ -447,6 +485,21 @@ export default function CellMapDrawer({
           />
           <span className="w-8 tabular-nums">{Math.round(prefs.opacity * 100)}%</span>
         </label>
+        <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
+        <div className="flex items-center gap-1">
+        <span className="text-[11px] font-semibold opacity-60">Covmo</span>
+        {['off', 'rsrp', 'rsrq'].map(c => (
+          <ToolbarButton
+            key={c}
+            active={(covmoMetric || 'off') === c}
+            onClick={() => { setCovmoHover(null); updatePrefs({ covmo: c }); }}
+            darkMode={darkMode}
+            title={c === 'off' ? 'Hide the covmo grid' : `Covmo ${COVMO_METRICS[c].label} grid of the latest week (zoom ${COVMO_MIN_ZOOM}+)`}
+          >
+            {c === 'off' ? 'Off' : COVMO_METRICS[c].label}
+          </ToolbarButton>
+        ))}
+        </div>
         {kpi.loading && <span className="flex items-center gap-1 text-[10px] opacity-60"><Loader2 className="w-3 h-3 animate-spin" /> KPI</span>}
       </div>
 
@@ -477,6 +530,7 @@ export default function CellMapDrawer({
             <FitView data={data} fitKey={data ? `${data.site_id}|${data.sites.length}` : ''} />
             <SizeWatcher width={width} />
             <OtherSites enabled={prefs.otherSites} shownIds={shownIds} />
+            <CovmoLayer metric={covmoMetric} onStatus={setCovmoStatus} onHover={setCovmoHover} />
 
             {shapes.map(({ cell, site, positions, noTa }) => {
               const isMain = cell.site_id === mainSite;
@@ -543,6 +597,7 @@ export default function CellMapDrawer({
             KPI/status partly unavailable: {kpi.error}
           </div>
         )}
+        {covmoMetric && <CovmoLegend metric={covmoMetric} status={covmoStatus} hover={covmoHover} darkMode={darkMode} />}
         {bands.length > 0 && (
           <Legend bands={bands} darkMode={darkMode} tier={prefs.tier} mode={mode} kpiMeta={kpi.data} ta={prefs.ta} />
         )}
