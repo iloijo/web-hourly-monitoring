@@ -4,6 +4,7 @@ raw_desiqa is replaced every week, so only the latest weeknum is read. Coordinat
 kept in memory (about 8k sites) to find the 1st tier and the sites shown inside the map viewport.
 """
 import math
+import re
 import threading
 import time
 from decimal import Decimal
@@ -121,6 +122,21 @@ def _to_float(v) -> Optional[float]:
         return None
 
 
+# Last part of the OSS cell name, e.g. "..._IL01" / "..._QR013" (indoor, pRRU) or "..._ML01" / "..._VE01" /
+# "..._EL07" (macro, easy macro). The tipe_site "In Building" also covers macro sectors on a building roof.
+_INDOOR_CODE = re.compile(r"^[IQ][A-Z]\d")
+_MACRO_CODE = re.compile(r"^[MVE][A-Z]\d")
+
+
+def _is_indoor(cell_name: str, sec_type: Optional[str]) -> bool:
+    code = cell_name.rsplit("_", 1)[-1].upper() if "_" in cell_name else ""
+    if _INDOOR_CODE.match(code):
+        return True
+    if _MACRO_CODE.match(code):
+        return False
+    return "_IND" in (sec_type or "").upper()
+
+
 def get_map_cells(site_id: str, tier: int = 0) -> Dict[str, Any]:
     site = site_id.strip().upper()
     cache = _all_sites()
@@ -178,8 +194,14 @@ def get_map_cells(site_id: str, tier: int = 0) -> Dict[str, Any]:
         conn.close()
 
     cells = []
+    seen = set()
     for r in raw:
         name = r["cell_name_oss"] or ""
+        # Only exact repeats are dropped: one site can reuse a CI for a macro and an indoor cell
+        key = (r["site_id"], r["ci"], name.upper())
+        if key in seen:
+            continue
+        seen.add(key)
         beam = _to_float(r["beamwidth_antenna"])
         cells.append({
             "siteid_ci": f"{r['site_id']}_{r['ci']}",
@@ -212,6 +234,7 @@ def get_map_cells(site_id: str, tier: int = 0) -> Dict[str, Any]:
             "kecamatan": r["kecamatan"],
             "nop": r["nop"],
             "site_location": r["site_location"],
+            "indoor": _is_indoor(name, r["sec_type"]),
         })
 
     for s in site_rows:

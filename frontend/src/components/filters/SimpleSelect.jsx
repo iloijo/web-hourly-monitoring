@@ -3,7 +3,7 @@ import { FilterLabel } from './FilterLabel';
 import { fieldClass } from './styles';
 
 // Native select with the dashboard's label and styling. options: [value] or [[value, text]]
-export default function SimpleSelect({ label, value, options, onChange, darkMode, bold = false }) {
+export default function SimpleSelect({ label, value, options, onChange, darkMode, bold = false, placeholder }) {
   return (
     <div>
       <FilterLabel>{label}</FilterLabel>
@@ -13,6 +13,8 @@ export default function SimpleSelect({ label, value, options, onChange, darkMode
           onChange={(e) => onChange(e.target.value)}
           className={`w-full appearance-none border rounded-lg pl-3 pr-8 py-1.5 text-xs ${bold ? 'font-bold' : 'font-semibold'} focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer ${fieldClass(darkMode)}`}
         >
+          {/* shown while nothing is chosen yet */}
+          {placeholder && <option value="" disabled>{placeholder}</option>}
           {options.map(opt => {
             const [v, text] = Array.isArray(opt) ? opt : [opt, opt];
             return <option key={v} value={v}>{text}</option>;

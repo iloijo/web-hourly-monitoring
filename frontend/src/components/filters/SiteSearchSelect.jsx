@@ -27,8 +27,10 @@ export default function SiteSearchSelect({ label = 'TARGET SITE', sites, siteNam
         className={`border rounded-lg px-3 py-1.5 flex items-center justify-between text-xs font-bold cursor-pointer ${fieldClass(darkMode)}`}
       >
         <div className="flex items-center gap-2 truncate">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-          <span className="font-bold truncate">{value}</span>
+          <span className={`w-2 h-2 rounded-full shrink-0 ${value ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+          {value
+            ? <span className="font-bold truncate">{value}</span>
+            : <span className={`font-medium truncate ${darkMode ? 'text-slate-400' : 'text-slate-400'}`}>Select a site...</span>}
           {siteNamesMap[value] && (
             <span className={`text-[11px] truncate font-normal ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>• {siteNamesMap[value]}</span>
           )}

@@ -81,8 +81,9 @@ export default function PropertiesPanel({
     <>
       <div
         style={{ right: rightOffset }}
-        className={`fixed bottom-0 z-30 h-[46vh] border-t shadow-[0_-12px_32px_rgba(0,0,0,0.18)] flex flex-col transition-all duration-300 ease-out ${panel} ${
-          open ? 'translate-y-0' : 'translate-y-full pointer-events-none'
+        className={`fixed bottom-0 z-30 h-[46vh] border-t flex flex-col transition-all duration-300 ease-out ${panel} ${
+          // the shadow only while open: a closed sheet sits below the screen and its shadow showed as a grey band
+          open ? 'translate-y-0 shadow-[0_-12px_32px_rgba(0,0,0,0.18)]' : 'translate-y-full pointer-events-none invisible'
         } ${sidebarOpen ? 'left-64' : 'left-0'}`}
         aria-hidden={!open}
       >

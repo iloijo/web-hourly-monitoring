@@ -79,7 +79,7 @@ function requestBounds(v) {
 
 const round = (b) => Object.fromEntries(Object.entries(b).map(([k, x]) => [k, Number(x.toFixed(4))]));
 
-export default function CovmoLayer({ metric, onStatus, onHover }) {
+export default function CovmoLayer({ metric, opacity = 0.4, onStatus, onHover }) {
   const map = useMap();
   const layerRef = useRef(null);
   const storeRef = useRef(new Map());
@@ -113,10 +113,17 @@ export default function CovmoLayer({ metric, onStatus, onHover }) {
     return () => clearTimeout(t);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Opacity changes restyle the existing layer instead of rebuilding it
+  const opacityRef = useRef(opacity);
+  useEffect(() => {
+    opacityRef.current = opacity;
+    layerRef.current?.setOpacity(opacity);
+  }, [opacity]);
+
   // The canvas layer lives as long as the covmo toggle is on
   useEffect(() => {
     if (!metric) return undefined;
-    const layer = new CovmoGrid({ opacity: 0.4, zIndex: 5, store: storeRef.current, metric, updateWhenZooming: false });
+    const layer = new CovmoGrid({ opacity: opacityRef.current, zIndex: 5, store: storeRef.current, metric, updateWhenZooming: false });
     layer.addTo(map);
     layerRef.current = layer;
     return () => { layer.remove(); layerRef.current = null; };

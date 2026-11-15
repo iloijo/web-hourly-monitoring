@@ -33,7 +33,7 @@ export default function KpiMonitoringView({
   }, []);
   const [propSort, setPropSort] = useState({ key: 'siteid_ci', direction: 'asc' });
   const [thresholdSettings, setThresholdSettings] = useState(loadThresholdSettings);
-  const showProperties = (activeMenu === '4g-daily' || activeMenu === '4g-hourly') && km.aggregationScope === 'sector';
+  const showProperties = (activeMenu === '4g-daily' || activeMenu === '4g-hourly') && km.aggregationScope === 'sector' && !!km.siteId;
   const hasThresholds = activeMenu === '4g-hourly' || activeMenu === '4g-daily' || activeMenu === '5g';
   const props = useSiteProperties(showProperties && propsOpen, km.siteId);
   const sectors = km.sectorViewMode === 'sectoral' ? (km.sectoralSectors || []).map(Number) : [Number(km.selectedSector)];

@@ -342,6 +342,12 @@ div.echarts-tooltip {
   border-radius: 3px;
 }
 .leaflet-tooltip.netpulse-site-label::before { display: none; }
+/* other sites in view: lighter and smaller than the shown sites */
+.leaflet-tooltip.netpulse-site-label.netpulse-site-label-other {
+  background: rgba(100, 116, 139, 0.75);
+  font-size: 9px;
+  font-weight: 600;
+}
 .leaflet-tooltip.netpulse-measure-label {
   background: #facc15;
   color: #111827;

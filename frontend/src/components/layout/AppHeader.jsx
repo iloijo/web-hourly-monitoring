@@ -97,8 +97,9 @@ export default function AppHeader({
 
             <button
               type="submit"
-              disabled={km.loading}
-              className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold transition flex items-center gap-1.5 shadow-md shadow-blue-500/20 cursor-pointer"
+              disabled={km.loading || !km.scopeReady}
+              title={km.scopeReady ? undefined : 'Choose the filters first'}
+              className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold transition flex items-center gap-1.5 shadow-md shadow-blue-500/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${km.loading ? 'animate-spin' : ''}`} />
               <span>{km.loading ? 'Loading...' : 'Generate'}</span>

@@ -124,9 +124,12 @@ export default function KpiChartsPanel({
               ? (km.sectorViewMode === 'sectoral' ? 'Sectoral View' : `Sector ${km.selectedSector}`)
               : km.aggregationMode === 'full' ? 'Mode: Aggregation' : 'Mode: Band'}
           </span>
-          <span className={`px-3 py-1 rounded-lg text-xs font-semibold border ${darkMode ? 'bg-blue-950/60 text-blue-300 border-blue-900' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-            {contextBadge}
-          </span>
+          {/* nothing chosen yet (no default site or area): no "UNKNOWN • UNKNOWN" / empty badge */}
+          {km.scopeReady && (
+            <span className={`px-3 py-1 rounded-lg text-xs font-semibold border ${darkMode ? 'bg-blue-950/60 text-blue-300 border-blue-900' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+              {contextBadge}
+            </span>
+          )}
         </div>
       </div>
 

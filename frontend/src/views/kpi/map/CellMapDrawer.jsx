@@ -45,6 +45,11 @@ const writePrefs = (p) => {
 
 const fmt = (v) => (v === null || v === undefined || v === '' ? '–' : v);
 const TA_OPTIONS = [0, 70, 80, 90];
+const OTHER_LABEL_ZOOM = 14;
+const OTHER_LABEL_MAX = 150;
+// indoor / pRRU cells, decided by the backend from the OSS cell name code (IL, IR, QL ... vs ML, VE, EL ...)
+const isIndoor = (c) => !!c.indoor;
+const cellKey = (c) => `${c.siteid_ci}|${c.cell_name}`;
 const shortWeek = (w) => (w ? `W${String(w).slice(-2)}` : '');
 
 // Fits the view to the loaded sites whenever the site or the tier option changes
@@ -103,14 +108,23 @@ function OtherSites({ enabled, shownIds }) {
   }, [enabled, view]);
 
   if (!enabled || !view || view.zoom < 11) return null;
-  return sites.filter(s => !shownIds.has(s.site_id)).map(s => (
+  const others = sites.filter(s => !shownIds.has(s.site_id));
+  // Site ID labels from zoom 14, and only while they stay readable
+  const labelled = view.zoom >= OTHER_LABEL_ZOOM && others.length <= OTHER_LABEL_MAX;
+  return others.map(s => (
     <CircleMarker
-      key={s.site_id}
+      key={`${s.site_id}-${labelled}`}
       center={[s.lat, s.lon]}
       radius={3.5}
       pathOptions={{ color: '#1f2937', weight: 1, fillColor: '#9ca3af', fillOpacity: 0.9 }}
     >
-      <Tooltip direction="top" offset={[0, -4]}>{s.site_id} · {s.cells} cells</Tooltip>
+      {labelled ? (
+        <Tooltip permanent direction="bottom" offset={[0, 3]} className="netpulse-site-label netpulse-site-label-other">
+          {s.site_id}
+        </Tooltip>
+      ) : (
+        <Tooltip direction="top" offset={[0, -4]}>{s.site_id} · {s.cells} cells</Tooltip>
+      )}
     </CircleMarker>
   ));
 }
@@ -197,7 +211,7 @@ function CellPopup({ cell, site, siblings, canSelectSector, onSelectSector, kpi,
         <div className="mt-1.5 pt-1.5 border-t border-slate-200">
           <div className="opacity-60 mb-0.5">Same direction on this site</div>
           {siblings.map(s => (
-            <div key={s.siteid_ci} className="flex items-center gap-1.5">
+            <div key={cellKey(s)} className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: bandColor(s.band) }} />
               <span className="truncate">{s.cell_name}</span>
               <span className="opacity-60 ml-auto">{s.azimuth}°</span>
@@ -242,6 +256,9 @@ function Legend({ bands, darkMode, tier, mode, kpiMeta, ta }) {
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-3 h-2.5 rounded-sm border border-dashed border-slate-600" /> No TA data
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-full border-2 border-dashed border-slate-600" /> In-building TA ring
             </div>
           </>
         )}
@@ -289,6 +306,22 @@ function CovmoLegend({ metric, status, hover, darkMode }) {
   );
 }
 
+const OpacitySlider = ({ label, title, min, value, onChange }) => (
+  <label className="flex items-center gap-1.5 text-[11px] font-semibold" title={title}>
+    {label && <span className="opacity-60">{label}</span>}
+    <input
+      type="range"
+      min={min}
+      max={100}
+      step={5}
+      value={Math.round(value * 100)}
+      onChange={e => onChange(Number(e.target.value) / 100)}
+      className="w-20 accent-blue-600 cursor-pointer"
+    />
+    <span className="w-8 tabular-nums">{Math.round(value * 100)}%</span>
+  </label>
+);
+
 const ToolbarButton = ({ active, onClick, title, children, darkMode }) => (
   <button
     type="button"
@@ -309,7 +342,7 @@ export default function CellMapDrawer({
   open, onClose, siteId, sectors = [], darkMode, width, onWidthChange, canSelectSector, onSelectSector,
 }) {
   const [prefs, setPrefs] = useState(() => ({
-    basemap: 'osm', tier: 0, otherSites: true, colorBy: 'band', ta: 0, opacity: 0.35, covmo: 'off', ...readPrefs(),
+    basemap: 'osm', tier: 0, otherSites: true, colorBy: 'band', ta: 0, opacity: 0.35, covmo: 'off', covmoOpacity: 0.4, ...readPrefs(),
   }));
   const covmoMetric = COVMO_METRICS[prefs.covmo] ? prefs.covmo : null;
   const [covmoStatus, setCovmoStatus] = useState({ state: 'zoom' });
@@ -359,6 +392,8 @@ export default function CellMapDrawer({
 
   // Longest sectors first so the shorter (higher band) wedges stay on top and clickable.
   // TA stretch: the sector reaches the cell's TA 70/80/90% distance; cells without TA keep the default length.
+  // In-building cells are a small circle at the site; with TA stretch they become an unfilled dashed ring
+  // (a TA far beyond the building points to IBC leakage) so several rings do not stack colour over the map.
   const shapes = useMemo(() => {
     if (!data?.cells) return [];
     return data.cells
@@ -367,6 +402,11 @@ export default function CellMapDrawer({
         const site = sitesById[c.site_id];
         const taM = prefs.ta ? kpiCells?.[c.siteid_ci]?.[`ta${prefs.ta}`] : null;
         const noTa = !!prefs.ta && !(taM > 0);
+        if (isIndoor(c)) {
+          const ring = taM > 0;
+          const radius = ring ? Math.max(taM, 40) : 15 + 30 * bandLength(c.band);
+          return { cell: c, site, radius, noTa, indoor: true, ring, positions: sectorPolygon(c.lat, c.lon, 0, 360, radius) };
+        }
         const radius = taM > 0 ? Math.max(taM, 60) : siteSectorBase(site?.nearest_km) * bandLength(c.band);
         const beam = c.beamwidth || 65;
         return { cell: c, site, radius, noTa, positions: sectorPolygon(c.lat, c.lon, c.azimuth, beam, radius) };
@@ -472,19 +512,7 @@ export default function CellMapDrawer({
         ))}
         </div>
         <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
-        <label className="flex items-center gap-1.5 text-[11px] font-semibold" title="Sector fill opacity">
-          <span className="opacity-60">Opacity</span>
-          <input
-            type="range"
-            min={5}
-            max={100}
-            step={5}
-            value={Math.round(prefs.opacity * 100)}
-            onChange={e => updatePrefs({ opacity: Number(e.target.value) / 100 })}
-            className="w-20 accent-blue-600 cursor-pointer"
-          />
-          <span className="w-8 tabular-nums">{Math.round(prefs.opacity * 100)}%</span>
-        </label>
+        <OpacitySlider label="Opacity" title="Sector fill opacity" min={5} value={prefs.opacity} onChange={v => updatePrefs({ opacity: v })} />
         <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
         <div className="flex items-center gap-1">
         <span className="text-[11px] font-semibold opacity-60">Covmo</span>
@@ -499,6 +527,14 @@ export default function CellMapDrawer({
             {c === 'off' ? 'Off' : COVMO_METRICS[c].label}
           </ToolbarButton>
         ))}
+        {covmoMetric && (
+          <OpacitySlider
+            title="Covmo grid opacity"
+            min={10}
+            value={prefs.covmoOpacity ?? 0.4}
+            onChange={v => updatePrefs({ covmoOpacity: v })}
+          />
+        )}
         </div>
         {kpi.loading && <span className="flex items-center gap-1 text-[10px] opacity-60"><Loader2 className="w-3 h-3 animate-spin" /> KPI</span>}
       </div>
@@ -530,32 +566,39 @@ export default function CellMapDrawer({
             <FitView data={data} fitKey={data ? `${data.site_id}|${data.sites.length}` : ''} />
             <SizeWatcher width={width} />
             <OtherSites enabled={prefs.otherSites} shownIds={shownIds} />
-            <CovmoLayer metric={covmoMetric} onStatus={setCovmoStatus} onHover={setCovmoHover} />
+            <CovmoLayer metric={covmoMetric} opacity={prefs.covmoOpacity ?? 0.4} onStatus={setCovmoStatus} onHover={setCovmoHover} />
 
-            {shapes.map(({ cell, site, positions, noTa }) => {
+            {shapes.map(({ cell, site, positions, noTa, indoor, ring }) => {
               const isMain = cell.site_id === mainSite;
               const highlighted = isMain && sectorSet.has(cell.sector);
               const cellKpi = kpiCells?.[cell.siteid_ci];
               const color = COLOR_MODES[mode].color(cell, cellKpi);
               const fill = isMain ? (highlighted ? Math.min(1, prefs.opacity + 0.25) : prefs.opacity) : prefs.opacity * 0.65;
-              const siblings = data.cells.filter(o => o.site_id === cell.site_id && o.siteid_ci !== cell.siteid_ci
+              const siblings = data.cells.filter(o => o.site_id === cell.site_id && o !== cell
                 && o.azimuth !== null && Math.abs(((o.azimuth - cell.azimuth + 540) % 360) - 180) <= 10);
               return (
                 <Polygon
-                  key={cell.siteid_ci}
+                  key={cellKey(cell)}
                   positions={positions}
                   interactive={!measuring}
-                  pathOptions={{
+                  pathOptions={ring ? {
+                    // indoor TA ring: outline only, so only the line is clickable and nothing is shaded
+                    color: highlighted ? '#0f172a' : color,
+                    weight: highlighted ? 2.5 : 1.5,
+                    fill: false,
+                    dashArray: '6 4',
+                    opacity: isMain ? 0.95 : 0.75,
+                  } : {
                     color: highlighted ? '#0f172a' : color,
                     weight: highlighted ? 2.5 : 1,
                     fillColor: color,
-                    fillOpacity: fill,
+                    fillOpacity: indoor ? Math.min(1, fill + 0.2) : fill,
                     dashArray: noTa ? '2 4' : isMain ? null : '4 3',
                     opacity: isMain ? 1 : 0.8,
                   }}
                 >
                   <Tooltip sticky>
-                    {cell.cell_name} · {cell.band} · {cell.azimuth}°
+                    {cell.cell_name} · {cell.band} · {indoor ? 'in-building' : `${cell.azimuth}°`}
                     {prefs.ta > 0 && ` · TA${prefs.ta} ${cellKpi?.[`ta${prefs.ta}`] ? formatDistance(cellKpi[`ta${prefs.ta}`]) : 'n/a'}`}
                   </Tooltip>
                   {!measuring && (
