@@ -36,7 +36,8 @@ export default function PropertiesPanel({
   darkMode,
   sidebarOpen,
   sortConfig,
-  onSort
+  onSort,
+  rightOffset = 0, // width of the open map drawer: the sheet and its button stay left of it
 }) {
 
   const panel = darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800';
@@ -48,7 +49,8 @@ export default function PropertiesPanel({
       <button
         type="button"
         onClick={() => onOpenChange(!open)}
-        className={`fixed bottom-5 right-5 z-40 flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold shadow-lg transition cursor-pointer ${
+        style={{ right: rightOffset + 20 }}
+        className={`fixed bottom-5 z-40 flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold shadow-lg transition-all duration-300 cursor-pointer ${
           open ? 'bg-slate-700 text-white' : 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-500/30'
         }`}
         title="Show 4G Properties (CompilePowerRet)"
@@ -59,7 +61,8 @@ export default function PropertiesPanel({
       </button>
 
       <div
-        className={`fixed bottom-0 right-0 z-30 h-[46vh] border-t shadow-[0_-12px_32px_rgba(0,0,0,0.18)] flex flex-col transition-transform duration-300 ease-out ${panel} ${
+        style={{ right: rightOffset }}
+        className={`fixed bottom-0 z-30 h-[46vh] border-t shadow-[0_-12px_32px_rgba(0,0,0,0.18)] flex flex-col transition-all duration-300 ease-out ${panel} ${
           open ? 'translate-y-0' : 'translate-y-full pointer-events-none'
         } ${sidebarOpen ? 'left-64' : 'left-0'}`}
         aria-hidden={!open}

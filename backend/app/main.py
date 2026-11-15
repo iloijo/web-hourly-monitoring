@@ -25,6 +25,7 @@ from .queries_ta import get_ta_4g_data, get_ta_5g_data, get_ta_compare_data
 from .queries_twamp import get_twamp_packet_loss_data, get_twamp_scope_aggregation
 from .site_names import load_site_names, get_site_display_name, get_site_name
 from .queries_properties import get_site_properties
+from .queries_map import get_map_cells, get_map_sites_in_bbox
 from .queries_scope_4g import get_scope_aggregation_data, get_hourly_scope_aggregation_data
 from .queries_worstcell import get_worst_cells, get_ztzp
 from .export_xlsx import build_workbook, safe_filename
@@ -90,6 +91,7 @@ get_twamp_packet_loss_data = _cached(get_twamp_packet_loss_data)
 get_ta_compare_data = _cached(get_ta_compare_data)
 get_twamp_scope_aggregation = _cached(get_twamp_scope_aggregation)
 get_site_properties = _cached(get_site_properties)
+get_map_cells = _cached(get_map_cells)
 get_worst_cells = _cached(get_worst_cells)
 get_ztzp = _cached(get_ztzp)
 get_cluster_compare = _cached(get_cluster_compare)
@@ -139,6 +141,7 @@ API_MENU_RULES = [
     ("/api/payload_sectors", ("4g-hourly",)),
     ("/api/daily/aggregation", ("4g-daily",)),
     ("/api/daily/payload_sectors", ("4g-daily",)),
+    ("/api/map/", ("4g-daily", "4g-hourly")),
     ("/api/5g/aggregation", ("5g",)),
     ("/api/5g/payload_sectors", ("5g",)),
     ("/api/2g/aggregation", ("2g",)),
@@ -494,6 +497,23 @@ def get_daily_payload_sectors(
         return data
     except Exception as e:
         return {"error": str(e), "site_id": site_id if isinstance(site_id, str) else "MRW002", "sectors": {}}
+
+@app.get("/api/map/cells")
+def map_cells(site_id: str = Query(..., description="Site ID e.g. MRW002"),
+              tier: int = Query(0, ge=0, le=1, description="1 = add the 1st tier sites")):
+    """Cell geometry (raw_desiqa latest week) of a site, optionally with its 1st tier sites."""
+    try:
+        return get_map_cells(site_id=site_id, tier=tier)
+    except Exception as e:
+        return {"error": str(e), "site_id": site_id, "sites": [], "cells": []}
+
+@app.get("/api/map/sites")
+def map_sites(south: float = Query(...), west: float = Query(...), north: float = Query(...), east: float = Query(...)):
+    """4G site dots inside the map viewport."""
+    try:
+        return get_map_sites_in_bbox(south=south, west=west, north=north, east=east)
+    except Exception as e:
+        return {"error": str(e), "sites": []}
 
 @app.get("/api/hourly/properties")
 @app.get("/api/daily/properties")
