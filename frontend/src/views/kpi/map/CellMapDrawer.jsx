@@ -4,7 +4,7 @@ import {
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Compass, Crosshair, Layers, Loader2, Map as MapIcon, Mountain, Palette, Radar, Ruler, Trash2, X } from 'lucide-react';
-import { getJson } from '../../../api/client';
+import { getJson, getStoredAuthUser, postJson } from '../../../api/client';
 import MeasureLayer from './MeasureLayer';
 import useCellMap from './useCellMap';
 import useCellKpi from './useCellKpi';
@@ -16,6 +16,8 @@ import { azimuthPath } from './profile';
 import ProfilePanel from './ProfilePanel';
 import { ProfileDrawLayer, ProfileShapes } from './ProfileLayer';
 import ProtractorLayer, { NEEDLE_COLORS, ProtractorPanel } from './ProtractorLayer';
+import { CellEditSection, OVERRIDE_COLOR } from './CellEdit';
+import MapHelp, { HelpButton } from './MapHelp';
 
 const BASEMAPS = {
   osm: {
@@ -55,6 +57,9 @@ const OTHER_LABEL_MAX = 150;
 const isIndoor = (c) => !!c.indoor;
 const cellKey = (c) => `${c.siteid_ci}|${c.cell_name}`;
 const shortWeek = (w) => (w ? `W${String(w).slice(-2)}` : '');
+const fmtDay = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }) : '');
+// SuperAdmin, or a role with the "map-edit" permission (RNO by default); the server checks it again
+const userCanEdit = (u) => !!u && (u.is_super || (u.permissions || []).includes('map-edit'));
 
 // Fits the view to the loaded sites whenever the site or the tier option changes
 function FitView({ data, fitKey }) {
@@ -175,7 +180,9 @@ function KpiSection({ kpi, meta }) {
   );
 }
 
-function CellPopup({ cell, site, siblings, canSelectSector, onSelectSector, kpi, kpiMeta, onProfile, onProtractor }) {
+function CellPopup({
+  cell, site, siblings, sectorCells, canSelectSector, onSelectSector, kpi, kpiMeta, onProfile, onProtractor, canEdit, onSaved,
+}) {
   const tilt = (cell.et ?? null) !== null || (cell.mt ?? null) !== null ? (cell.et || 0) + (cell.mt || 0) : null;
   const rows = [
     ['SiteID_CI', cell.siteid_ci],
@@ -184,9 +191,9 @@ function CellPopup({ cell, site, siblings, canSelectSector, onSelectSector, kpi,
     ['Bandwidth', cell.bandwidth],
     ['PCI', cell.pci],
     ['LAC / CI', `${fmt(cell.lac)} / ${fmt(cell.ci)}`],
-    ['Azimuth', cell.azimuth !== null ? `${cell.azimuth}°` : null],
+    ['Azimuth', cell.azimuth !== null ? `${cell.azimuth}°${cell.override?.pending.includes('azimuth') ? ' ✎' : ''}` : null],
     ['Beamwidth', cell.beamwidth ? `${cell.beamwidth}°` : '65° (default)'],
-    ['E-Tilt / M-Tilt', `${fmt(cell.et)} / ${fmt(cell.mt)}`],
+    ['E-Tilt / M-Tilt', `${fmt(cell.et)} / ${fmt(cell.mt)}${cell.override?.pending.some(f => f !== 'azimuth') ? ' ✎' : ''}`],
     ['Total tilt', tilt !== null ? `${tilt}°` : null],
     ['Antenna height', cell.antenna_height !== null ? `${cell.antenna_height} m` : null],
     ['Antenna type', cell.antenna_type],
@@ -244,11 +251,12 @@ function CellPopup({ cell, site, siblings, canSelectSector, onSelectSector, kpi,
           <Compass className="w-3.5 h-3.5" /> Reazimuth
         </button>
       </div>
+      <CellEditSection cell={cell} sectorCells={sectorCells} canEdit={canEdit} onSaved={onSaved} />
     </div>
   );
 }
 
-function Legend({ bands, darkMode, tier, mode, kpiMeta, ta }) {
+function Legend({ bands, darkMode, tier, mode, kpiMeta, ta, edited }) {
   const m = COLOR_MODES[mode] || COLOR_MODES.band;
   const items = m.legend ? [...m.legend, [NO_DATA, 'No data']] : bands.map(b => [bandColor(b), b]);
   const week = m.week && kpiMeta?.[m.week] ? ` W${kpiMeta[m.week]}` : '';
@@ -286,6 +294,11 @@ function Legend({ bands, darkMode, tier, mode, kpiMeta, ta }) {
             <span className="w-3 h-2.5 rounded-sm border border-dashed border-slate-500 bg-slate-300/50" /> 1st tier site
           </div>
         )}
+        {edited > 0 && (
+          <div className="flex items-center gap-1.5">
+            <span className="w-3 h-2.5 rounded-sm border-2 bg-slate-300/50" style={{ borderColor: OVERRIDE_COLOR }} /> Edited azimuth / tilt
+          </div>
+        )}
       </div>
     </div>
   );
@@ -306,6 +319,7 @@ function CovmoLegend({ metric, status, hover, darkMode }) {
       <div className="font-bold uppercase tracking-wider opacity-70">
         Covmo {m.label} ({m.unit}){status.week ? ` W${status.week}` : ''}
       </div>
+      {status.firstDate && <div className="opacity-60 -mt-0.5">{fmtDay(status.firstDate)} – {fmtDay(status.lastDate)}</div>}
       {m.bins.map(([, color, label]) => (
         <div key={label} className="flex items-center gap-1.5">
           <span className="w-3 h-2.5 rounded-sm shrink-0" style={{ background: color, opacity: 0.7 }} />
@@ -383,9 +397,44 @@ export default function CellMapDrawer({
   const [placingProtractor, setPlacingProtractor] = useState(false);
   const [protractor, setProtractor] = useState(null);
   const [headerH, setHeaderH] = useState(56);
+  const [helpOpen, setHelpOpen] = useState(false);
+  // Phase 5: RNO edits. Bumping the version reloads the cells with the new edits.
+  const [version, setVersion] = useState(0);
+  const reloadCells = useCallback(() => setVersion(v => v + 1), []);
+  // stored login first, then the server's current view of the role (also covers open access without login)
+  const [canEdit, setCanEdit] = useState(() => userCanEdit(getStoredAuthUser()));
+  useEffect(() => {
+    let cancelled = false;
+    getJson('/api/auth/check')
+      .then(j => { if (!cancelled) setCanEdit(userCanEdit(j.user)); })
+      .catch(() => { /* keep the stored value */ });
+    return () => { cancelled = true; };
+  }, []);
+  // Covmo week: '' = latest (default every time the map opens), or an older week
+  const [covmoWeek, setCovmoWeek] = useState('');
+  const [covmoWeeks, setCovmoWeeks] = useState([]);
   const mapRef = useRef(null);
-  const { loading, error, data } = useCellMap(open, siteId, prefs.tier);
+  // Popups scroll inside the map height instead of running past its bottom edge
+  const mapBoxRef = useRef(null);
+  const [mapH, setMapH] = useState(600);
+  useEffect(() => {
+    const el = mapBoxRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(() => setMapH(el.clientHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const { loading, error, data } = useCellMap(open, siteId, prefs.tier, version);
   const basemap = BASEMAPS[prefs.basemap] || BASEMAPS.osm;
+
+  useEffect(() => {
+    if (!covmoMetric || covmoWeeks.length) return undefined;
+    let cancelled = false;
+    getJson('/api/map/covmo/weeks')
+      .then(j => { if (!cancelled) setCovmoWeeks(j.weeks || []); })
+      .catch(() => { /* the latest week still loads without the list */ });
+    return () => { cancelled = true; };
+  }, [covmoMetric, covmoWeeks.length]);
 
   // The drawer starts below the sticky page header, whose height changes when it wraps
   useEffect(() => {
@@ -489,7 +538,7 @@ export default function CellMapDrawer({
       const ref = cells.find(c => c.band === 'L1800') || cells[0];
       const ta = Math.max(0, ...cells.map(c => kpiCells?.[c.siteid_ci]?.ta90 || 0));
       return {
-        id: `${sid}-${sec}`, label: `S${sec}`, color: NEEDLE_COLORS[i % NEEDLE_COLORS.length],
+        id: `${sid}-${sec}`, label: `S${sec}`, color: NEEDLE_COLORS[i % NEEDLE_COLORS.length], siteId: sid, sector: Number(sec),
         az, origAz: az, beam: ref.beamwidth || 65, lenM: Math.round(ta > 0 ? ta : 1000), ctx: cellCtx(ref),
       };
     });
@@ -508,6 +557,17 @@ export default function CellMapDrawer({
     mapRef.current?.closePopup();
   };
   const loadSectors = (sid) => setProtractor(prev => ({ ...prev, bearings: sectorNeedles(sid) }));
+
+  // Protractor needle -> azimuth edit of every macro cell of that sector
+  const saveNeedleAzimuth = async (b) => {
+    const az = Math.round(b.az) % 360;
+    const cells = (data?.cells || []).filter(c => c.site_id === b.siteId && Number(c.sector) === b.sector && !c.indoor)
+      .map(c => ({ site_id: c.site_id, ci: c.ci, cell_name: c.cell_name }));
+    if (!cells.length) throw new Error('No macro cell in this sector.');
+    await postJson('/api/map/overrides', { cells, values: { azimuth: az }, note: `Reazimuth ${b.label} via protractor` });
+    setProtractor(prev => (prev ? { ...prev, bearings: prev.bearings.map(x => (x.id === b.id ? { ...x, az, origAz: az } : x)) } : prev));
+    reloadCells();
+  };
 
   // Profile from the protractor: a needle (new vs original azimuth when moved) or a drawn line
   const profileFromProtractor = ({ kind, bearing, line }) => {
@@ -555,8 +615,16 @@ export default function CellMapDrawer({
         <span className="text-xs font-bold uppercase tracking-wider">Cell Map</span>
         <span className="text-xs font-semibold">{mainSite || siteId}</span>
         {data?.week && <span className="text-[10px] opacity-60">DESIQA W{data.week}</span>}
+        {data?.edited > 0 && (
+          <span className="text-[10px] font-semibold px-1.5 py-px rounded-full text-white" style={{ background: OVERRIDE_COLOR }}
+            title="Cells whose azimuth / tilt was edited and DESIQA does not carry yet">
+            {data.edited} edited
+          </span>
+        )}
         {loading && <Loader2 className="w-3.5 h-3.5 animate-spin opacity-70" />}
-        <button type="button" onClick={onClose} className="ml-auto p-1 rounded hover:bg-slate-500/15 cursor-pointer" title="Close map">
+        <span className="ml-auto" />
+        <HelpButton onClick={() => setHelpOpen(v => !v)} active={helpOpen} darkMode={darkMode} />
+        <button type="button" onClick={onClose} className="p-1 rounded hover:bg-slate-500/15 cursor-pointer" title="Close map">
           <X className="w-4 h-4" />
         </button>
         <div className="basis-full h-0" />
@@ -653,11 +721,27 @@ export default function CellMapDrawer({
             active={(covmoMetric || 'off') === c}
             onClick={() => { setCovmoHover(null); updatePrefs({ covmo: c }); }}
             darkMode={darkMode}
-            title={c === 'off' ? 'Hide the covmo grid' : `Covmo ${COVMO_METRICS[c].label} grid of the latest week (zoom ${COVMO_MIN_ZOOM}+)`}
+            title={c === 'off' ? 'Hide the covmo grid' : `Covmo ${COVMO_METRICS[c].label} grid (zoom ${COVMO_MIN_ZOOM}+)`}
           >
             {c === 'off' ? 'Off' : COVMO_METRICS[c].label}
           </ToolbarButton>
         ))}
+        {covmoMetric && covmoWeeks.length > 0 && (
+          <select
+            value={covmoWeek}
+            onChange={e => { setCovmoHover(null); setCovmoWeek(e.target.value); }}
+            title="Covmo week (default the latest)"
+            className={`rounded-md border px-1.5 py-1 text-[11px] font-semibold cursor-pointer ${
+              darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'
+            } ${covmoWeek ? 'text-amber-600' : ''}`}
+          >
+            {covmoWeeks.map((w, i) => (
+              <option key={w.week} value={i === 0 ? '' : w.week}>
+                W{w.week} · {fmtDay(w.start)}–{fmtDay(w.end)}{i === 0 ? ' (latest)' : ''}
+              </option>
+            ))}
+          </select>
+        )}
         {covmoMetric && (
           <OpacitySlider
             title="Covmo grid opacity"
@@ -670,7 +754,7 @@ export default function CellMapDrawer({
         {kpi.loading && <span className="flex items-center gap-1 text-[10px] opacity-60"><Loader2 className="w-3 h-3 animate-spin" /> KPI</span>}
       </div>
 
-      <div className="relative flex-1 min-h-0">
+      <div ref={mapBoxRef} className="relative flex-1 min-h-0">
         {error && (
           <div className="absolute top-2 left-2 right-2 z-[600] rounded-md bg-rose-600 text-white text-xs px-3 py-2 shadow">
             {error}
@@ -697,7 +781,7 @@ export default function CellMapDrawer({
             <FitView data={data} fitKey={data ? `${data.site_id}|${data.sites.length}` : ''} />
             <SizeWatcher width={width} />
             <OtherSites enabled={prefs.otherSites} shownIds={shownIds} />
-            <CovmoLayer metric={covmoMetric} opacity={prefs.covmoOpacity ?? 0.4} onStatus={setCovmoStatus} onHover={setCovmoHover} />
+            <CovmoLayer metric={covmoMetric} week={covmoWeek} opacity={prefs.covmoOpacity ?? 0.4} onStatus={setCovmoStatus} onHover={setCovmoHover} />
 
             {shapes.map(({ cell, site, positions, noTa, indoor, ring }) => {
               const isMain = cell.site_id === mainSite;
@@ -707,6 +791,10 @@ export default function CellMapDrawer({
               const fill = isMain ? (highlighted ? Math.min(1, prefs.opacity + 0.25) : prefs.opacity) : prefs.opacity * 0.65;
               const siblings = data.cells.filter(o => o.site_id === cell.site_id && o !== cell
                 && o.azimuth !== null && Math.abs(((o.azimuth - cell.azimuth + 540) % 360) - 180) <= 10);
+              const sectorCells = indoor ? [] : data.cells.filter(o => o.site_id === cell.site_id && o.sector === cell.sector
+                && !o.indoor && o !== cell);
+              const edited = !!cell.override;
+              const outline = highlighted ? '#0f172a' : edited ? OVERRIDE_COLOR : color;
               return (
                 <Polygon
                   key={cellKey(cell)}
@@ -714,14 +802,14 @@ export default function CellMapDrawer({
                   interactive={!busy}
                   pathOptions={ring ? {
                     // indoor TA ring: outline only, so only the line is clickable and nothing is shaded
-                    color: highlighted ? '#0f172a' : color,
-                    weight: highlighted ? 2.5 : 1.5,
+                    color: outline,
+                    weight: highlighted || edited ? 2.5 : 1.5,
                     fill: false,
                     dashArray: '6 4',
                     opacity: isMain ? 0.95 : 0.75,
                   } : {
-                    color: highlighted ? '#0f172a' : color,
-                    weight: highlighted ? 2.5 : 1,
+                    color: outline,
+                    weight: highlighted || edited ? 2.5 : 1,
                     fillColor: color,
                     fillOpacity: indoor ? Math.min(1, fill + 0.2) : fill,
                     dashArray: noTa ? '2 4' : isMain ? null : '4 3',
@@ -731,13 +819,17 @@ export default function CellMapDrawer({
                   <Tooltip sticky>
                     {cell.cell_name} · {cell.band} · {indoor ? 'in-building' : `${cell.azimuth}°`}
                     {prefs.ta > 0 && ` · TA${prefs.ta} ${cellKpi?.[`ta${prefs.ta}`] ? formatDistance(cellKpi[`ta${prefs.ta}`]) : 'n/a'}`}
+                    {edited && ' · Edited'}
                   </Tooltip>
                   {!busy && (
-                    <Popup maxWidth={340}>
+                    <Popup maxWidth={340} maxHeight={Math.max(220, mapH - 60)}>
                       <CellPopup
                         cell={cell}
                         site={site}
                         siblings={siblings}
+                        sectorCells={sectorCells}
+                        canEdit={canEdit}
+                        onSaved={reloadCells}
                         canSelectSector={canSelectSector && isMain}
                         onSelectSector={onSelectSector}
                         kpi={cellKpi}
@@ -782,6 +874,12 @@ export default function CellMapDrawer({
             KPI/status partly unavailable: {kpi.error}
           </div>
         )}
+        {data?.override_error && (
+          <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-[600] rounded-md bg-amber-500 text-white text-[11px] px-3 py-1.5 shadow">
+            {data.override_error}
+          </div>
+        )}
+        <MapHelp open={helpOpen} onClose={() => setHelpOpen(false)} darkMode={darkMode} />
         {covmoMetric && <CovmoLegend metric={covmoMetric} status={covmoStatus} hover={covmoHover} darkMode={darkMode} />}
         {placingProtractor && !protractor && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[640] rounded-md bg-yellow-400 text-slate-900 text-[11px] font-semibold px-2 py-1 shadow">
@@ -794,6 +892,7 @@ export default function CellMapDrawer({
           onClose={() => setProtractor(null)}
           onProfile={profileFromProtractor}
           onLoadSectors={loadSectors}
+          onSaveAzimuth={canEdit ? saveNeedleAzimuth : null}
           sites={data?.sites}
           darkMode={darkMode}
         />
@@ -807,7 +906,7 @@ export default function CellMapDrawer({
           />
         )}
         {bands.length > 0 && (
-          <Legend bands={bands} darkMode={darkMode} tier={prefs.tier} mode={mode} kpiMeta={kpi.data} ta={prefs.ta} />
+          <Legend bands={bands} darkMode={darkMode} tier={prefs.tier} mode={mode} kpiMeta={kpi.data} ta={prefs.ta} edited={data?.edited || 0} />
         )}
       </div>
     </aside>

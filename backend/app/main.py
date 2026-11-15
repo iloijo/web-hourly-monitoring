@@ -25,7 +25,8 @@ from .queries_ta import get_ta_4g_data, get_ta_5g_data, get_ta_compare_data
 from .queries_twamp import get_twamp_packet_loss_data, get_twamp_scope_aggregation
 from .site_names import load_site_names, get_site_display_name, get_site_name
 from .queries_properties import get_site_properties
-from .queries_map import get_map_cells, get_map_covmo, get_map_sites_in_bbox
+from .queries_map import get_map_cells, get_map_covmo, get_map_sites_in_bbox, get_covmo_weeks
+from .queries_map_override import apply_overrides, save_overrides, reset_overrides, get_override_history, OverrideError
 from .queries_map_kpi import get_map_kpi
 from .elevation import get_elevations
 from .queries_scope_4g import get_scope_aggregation_data, get_hourly_scope_aggregation_data
@@ -505,11 +506,88 @@ def get_daily_payload_sectors(
 @app.get("/api/map/cells")
 def map_cells(site_id: str = Query(..., description="Site ID e.g. MRW002"),
               tier: int = Query(0, ge=0, le=1, description="1 = add the 1st tier sites")):
-    """Cell geometry (raw_desiqa latest week) of a site, optionally with its 1st tier sites."""
+    """Cell geometry (raw_desiqa latest week) of a site, optionally with its 1st tier sites, with RNO edits applied."""
     try:
-        return get_map_cells(site_id=site_id, tier=tier)
+        data = get_map_cells(site_id=site_id, tier=tier)
     except Exception as e:
         return {"error": str(e), "site_id": site_id, "sites": [], "cells": []}
+    # DESIQA geometry is cached; the edits are read fresh on every request
+    return apply_overrides(data) if not data.get("error") else data
+
+
+MAP_EDIT_PERMISSION = "map-edit"
+
+
+def _can_edit_map(user: dict) -> bool:
+    return bool(user.get("is_super")) or MAP_EDIT_PERMISSION in (user.get("permissions") or [])
+
+
+class OverrideCell(BaseModel):
+    site_id: str
+    ci: int
+    cell_name: str = ""
+
+
+class OverridePayload(BaseModel):
+    cells: List[OverrideCell]
+    values: dict = {}       # only the fields being changed: azimuth / mt / et
+    note: str = ""
+
+
+class OverrideResetPayload(BaseModel):
+    cells: List[OverrideCell]
+
+
+def _edit_guard(request: Request):
+    user = request.state.user
+    if not _can_edit_map(user):
+        return None, JSONResponse(status_code=403, content={"error": "Forbidden", "message": "Role Anda tidak punya hak edit azimuth/tilt."})
+    return user, None
+
+
+@app.post("/api/map/overrides")
+def map_override_save(payload: OverridePayload, request: Request):
+    """RNO edit of azimuth / MT / ET for one or more cells (applies immediately, kept until DESIQA matches)."""
+    user, denied = _edit_guard(request)
+    if denied:
+        return denied
+    try:
+        result = save_overrides([c.model_dump() for c in payload.cells], payload.values, payload.note, user["username"])
+    except OverrideError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    detail = ", ".join(f"{k}={v}" for k, v in payload.values.items())
+    target = ", ".join(f"{c.site_id}_{c.ci}" for c in payload.cells[:10])
+    auth_store.log(user["username"], "map_override", target, detail, _client_ip(request))
+    return {"success": True, **result}
+
+
+@app.post("/api/map/overrides/reset")
+def map_override_reset(payload: OverrideResetPayload, request: Request):
+    """Back to the DESIQA values for the given cells."""
+    user, denied = _edit_guard(request)
+    if denied:
+        return denied
+    try:
+        result = reset_overrides([c.model_dump() for c in payload.cells], user["username"])
+    except OverrideError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    auth_store.log(user["username"], "map_override_reset", ", ".join(f"{c.site_id}_{c.ci}" for c in payload.cells[:10]),
+                   ip=_client_ip(request))
+    return {"success": True, **result}
+
+
+@app.get("/api/map/overrides/history")
+def map_override_history(site_id: str = Query(...)):
+    """Every azimuth / tilt edit of a site (active, replaced, reset, synced), newest first."""
+    try:
+        return get_override_history(site_id)
+    except Exception as e:
+        return {"error": str(e), "rows": []}
+
 
 @app.get("/api/map/kpi")
 def map_kpi(site_ids: str = Query(..., description="Comma separated site IDs (max 20)")):
@@ -519,11 +597,21 @@ def map_kpi(site_ids: str = Query(..., description="Comma separated site IDs (ma
     except Exception as e:
         return {"error": str(e), "cells": {}}
 
-@app.get("/api/map/covmo")
-def map_covmo(south: float = Query(...), west: float = Query(...), north: float = Query(...), east: float = Query(...)):
-    """Covmo RSRP/RSRQ grid (latest week) inside the map viewport, as zoom-20 tile indices."""
+@app.get("/api/map/covmo/weeks")
+def map_covmo_weeks():
+    """Covmo weeks available, newest first, with their date range."""
     try:
-        return get_map_covmo(south=south, west=west, north=north, east=east)
+        return {"weeks": get_covmo_weeks()["weeks"]}
+    except Exception as e:
+        return {"error": str(e), "weeks": []}
+
+
+@app.get("/api/map/covmo")
+def map_covmo(south: float = Query(...), west: float = Query(...), north: float = Query(...), east: float = Query(...),
+              week: Optional[str] = Query(None, description="Covmo week, default the latest")):
+    """Covmo RSRP/RSRQ grid of one week inside the map viewport, as zoom-20 tile indices."""
+    try:
+        return get_map_covmo(south=south, west=west, north=north, east=east, week=week or None)
     except Exception as e:
         return {"error": str(e), "tiles": []}
 

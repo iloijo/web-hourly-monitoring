@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import L from 'leaflet';
 import { useMap, useMapEvents } from 'react-leaflet';
-import { Mountain, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { Loader2, Mountain, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react';
 import { bearingDeg, destination, distanceM, formatDistance } from './geo';
 
 // Bearing protractor for re-azimuth planning: a floating ring (fixed size on screen, 0 deg = true north)
@@ -277,8 +277,18 @@ function NumInput({ value, onCommit, min = -Infinity, max = Infinity, step, clas
 }
 
 // Side panel: needles table, lines and actions
-export function ProtractorPanel({ pr, onChange, onClose, onProfile, onLoadSectors, sites, darkMode }) {
+export function ProtractorPanel({ pr, onChange, onClose, onProfile, onLoadSectors, onSaveAzimuth, sites, darkMode }) {
   const [count, setCount] = useState(3);
+  const [saving, setSaving] = useState({});   // needle id -> 'busy' | error text
+  const saveNeedle = async (b) => {
+    setSaving(p => ({ ...p, [b.id]: 'busy' }));
+    try {
+      await onSaveAzimuth(b);
+      setSaving(p => ({ ...p, [b.id]: null }));
+    } catch (e) {
+      setSaving(p => ({ ...p, [b.id]: e.message || String(e) }));
+    }
+  };
   if (!pr) return null;
   const shell = darkMode ? 'bg-slate-900/95 border-slate-700 text-slate-200' : 'bg-white/95 border-slate-200 text-slate-700';
   const input = `rounded border px-1 py-0.5 tabular-nums ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`;
@@ -308,6 +318,7 @@ export function ProtractorPanel({ pr, onChange, onClose, onProfile, onLoadSector
                     <input className={`${input} w-12`} value={b.label} onChange={e => setB(b.id, { label: e.target.value })} />
                   </div>
                   {b.origAz != null && <div className="opacity-60">was {Math.round(b.origAz)}°</div>}
+                  {saving[b.id] && saving[b.id] !== 'busy' && <div className="text-rose-500">{saving[b.id]}</div>}
                   {toward.length > 0 && (
                     <div className="text-amber-600" title="Sites inside this needle's beam and reach">
                       → {toward.slice(0, 3).map(x => `${x.s.site_id} ${formatDistance(x.d)}`).join(', ')}
@@ -322,6 +333,14 @@ export function ProtractorPanel({ pr, onChange, onClose, onProfile, onLoadSector
                   <div className="flex gap-0.5">
                     <button type="button" className="p-0.5 rounded hover:bg-slate-500/15 cursor-pointer" title={d ? 'Profile: new azimuth vs original' : 'Elevation profile along this needle'}
                       onClick={() => onProfile({ kind: 'needle', bearing: b })}><Mountain className="w-3.5 h-3.5 text-amber-600" /></button>
+                    {onSaveAzimuth && b.sector != null && d ? (
+                      <button type="button" className="p-0.5 rounded hover:bg-slate-500/15 cursor-pointer disabled:opacity-40"
+                        disabled={saving[b.id] === 'busy'}
+                        title={`Save ${Math.round(b.az)}° as the azimuth of every macro cell of sector ${b.sector} (edit, until DESIQA matches)`}
+                        onClick={() => saveNeedle(b)}>
+                        {saving[b.id] === 'busy' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5 text-fuchsia-600" />}
+                      </button>
+                    ) : null}
                     <button type="button" className="p-0.5 rounded hover:bg-slate-500/15 cursor-pointer" title="Delete needle"
                       onClick={() => onChange(prev => ({ ...prev, bearings: prev.bearings.filter(x => x.id !== b.id) }))}><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>

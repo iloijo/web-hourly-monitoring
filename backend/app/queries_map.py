@@ -268,39 +268,59 @@ def get_map_sites_in_bbox(south: float, west: float, north: float, east: float, 
 COVMO_ZOOM = 20
 COVMO_MAX_AREA_DEG2 = 0.03   # about 19 x 19 km at the equator; the map asks only from zoom 13
 COVMO_LIMIT = 150000
-_covmo_week: Dict[str, Any] = {"at": 0.0, "week": None, "date": None}
+_covmo_weeks: Dict[str, Any] = {"at": 0.0, "weeks": []}
+COVMO_WEEKS_MAX = 12
 
 
-def _covmo_latest() -> Dict[str, Any]:
-    if _covmo_week["week"] and time.time() - _covmo_week["at"] < _SITES_TTL_SEC:
-        return _covmo_week
+def get_covmo_weeks() -> Dict[str, Any]:
+    """Covmo weeks, newest first: [{week, start, end}] (cached 1 h).
+
+    Walks the distinct dates down the date_raw index instead of scanning 40M rows.
+    """
+    if _covmo_weeks["weeks"] and time.time() - _covmo_weeks["at"] < _SITES_TTL_SEC:
+        return _covmo_weeks
     conn = get_onedb_connection(timeout=10)
     if not conn:
-        return _covmo_week
+        return _covmo_weeks
     try:
         cur = conn.cursor()
-        # week is text ('44', '9'), so the latest week comes from the latest date (date_raw is indexed)
-        cur.execute("SELECT week, date_raw FROM covmo WHERE date_raw = (SELECT MAX(date_raw) FROM covmo) LIMIT 1")
-        row = cur.fetchone()
+        cur.execute("""
+            WITH RECURSIVE d AS (
+                SELECT MAX(date_raw) AS dt FROM covmo
+                UNION ALL
+                SELECT (SELECT MAX(date_raw) FROM covmo WHERE date_raw < d.dt) FROM d WHERE d.dt IS NOT NULL
+            )
+            SELECT dt, (SELECT week FROM covmo WHERE date_raw = d.dt LIMIT 1) FROM d WHERE dt IS NOT NULL
+        """)
+        rows = cur.fetchall()
         cur.close()
     finally:
         conn.close()
-    if row:
-        _covmo_week.update(at=time.time(), week=row[0], date=row[1].strftime("%Y-%m-%d"))
-    return _covmo_week
+    weeks: List[Dict[str, Any]] = []
+    for dt, week in rows:  # newest date first
+        if weeks and weeks[-1]["week"] == week:
+            weeks[-1]["start"] = dt.strftime("%Y-%m-%d")
+        elif len(weeks) < COVMO_WEEKS_MAX:
+            weeks.append({"week": week, "start": dt.strftime("%Y-%m-%d"), "end": dt.strftime("%Y-%m-%d")})
+    if weeks:
+        _covmo_weeks.update(at=time.time(), weeks=weeks)
+    return _covmo_weeks
 
 
-def get_map_covmo(south: float, west: float, north: float, east: float) -> Dict[str, Any]:
-    """Covmo tiles of the latest week inside the bbox.
+def get_map_covmo(south: float, west: float, north: float, east: float, week: Optional[str] = None) -> Dict[str, Any]:
+    """Covmo tiles of one week (default the latest) inside the bbox.
 
     `tiles` is "dx,dy,rsrp,rsrq,mr;..." where the zoom-20 tile is (x0 + dx, y0 + dy). A tile split over two
     kabupaten rows gets the MR-weighted average.
     """
     if (north - south) * (east - west) > COVMO_MAX_AREA_DEG2:
         return {"error": "Area too large, zoom in to load the covmo grid.", "tiles": ""}
-    latest = _covmo_latest()
-    if not latest["week"]:
+    weeks = get_covmo_weeks()["weeks"]
+    if not weeks:
         return {"error": "OneDb is not reachable.", "tiles": ""}
+    latest = next((w for w in weeks if w["week"] == week), None) if week else weeks[0]
+    if not latest:
+        return {"error": f"Covmo week {week} is not available.", "tiles": ""}
     conn = get_onedb_connection(timeout=15)
     if not conn:
         return {"error": "OneDb is not reachable.", "tiles": ""}
@@ -332,5 +352,5 @@ def get_map_covmo(south: float, west: float, north: float, east: float) -> Dict[
     finally:
         conn.close()
     x0, y0, count, tiles = row if row else (0, 0, 0, "")
-    return {"week": latest["week"], "last_date": latest["date"], "zoom": COVMO_ZOOM,
+    return {"week": latest["week"], "first_date": latest["start"], "last_date": latest["end"], "zoom": COVMO_ZOOM,
             "x0": x0, "y0": y0, "count": count or 0, "truncated": (count or 0) > COVMO_LIMIT, "tiles": tiles or ""}

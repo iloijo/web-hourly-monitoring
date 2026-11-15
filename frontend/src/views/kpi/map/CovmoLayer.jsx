@@ -4,7 +4,7 @@ import { useMap, useMapEvents } from 'react-leaflet';
 import { getJson } from '../../../api/client';
 import { COVMO_MIN_ZOOM, covmoColor, GRID, MAX_AREA, N, Z } from './covmo';
 
-// Covmo MR grid (RSRP / RSRQ) of the latest week. Every covmo row is a zoom-20 web-mercator tile (~38 m),
+// Covmo MR grid (RSRP / RSRQ) of one week (default the latest). Every covmo row is a zoom-20 web-mercator tile (~38 m),
 // drawn on canvas tiles under the sectors at 40% opacity. Only the viewport (plus a margin) is loaded.
 
 const z20Key = (lat, lon) => {
@@ -79,7 +79,7 @@ function requestBounds(v) {
 
 const round = (b) => Object.fromEntries(Object.entries(b).map(([k, x]) => [k, Number(x.toFixed(4))]));
 
-export default function CovmoLayer({ metric, opacity = 0.4, onStatus, onHover }) {
+export default function CovmoLayer({ metric, week = '', opacity = 0.4, onStatus, onHover }) {
   const map = useMap();
   const layerRef = useRef(null);
   const storeRef = useRef(new Map());
@@ -136,7 +136,8 @@ export default function CovmoLayer({ metric, opacity = 0.4, onStatus, onHover })
       onStatus({ state: 'zoom' });
       return undefined;
     }
-    if (contains(loadedRef.current, view)) return undefined;
+    // the loaded area only counts for the same week
+    if (loadedRef.current?.week === week && contains(loadedRef.current.bounds, view)) return undefined;
     const bounds = requestBounds(view);
     if (!bounds) {
       onStatus({ state: 'zoom' });
@@ -145,23 +146,23 @@ export default function CovmoLayer({ metric, opacity = 0.4, onStatus, onHover })
     let cancelled = false;
     onStatus({ state: 'loading' });
     const t = setTimeout(() => {
-      getJson('/api/map/covmo', round(bounds))
+      getJson('/api/map/covmo', { ...round(bounds), week })
         .then(json => {
           if (cancelled) return;
           if (json.error) { onStatus({ state: 'error', error: json.error }); return; }
-          loadedRef.current = bounds;
+          loadedRef.current = { bounds, week };
           setData(json);
         })
         .catch(err => { if (!cancelled) onStatus({ state: 'error', error: String(err) }); });
     }, 300);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [metric, view, onStatus]);
+  }, [metric, view, week, onStatus]);
 
   // New tiles: swap the store and repaint
   useEffect(() => {
     if (!data) return;
     storeRef.current = parseTiles(data);
-    onStatus({ state: 'ready', week: data.week, lastDate: data.last_date, count: data.count, truncated: data.truncated });
+    onStatus({ state: 'ready', week: data.week, firstDate: data.first_date, lastDate: data.last_date, count: data.count, truncated: data.truncated });
     const layer = layerRef.current;
     if (layer) {
       layer.options.store = storeRef.current;

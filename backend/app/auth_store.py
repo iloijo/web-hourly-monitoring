@@ -38,6 +38,8 @@ MENUS = [
     {"id": "ta-5g", "label": "Timing Advance 5G", "group": "Timing Advance"},
     {"id": "packet-loss", "label": "Packet Loss", "group": "Quality & Transport"},
     {"id": "admin", "label": "Administrasi", "group": "Administrasi"},
+    # not a page: lets the role edit azimuth / M-tilt / E-tilt on the 4G cell map
+    {"id": "map-edit", "label": "Edit Azimuth/Tilt (Cell Map)", "group": "Hak Khusus"},
 ]
 MENU_IDS = [m["id"] for m in MENUS]
 
@@ -46,8 +48,10 @@ DEFAULT_ROLES = [
     # (id, name, description, is_super, permissions)
     (SUPERADMIN_ROLE, "SuperAdmin", "Semua menu, kelola user, role dan hak akses", 1, MENU_IDS),
     ("rno", "RNO", "Semua menu monitoring", 0, [m for m in MENU_IDS if m != "admin"]),
-    ("oss", "OSS/Viewer", "Semua menu monitoring kecuali OKR", 0, [m for m in MENU_IDS if m not in ("admin", "cei", "crowdsource")]),
+    ("oss", "OSS/Viewer", "Semua menu monitoring kecuali OKR", 0, [m for m in MENU_IDS if m not in ("admin", "cei", "crowdsource", "map-edit")]),
 ]
+# Permissions added after a release, granted once to existing built-in roles (an admin may remove them later)
+PERMISSION_MIGRATIONS = [("2026-11-map-edit", "rno", "map-edit")]
 
 SESSION_IDLE_SEC = 30 * 60          # matches the frontend idle logout
 SESSION_MAX_SEC = 7 * 24 * 3600     # absolute lifetime of a token
@@ -168,6 +172,14 @@ def init_db():
                           (role_id, name, desc, is_super, now))
                 c.executemany("INSERT INTO role_permissions (role_id, menu_id) VALUES (?, ?)",
                               [(role_id, m) for m in perms])
+
+        c.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+        for mig_id, role_id, menu_id in PERMISSION_MIGRATIONS:
+            if c.execute("SELECT 1 FROM meta WHERE key = ?", (f"migration:{mig_id}",)).fetchone():
+                continue
+            if c.execute("SELECT 1 FROM roles WHERE id = ?", (role_id,)).fetchone():
+                c.execute("INSERT OR IGNORE INTO role_permissions (role_id, menu_id) VALUES (?, ?)", (role_id, menu_id))
+            c.execute("INSERT INTO meta (key, value) VALUES (?, ?)", (f"migration:{mig_id}", str(now)))
 
         user_count = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if user_count == 0 and settings.DASHBOARD_USER and settings.DASHBOARD_PASS:
