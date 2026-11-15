@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Table2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Map as MapIcon, Table2, X } from 'lucide-react';
 
 const fmt = (v) => (v === null || v === undefined || v === '' ? '–' : v);
 
@@ -24,6 +24,39 @@ export function compareValues(a, b, dir = 'asc') {
   return dir === 'desc' ? -cmp : cmp;
 }
 
+// Bottom-right capsule that opens the 4G Properties sheet (left half) and the cell map drawer (right half).
+// It stays left of the open map drawer.
+export function PanelCapsule({ propsOpen, onToggleProps, mapOpen, onToggleMap, rightOffset = 0 }) {
+  const half = 'flex items-center gap-2 py-2 text-xs font-bold text-white transition-colors duration-200 cursor-pointer';
+  return (
+    <div
+      style={{ right: rightOffset + 20 }}
+      className="fixed bottom-5 z-40 flex items-stretch rounded-full overflow-hidden shadow-lg shadow-slate-900/25 ring-1 ring-black/10 transition-[right] duration-300"
+    >
+      <button
+        type="button"
+        onClick={onToggleProps}
+        className={`${half} pl-4 pr-3 ${propsOpen ? 'bg-slate-700' : 'bg-amber-600 hover:bg-amber-700'}`}
+        title="Show 4G Properties (CompilePowerRet)"
+      >
+        <Table2 className="w-4 h-4" />
+        <span>4G Properties</span>
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-300 ${propsOpen ? '' : 'rotate-180'}`} />
+      </button>
+      <span className="w-px bg-white/60" aria-hidden />
+      <button
+        type="button"
+        onClick={onToggleMap}
+        className={`${half} pl-3 pr-4 ${mapOpen ? 'bg-slate-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+        title={mapOpen ? 'Hide cell map' : 'Show cell map (DESIQA)'}
+      >
+        <MapIcon className="w-4 h-4" />
+        <span>Map</span>
+      </button>
+    </div>
+  );
+}
+
 // 4G Daily, sector scope: bottom sheet with the site's cell properties (CompilePowerRet + lte_cell_config).
 // `rows` are already limited to the page's sector filter and sorted by `sortConfig` (owned by the parent,
 // which also uses the sorted rows for the Excel export).
@@ -36,7 +69,8 @@ export default function PropertiesPanel({
   darkMode,
   sidebarOpen,
   sortConfig,
-  onSort
+  onSort,
+  rightOffset = 0, // width of the open map drawer: the sheet stays left of it
 }) {
 
   const panel = darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800';
@@ -45,22 +79,11 @@ export default function PropertiesPanel({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => onOpenChange(!open)}
-        className={`fixed bottom-5 right-5 z-40 flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold shadow-lg transition cursor-pointer ${
-          open ? 'bg-slate-700 text-white' : 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-500/30'
-        }`}
-        title="Show 4G Properties (CompilePowerRet)"
-      >
-        <Table2 className="w-4 h-4" />
-        <span>4G Properties</span>
-        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-300 ${open ? '' : 'rotate-180'}`} />
-      </button>
-
       <div
-        className={`fixed bottom-0 right-0 z-30 h-[46vh] border-t shadow-[0_-12px_32px_rgba(0,0,0,0.18)] flex flex-col transition-transform duration-300 ease-out ${panel} ${
-          open ? 'translate-y-0' : 'translate-y-full pointer-events-none'
+        style={{ right: rightOffset }}
+        className={`fixed bottom-0 z-30 h-[46vh] border-t flex flex-col transition-all duration-300 ease-out ${panel} ${
+          // the shadow only while open: a closed sheet sits below the screen and its shadow showed as a grey band
+          open ? 'translate-y-0 shadow-[0_-12px_32px_rgba(0,0,0,0.18)]' : 'translate-y-full pointer-events-none invisible'
         } ${sidebarOpen ? 'left-64' : 'left-0'}`}
         aria-hidden={!open}
       >

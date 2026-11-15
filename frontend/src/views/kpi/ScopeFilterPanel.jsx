@@ -141,7 +141,7 @@ export default function ScopeFilterPanel({ km, siteNamesMap, darkMode, activeMen
             label="NOP"
             options={km.nopOptions}
             selectedValues={km.cityFilterNops}
-            onChange={(list) => km.handleCityNopsChange(list, km.nopOptions)}
+            onChange={km.handleCityNopsChange}
             isMulti={true}
             placeholder="Select NOP..."
             darkMode={darkMode}
@@ -163,8 +163,8 @@ export default function ScopeFilterPanel({ km, siteNamesMap, darkMode, activeMen
 
       {scope === 'kecamatan' && (
         <div className="flex flex-wrap items-center gap-4">
-          <SimpleSelect label="NOP" value={km.kecFilterNop} options={km.nopOptions} onChange={km.handleKecNopChange} darkMode={darkMode} bold />
-          <SimpleSelect label="KABUPATEN" value={km.kecFilterKab} options={km.kecCityOptions} onChange={km.handleKecKabChange} darkMode={darkMode} bold />
+          <SimpleSelect label="NOP" value={km.kecFilterNop} options={km.nopOptions} onChange={km.handleKecNopChange} darkMode={darkMode} bold placeholder="Select NOP..." />
+          <SimpleSelect label="KABUPATEN" value={km.kecFilterKab} options={km.kecCityOptions} onChange={km.handleKecKabChange} darkMode={darkMode} bold placeholder={km.kecFilterNop ? 'Select Kabupaten...' : 'Select NOP first'} />
           <MultiSelectDropdown
             label="KECAMATAN"
             options={km.kecOptions}

@@ -14,6 +14,25 @@ const AUTO_QUERY_SCOPES = ['regional', 'nop', 'city', 'kecamatan', 'site'];
 
 const firstOnly = (list) => (list.length > 1 ? [list[0]] : list);
 
+// No default site: the page starts empty until a site is chosen, then remembers the last one in this browser
+const LAST_SITE_KEY = 'netpulse_last_site';
+const readLastSite = () => {
+  try { return (localStorage.getItem(LAST_SITE_KEY) || '').toUpperCase(); } catch { return ''; }
+};
+
+// Same for the NOP / City / Kecamatan filters: empty at first, then the last choice in this browser
+const LAST_AREA_KEY = 'netpulse_last_area_filters';
+const readLastArea = () => {
+  try {
+    const v = JSON.parse(localStorage.getItem(LAST_AREA_KEY)) || {};
+    const list = (x) => (Array.isArray(x) ? x.filter(i => typeof i === 'string') : []);
+    const one = (x) => (typeof x === 'string' ? x : '');
+    return { nops: list(v.nops), cityNops: list(v.cityNops), cities: list(v.cities), kecNop: one(v.kecNop), kecKab: one(v.kecKab), kecs: list(v.kecs) };
+  } catch {
+    return { nops: [], cityNops: [], cities: [], kecNop: '', kecKab: '', kecs: [] };
+  }
+};
+
 // State, handlers and data loading for the 2G / 4G Hourly / 4G Daily / 5G KPI monitoring menus
 export default function useKpiMonitoring(activeMenu, ref) {
   const { allSites, sites5g, sites2g, siteNamesMap, hierarchyData, dailyKpisList, kpis5gList, kpis2gList } = ref;
@@ -22,15 +41,24 @@ export default function useKpiMonitoring(activeMenu, ref) {
   const [aggregationScope, setAggregationScope] = useState('sector');
   const [aggregationMode, setAggregationMode] = useState('full');
 
-  const [selectedNops, setSelectedNops] = useState(['MAKASSAR']);
-  const [selectedCities, setSelectedCities] = useState(['KOTA MAKASSAR']);
-  const [selectedKecamatans, setSelectedKecamatans] = useState(['UJUNG PANDANG']);
-  const [selectedSites, setSelectedSites] = useState(['MRW002']);
-  const [cityFilterNops, setCityFilterNops] = useState(['MAKASSAR']);
-  const [kecFilterNop, setKecFilterNop] = useState('MAKASSAR');
-  const [kecFilterKab, setKecFilterKab] = useState('KOTA MAKASSAR');
+  const [lastArea] = useState(readLastArea);
+  const [selectedNops, setSelectedNops] = useState(lastArea.nops);
+  const [selectedCities, setSelectedCities] = useState(lastArea.cities);
+  const [selectedKecamatans, setSelectedKecamatans] = useState(lastArea.kecs);
+  const [selectedSites, setSelectedSites] = useState(() => { const s = readLastSite(); return s ? [s] : []; });
+  const [cityFilterNops, setCityFilterNops] = useState(lastArea.cityNops);
+  const [kecFilterNop, setKecFilterNop] = useState(lastArea.kecNop);
+  const [kecFilterKab, setKecFilterKab] = useState(lastArea.kecKab);
+  useEffect(() => {
+    const v = { nops: selectedNops, cityNops: cityFilterNops, cities: selectedCities, kecNop: kecFilterNop, kecKab: kecFilterKab, kecs: selectedKecamatans };
+    try { localStorage.setItem(LAST_AREA_KEY, JSON.stringify(v)); } catch { /* storage unavailable */ }
+  }, [selectedNops, cityFilterNops, selectedCities, kecFilterNop, kecFilterKab, selectedKecamatans]);
 
-  const [siteId, setSiteId] = useState('MRW002');
+  const [siteId, setSiteId] = useState(readLastSite);
+  useEffect(() => {
+    if (!siteId) return;
+    try { localStorage.setItem(LAST_SITE_KEY, siteId.toUpperCase()); } catch { /* storage unavailable */ }
+  }, [siteId]);
   const [selectedSector, setSelectedSector] = useState('1');
   const [selectedBands, setSelectedBands] = useState(ALL_BAND_IDS);
   const [filterType, setFilterType] = useState('all');
@@ -99,6 +127,7 @@ export default function useKpiMonitoring(activeMenu, ref) {
   };
 
   const fetchSectorData = (targetSite, start, end, menu = activeMenu, cellType = filterType) => {
+    if (!targetSite) return; // nothing chosen yet
     const endpoint = {
       '4g-daily': '/api/daily/payload_sectors',
       '5g': '/api/5g/payload_sectors',
@@ -119,10 +148,19 @@ export default function useKpiMonitoring(activeMenu, ref) {
       return mode === 'band' ? chosen.slice(0, 1) : chosen;
     };
     const params = { scope, mode, start_date: start, end_date: end };
-    if (scope === 'nop') params.nops = pick(nops, ['MAKASSAR']);
-    else if (scope === 'city') params.cities = pick(cities, ['KOTA MAKASSAR']);
-    else if (scope === 'kecamatan') params.kecamatans = pick(kecs, ['UJUNG PANDANG']);
-    else if (scope === 'site') params.sites = pick(sites, [siteId]);
+    if (scope === 'nop') params.nops = pick(nops, []);
+    else if (scope === 'city') params.cities = pick(cities, []);
+    else if (scope === 'kecamatan') params.kecamatans = pick(kecs, []);
+    else if (scope === 'site') params.sites = pick(sites, siteId ? [siteId] : []);
+
+    // Nothing chosen yet (no default area): drop older answers and show the empty state
+    const chosen = { nop: params.nops, city: params.cities, kecamatan: params.kecamatans, site: params.sites }[scope];
+    if (chosen && chosen.length === 0) {
+      requestId.current += 1;
+      setLoading(false);
+      setAggregationData(null);
+      return;
+    }
 
     const bandCount = bandOptionsFor(menu).length;
     if (bands && bands.length > 0 && bands.length < bandCount) params.bands = bands;
@@ -169,7 +207,7 @@ export default function useKpiMonitoring(activeMenu, ref) {
   };
 
   const handleSitesChange = (newList) => {
-    const next = newList && newList.length > 0 ? newList : [siteId];
+    const next = newList && newList.length > 0 ? newList : (siteId ? [siteId] : []);
     setSelectedSites(next);
     if (next.length === 1 && next[0] !== siteId) {
       setSiteId(next[0]);
@@ -186,8 +224,8 @@ export default function useKpiMonitoring(activeMenu, ref) {
     } else {
       let currentSites = selectedSites;
       if (newScope === 'site') {
-        currentSites = selectedSites && selectedSites.length > 0 ? selectedSites : [siteId];
-        if (!selectedSites.includes(siteId) && selectedSites.length <= 1) {
+        currentSites = selectedSites && selectedSites.length > 0 ? selectedSites : (siteId ? [siteId] : []);
+        if (siteId && !selectedSites.includes(siteId) && selectedSites.length <= 1) {
           currentSites = [siteId];
           setSelectedSites([siteId]);
         }
@@ -218,15 +256,21 @@ export default function useKpiMonitoring(activeMenu, ref) {
   const prepareMenu = (targetMenu) => {
     if (targetMenu === '5g') {
       const list = sites5g.length > 0 ? sites5g : FALLBACK_5G_SITES;
-      if (!list.includes(siteId.toUpperCase())) setSiteId('UPD012');
-      if (!selectedSites.some(s => list.includes(s))) setSelectedSites(['UPD012']);
+      // the last 4G site may have no 5G cells: leave the picker empty instead of a fixed default
+      if (!list.includes(siteId.toUpperCase())) setSiteId('');
+      setSelectedSites(selectedSites.filter(s => list.includes(s)));
       setSelectedBands(BAND_OPTIONS_5G.map(b => b.id));
     } else if (targetMenu === '2g') {
       const list = sites2g.length > 0 ? sites2g : FALLBACK_2G_SITES;
-      if (!list.includes(siteId.toUpperCase())) setSiteId('MRW002');
-      if (!selectedSites.some(s => list.includes(s))) setSelectedSites(['MRW002']);
+      if (!list.includes(siteId.toUpperCase())) setSiteId('');
+      setSelectedSites(selectedSites.filter(s => list.includes(s)));
       setSelectedBands(BAND_OPTIONS_2G.map(b => b.id));
     } else {
+      if (!siteId) {
+        // back from 2G/5G with an empty picker: restore the last site chosen in this browser
+        const last = readLastSite();
+        if (last && allSites.includes(last)) { setSiteId(last); setSelectedSites([last]); }
+      }
       setSelectedBands(BAND_OPTIONS_4G.map(b => b.id));
       if (targetMenu === '4g-hourly') {
         if (aggregationScope !== 'site') setAggregationScope('sector');
@@ -254,17 +298,16 @@ export default function useKpiMonitoring(activeMenu, ref) {
     fetchScopeAggregationData('nop', aggregationMode, startDate, endDate, newList, selectedCities, selectedKecamatans, selectedSites, selectedBands);
   };
 
-  const handleCityNopsChange = (newList, nopOptions) => {
-    const nextNops = newList.length > 0 ? newList : [nopOptions[0] || 'MAKASSAR'];
+  const handleCityNopsChange = (newList) => {
+    // An empty NOP list means "any NOP": the city list then shows every kabupaten
+    const nextNops = newList;
     setCityFilterNops(nextNops);
     const kabs = new Set();
     nextNops.forEach(n => (hierarchyData?.kabupaten_by_nop?.[n] || []).forEach(k => kabs.add(k)));
-    const retained = selectedCities.filter(c => kabs.has(c));
-    const nextCities = retained.length > 0 ? retained : Array.from(kabs).sort().slice(0, 1);
-    if (nextCities.length > 0) {
-      setSelectedCities(nextCities);
-      fetchScopeAggregationData('city', aggregationMode, startDate, endDate, nextNops, nextCities, selectedKecamatans, selectedSites, selectedBands);
-    }
+    // keep the chosen cities that still belong to the NOPs; no city is picked automatically
+    const nextCities = nextNops.length === 0 ? selectedCities : selectedCities.filter(c => kabs.has(c));
+    setSelectedCities(nextCities);
+    fetchScopeAggregationData('city', aggregationMode, startDate, endDate, nextNops, nextCities, selectedKecamatans, selectedSites, selectedBands);
   };
 
   const handleCitiesChange = (newList) => {
@@ -272,23 +315,18 @@ export default function useKpiMonitoring(activeMenu, ref) {
     fetchScopeAggregationData('city', aggregationMode, startDate, endDate, cityFilterNops, newList, selectedKecamatans, selectedSites, selectedBands);
   };
 
+  // A new NOP or kabupaten clears the levels under it; nothing is picked automatically
   const handleKecNopChange = (nop) => {
     setKecFilterNop(nop);
-    const kabs = Array.from(hierarchyData?.kabupaten_by_nop?.[nop] || []);
-    if (kabs.length === 0) return;
-    setKecFilterKab(kabs[0]);
-    const kecs = Array.from(hierarchyData?.kecamatan_by_kab?.[kabs[0]] || []);
-    if (kecs.length === 0) return;
-    setSelectedKecamatans([kecs[0]]);
-    fetchScopeAggregationData('kecamatan', aggregationMode, startDate, endDate, [nop], [kabs[0]], [kecs[0]], selectedSites, selectedBands);
+    setKecFilterKab('');
+    setSelectedKecamatans([]);
+    fetchScopeAggregationData('kecamatan', aggregationMode, startDate, endDate, [nop], [], [], selectedSites, selectedBands);
   };
 
   const handleKecKabChange = (kab) => {
     setKecFilterKab(kab);
-    const kecs = Array.from(hierarchyData?.kecamatan_by_kab?.[kab] || []);
-    if (kecs.length === 0) return;
-    setSelectedKecamatans([kecs[0]]);
-    fetchScopeAggregationData('kecamatan', aggregationMode, startDate, endDate, [kecFilterNop], [kab], [kecs[0]], selectedSites, selectedBands);
+    setSelectedKecamatans([]);
+    fetchScopeAggregationData('kecamatan', aggregationMode, startDate, endDate, [kecFilterNop], [kab], [], selectedSites, selectedBands);
   };
 
   const handleKecamatansChange = (newList) => {
@@ -390,24 +428,34 @@ export default function useKpiMonitoring(activeMenu, ref) {
     [hierarchyData]
   );
 
+  // Without a NOP filter the city list holds every kabupaten
   const cityOptions = useMemo(() => {
-    if (cityFilterNops?.length > 0 && hierarchyData?.kabupaten_by_nop) {
-      const set = new Set();
-      cityFilterNops.forEach(n => (hierarchyData.kabupaten_by_nop[n] || []).forEach(k => set.add(k)));
-      if (set.size > 0) return Array.from(set).sort();
-    }
-    return ['KOTA MAKASSAR', 'GOWA', 'MAROS', 'MOROWALI', 'KENDARI', 'PALU', 'MANADO'];
+    const byNop = hierarchyData?.kabupaten_by_nop;
+    if (!byNop) return [];
+    const nops = cityFilterNops?.length > 0 ? cityFilterNops : Object.keys(byNop);
+    const set = new Set();
+    nops.forEach(n => (byNop[n] || []).forEach(k => set.add(k)));
+    return Array.from(set).sort();
   }, [cityFilterNops, hierarchyData]);
 
   const kecCityOptions = useMemo(() => {
-    const kabs = hierarchyData?.kabupaten_by_nop?.[kecFilterNop];
-    return kabs ? Array.from(kabs).sort() : cityOptions;
-  }, [kecFilterNop, hierarchyData, cityOptions]);
+    const kabs = kecFilterNop ? hierarchyData?.kabupaten_by_nop?.[kecFilterNop] : null;
+    return kabs ? Array.from(kabs).sort() : [];
+  }, [kecFilterNop, hierarchyData]);
 
   const kecOptions = useMemo(() => {
-    const kecs = hierarchyData?.kecamatan_by_kab?.[kecFilterKab];
-    return kecs ? Array.from(kecs).sort() : ['UJUNG PANDANG', 'MAMAJANG', 'PANAKKUKANG', 'TAMALATE', 'BUNGKU TENGAH'];
+    const kecs = kecFilterKab ? hierarchyData?.kecamatan_by_kab?.[kecFilterKab] : null;
+    return kecs ? Array.from(kecs).sort() : [];
   }, [kecFilterKab, hierarchyData]);
+
+  // Whether the current scope has what it needs to query (no default area or site any more)
+  const scopeReady = {
+    sector: !!siteId,
+    nop: selectedNops.length > 0,
+    city: selectedCities.length > 0,
+    kecamatan: selectedKecamatans.length > 0,
+    site: selectedSites.length > 0 || !!siteId,
+  }[aggregationScope] ?? true;
 
   const siteKey = siteId.toUpperCase();
   const currentSiteMeta = hierarchyData?.site_map?.[siteKey] || data?.site_info || {
@@ -430,7 +478,7 @@ export default function useKpiMonitoring(activeMenu, ref) {
     data, aggregationData, loading,
     // derived
     activeBandOptions, allActiveBandIds, activeSitesList, activeKpiCatalog, activeSelectedKpiIds,
-    availableSectors, nopOptions, cityOptions, kecCityOptions, kecOptions,
+    availableSectors, nopOptions, cityOptions, kecCityOptions, kecOptions, scopeReady,
     currentSiteMeta, resolvedNeName,
     // handlers
     prepareMenu, handleSitesChange, openSiteInMenu, handleGetData, handleSelectSectorSite, handleSelectScope, handleSwitchAggregationMode,
