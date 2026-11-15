@@ -1,8 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Map as MapIcon } from 'lucide-react';
 import ScopeFilterPanel from './kpi/ScopeFilterPanel';
 import KpiChartsPanel from './kpi/KpiChartsPanel';
-import PropertiesPanel, { compareValues } from './kpi/PropertiesPanel';
+import PropertiesPanel, { compareValues, PanelCapsule } from './kpi/PropertiesPanel';
 import MarkerControl from './kpi/MarkerControl';
 import ThresholdControl, { loadThresholdSettings } from './kpi/ThresholdControl';
 import { buildKpiExport } from './kpi/kpiExport';
@@ -117,17 +116,13 @@ export default function KpiMonitoringView({
             onSort={handlePropSort}
             rightOffset={mapOffset}
           />
-          {!mapOpen && (
-            <button
-              type="button"
-              onClick={openMap}
-              className="fixed bottom-5 right-[165px] z-40 flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold shadow-lg transition cursor-pointer bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/30"
-              title="Show cell map (DESIQA)"
-            >
-              <MapIcon className="w-4 h-4" />
-              <span>Map</span>
-            </button>
-          )}
+          <PanelCapsule
+            propsOpen={propsOpen}
+            onToggleProps={() => setPropsOpen(o => !o)}
+            mapOpen={mapOpen}
+            onToggleMap={() => (mapOpen ? setMapOpen(false) : openMap())}
+            rightOffset={mapOffset}
+          />
           {mapMounted && (
             <Suspense fallback={null}>
               <CellMapDrawer

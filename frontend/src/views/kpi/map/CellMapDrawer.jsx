@@ -3,11 +3,12 @@ import {
   CircleMarker, MapContainer, Polygon, Popup, ScaleControl, TileLayer, Tooltip, useMap, useMapEvents,
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Crosshair, Layers, Loader2, Map as MapIcon, Ruler, Trash2, X } from 'lucide-react';
-import { BAND_COLORS } from '../../../components/SectorPayloadChart';
+import { Crosshair, Layers, Loader2, Map as MapIcon, Palette, Radar, Ruler, Trash2, X } from 'lucide-react';
 import { getJson } from '../../../api/client';
 import MeasureLayer from './MeasureLayer';
 import useCellMap from './useCellMap';
+import useCellKpi from './useCellKpi';
+import { bandColor, COLOR_MODES, NO_DATA, statusColor } from './colorModes';
 import { bandLength, distanceM, formatDistance, sectorPolygon, siteSectorBase } from './geo';
 
 const BASEMAPS = {
@@ -40,8 +41,9 @@ const writePrefs = (p) => {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(p)); } catch { /* storage unavailable */ }
 };
 
-const bandColor = (band) => BAND_COLORS[band] || '#64748b';
 const fmt = (v) => (v === null || v === undefined || v === '' ? '–' : v);
+const TA_OPTIONS = [0, 70, 80, 90];
+const shortWeek = (w) => (w ? `W${String(w).slice(-2)}` : '');
 
 // Fits the view to the loaded sites whenever the site or the tier option changes
 function FitView({ data, fitKey }) {
@@ -111,7 +113,49 @@ function OtherSites({ enabled, shownIds }) {
   ));
 }
 
-function CellPopup({ cell, site, siblings, canSelectSector, onSelectSector }) {
+const StatusChip = ({ label, value, color }) => (
+  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-1.5 py-px mr-1 mb-1">
+    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+    <span className="opacity-60">{label}</span>
+    <span className="font-semibold">{value || '–'}</span>
+  </span>
+);
+
+function KpiSection({ kpi, meta }) {
+  if (!meta) return <div className="mt-1.5 pt-1.5 border-t border-slate-200 opacity-60">Loading KPI...</div>;
+  const k = kpi || {};
+  const pair = (a, b, u) => (a === undefined && b === undefined ? null : `${fmt(a)} / ${fmt(b)}${u}`);
+  const rows = [
+    ['PRB DL / UL', pair(k.dl_prb, k.ul_prb, ' %')],
+    ['User Thp DL / UL', pair(k.dl_thp, k.ul_thp, ' Mbps')],
+    ['Max RRC user', k.max_rrc],
+    ['Active user', k.active_user],
+    ['TA 70 / 80 / 90', k.ta90 !== undefined && k.ta90 !== null
+      ? `${formatDistance(k.ta70)} / ${formatDistance(k.ta80)} / ${formatDistance(k.ta90)}` : null],
+  ];
+  return (
+    <div className="mt-1.5 pt-1.5 border-t border-slate-200">
+      <div className="opacity-60 mb-0.5">KPI {meta.kpi_date} (BDBH)</div>
+      <table className="w-full">
+        <tbody>
+          {rows.map(([label, v]) => (
+            <tr key={label}>
+              <td className="pr-2 py-px opacity-60 whitespace-nowrap">{label}</td>
+              <td className="py-px font-semibold">{fmt(v)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="mt-1 flex flex-wrap">
+        <StatusChip label={`RCI ${shortWeek(meta.rci_week)}`} value={k.rci} color={statusColor.rci(k.rci)} />
+        <StatusChip label={`CEI ${shortWeek(meta.cei_week)}`} value={k.cei} color={statusColor.cei(k.cei)} />
+        <StatusChip label={`Unb ${shortWeek(meta.unbalance_week)}`} value={k.unbalance} color={statusColor.unbalance(k.unbalance)} />
+      </div>
+    </div>
+  );
+}
+
+function CellPopup({ cell, site, siblings, canSelectSector, onSelectSector, kpi, kpiMeta }) {
   const tilt = (cell.et ?? null) !== null || (cell.mt ?? null) !== null ? (cell.et || 0) + (cell.mt || 0) : null;
   const rows = [
     ['SiteID_CI', cell.siteid_ci],
@@ -146,6 +190,7 @@ function CellPopup({ cell, site, siblings, canSelectSector, onSelectSector }) {
           ))}
         </tbody>
       </table>
+      <KpiSection kpi={kpi} meta={kpiMeta} />
       {siblings.length > 0 && (
         <div className="mt-1.5 pt-1.5 border-t border-slate-200">
           <div className="opacity-60 mb-0.5">Same direction on this site</div>
@@ -171,19 +216,33 @@ function CellPopup({ cell, site, siblings, canSelectSector, onSelectSector }) {
   );
 }
 
-function Legend({ bands, darkMode, tier }) {
+function Legend({ bands, darkMode, tier, mode, kpiMeta, ta }) {
+  const m = COLOR_MODES[mode] || COLOR_MODES.band;
+  const items = m.legend ? [...m.legend, [NO_DATA, 'No data']] : bands.map(b => [bandColor(b), b]);
+  const week = m.week && kpiMeta?.[m.week] ? ` W${kpiMeta[m.week]}` : '';
+  const day = (mode === 'dl_prb' || mode === 'dl_thp') && kpiMeta?.kpi_date ? ` ${kpiMeta.kpi_date}` : '';
   return (
-    <div className={`absolute bottom-6 right-2 z-[500] rounded-lg border px-2.5 py-2 text-[10px] shadow-md space-y-1 ${
+    <div className={`absolute bottom-6 right-2 z-[500] rounded-lg border px-2.5 py-2 text-[10px] shadow-md space-y-1 max-w-56 ${
       darkMode ? 'bg-slate-900/90 border-slate-700 text-slate-200' : 'bg-white/95 border-slate-200 text-slate-700'
     }`}>
-      <div className="font-bold uppercase tracking-wider opacity-70">Band</div>
-      {bands.map(b => (
-        <div key={b} className="flex items-center gap-1.5">
-          <span className="w-3 h-2.5 rounded-sm" style={{ background: bandColor(b), opacity: 0.8 }} />
-          <span>{b}</span>
+      <div className="font-bold uppercase tracking-wider opacity-70">{m.label}{week}{day}</div>
+      {items.map(([color, label]) => (
+        <div key={label} className="flex items-center gap-1.5">
+          <span className="w-3 h-2.5 rounded-sm shrink-0" style={{ background: color, opacity: 0.85 }} />
+          <span>{label}</span>
         </div>
       ))}
       <div className="pt-1 border-t border-slate-500/30 space-y-0.5">
+        {ta > 0 && (
+          <>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-2.5 rounded-sm border border-slate-600 bg-slate-400/60" /> Length = TA {ta}%
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-2.5 rounded-sm border border-dashed border-slate-600" /> No TA data
+            </div>
+          </>
+        )}
         <div className="flex items-center gap-1.5">
           <span className="w-3 h-2.5 rounded-sm border-2 border-slate-900 bg-slate-400" /> Selected sector
         </div>
@@ -216,7 +275,9 @@ const ToolbarButton = ({ active, onClick, title, children, darkMode }) => (
 export default function CellMapDrawer({
   open, onClose, siteId, sectors = [], darkMode, width, onWidthChange, canSelectSector, onSelectSector,
 }) {
-  const [prefs, setPrefs] = useState(() => ({ basemap: 'osm', tier: 0, otherSites: true, ...readPrefs() }));
+  const [prefs, setPrefs] = useState(() => ({
+    basemap: 'osm', tier: 0, otherSites: true, colorBy: 'band', ta: 0, opacity: 0.35, ...readPrefs(),
+  }));
   const updatePrefs = (patch) => setPrefs(p => { const next = { ...p, ...patch }; writePrefs(next); return next; });
   const [measuring, setMeasuring] = useState(false);
   const [measurePoints, setMeasurePoints] = useState([]);
@@ -255,20 +316,27 @@ export default function CellMapDrawer({
   const shownIds = useMemo(() => new Set(Object.keys(sitesById)), [sitesById]);
   const mainSite = data?.site_id;
   const sectorSet = useMemo(() => new Set(sectors.map(Number)), [sectors]);
+  const siteIdList = useMemo(() => Object.keys(sitesById), [sitesById]);
+  const kpi = useCellKpi(open && siteIdList.length > 0, siteIdList);
+  const kpiCells = kpi.data?.cells;
+  const mode = COLOR_MODES[prefs.colorBy] ? prefs.colorBy : 'band';
 
-  // Longest sectors first so the shorter (higher band) wedges stay on top and clickable
+  // Longest sectors first so the shorter (higher band) wedges stay on top and clickable.
+  // TA stretch: the sector reaches the cell's TA 70/80/90% distance; cells without TA keep the default length.
   const shapes = useMemo(() => {
     if (!data?.cells) return [];
     return data.cells
       .filter(c => c.lat !== null && c.lon !== null && c.azimuth !== null)
       .map(c => {
         const site = sitesById[c.site_id];
-        const radius = siteSectorBase(site?.nearest_km) * bandLength(c.band);
+        const taM = prefs.ta ? kpiCells?.[c.siteid_ci]?.[`ta${prefs.ta}`] : null;
+        const noTa = !!prefs.ta && !(taM > 0);
+        const radius = taM > 0 ? Math.max(taM, 60) : siteSectorBase(site?.nearest_km) * bandLength(c.band);
         const beam = c.beamwidth || 65;
-        return { cell: c, site, radius, positions: sectorPolygon(c.lat, c.lon, c.azimuth, beam, radius) };
+        return { cell: c, site, radius, noTa, positions: sectorPolygon(c.lat, c.lon, c.azimuth, beam, radius) };
       })
       .sort((a, b) => b.radius - a.radius);
-  }, [data, sitesById]);
+  }, [data, sitesById, prefs.ta, kpiCells]);
 
   const bands = useMemo(() => [...new Set(shapes.map(s => s.cell.band))].sort(), [shapes]);
   const measureTotal = measurePoints.reduce((t, p, i) => (i ? t + distanceM(measurePoints[i - 1], p) : 0), 0);
@@ -339,6 +407,47 @@ export default function CellMapDrawer({
         <ToolbarButton onClick={recenter} darkMode={darkMode} title="Center on the searched site">
           <Crosshair className="w-3.5 h-3.5" />
         </ToolbarButton>
+        <div className="basis-full h-0" />
+        <label className="flex items-center gap-1 text-[11px] font-semibold" title="Colour sectors by">
+          <Palette className="w-3.5 h-3.5 opacity-60" />
+          <select
+            value={mode}
+            onChange={e => updatePrefs({ colorBy: e.target.value })}
+            className={`rounded-md border px-1.5 py-1 text-[11px] font-semibold cursor-pointer ${
+              darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'
+            }`}
+          >
+            {Object.entries(COLOR_MODES).map(([id, m]) => <option key={id} value={id}>{m.label}</option>)}
+          </select>
+        </label>
+        <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
+        <Radar className="w-3.5 h-3.5 opacity-60" />
+        {TA_OPTIONS.map(t => (
+          <ToolbarButton
+            key={t}
+            active={prefs.ta === t}
+            onClick={() => updatePrefs({ ta: t })}
+            darkMode={darkMode}
+            title={t ? `Stretch each sector to its TA ${t}% distance (${kpi.data?.ta_date || 'last day'})` : 'Default sector length'}
+          >
+            {t ? `TA${t}` : 'TA off'}
+          </ToolbarButton>
+        ))}
+        <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
+        <label className="flex items-center gap-1.5 text-[11px] font-semibold" title="Sector fill opacity">
+          <span className="opacity-60">Opacity</span>
+          <input
+            type="range"
+            min={5}
+            max={100}
+            step={5}
+            value={Math.round(prefs.opacity * 100)}
+            onChange={e => updatePrefs({ opacity: Number(e.target.value) / 100 })}
+            className="w-20 accent-blue-600 cursor-pointer"
+          />
+          <span className="w-8 tabular-nums">{Math.round(prefs.opacity * 100)}%</span>
+        </label>
+        {kpi.loading && <span className="flex items-center gap-1 text-[10px] opacity-60"><Loader2 className="w-3 h-3 animate-spin" /> KPI</span>}
       </div>
 
       <div className="relative flex-1 min-h-0">
@@ -369,10 +478,12 @@ export default function CellMapDrawer({
             <SizeWatcher width={width} />
             <OtherSites enabled={prefs.otherSites} shownIds={shownIds} />
 
-            {shapes.map(({ cell, site, positions }) => {
+            {shapes.map(({ cell, site, positions, noTa }) => {
               const isMain = cell.site_id === mainSite;
               const highlighted = isMain && sectorSet.has(cell.sector);
-              const color = bandColor(cell.band);
+              const cellKpi = kpiCells?.[cell.siteid_ci];
+              const color = COLOR_MODES[mode].color(cell, cellKpi);
+              const fill = isMain ? (highlighted ? Math.min(1, prefs.opacity + 0.25) : prefs.opacity) : prefs.opacity * 0.65;
               const siblings = data.cells.filter(o => o.site_id === cell.site_id && o.siteid_ci !== cell.siteid_ci
                 && o.azimuth !== null && Math.abs(((o.azimuth - cell.azimuth + 540) % 360) - 180) <= 10);
               return (
@@ -384,12 +495,15 @@ export default function CellMapDrawer({
                     color: highlighted ? '#0f172a' : color,
                     weight: highlighted ? 2.5 : 1,
                     fillColor: color,
-                    fillOpacity: isMain ? (highlighted ? 0.6 : 0.35) : 0.22,
-                    dashArray: isMain ? null : '4 3',
+                    fillOpacity: fill,
+                    dashArray: noTa ? '2 4' : isMain ? null : '4 3',
                     opacity: isMain ? 1 : 0.8,
                   }}
                 >
-                  <Tooltip sticky>{cell.cell_name} · {cell.band} · {cell.azimuth}°</Tooltip>
+                  <Tooltip sticky>
+                    {cell.cell_name} · {cell.band} · {cell.azimuth}°
+                    {prefs.ta > 0 && ` · TA${prefs.ta} ${cellKpi?.[`ta${prefs.ta}`] ? formatDistance(cellKpi[`ta${prefs.ta}`]) : 'n/a'}`}
+                  </Tooltip>
                   {!measuring && (
                     <Popup maxWidth={340}>
                       <CellPopup
@@ -398,6 +512,8 @@ export default function CellMapDrawer({
                         siblings={siblings}
                         canSelectSector={canSelectSector && isMain}
                         onSelectSector={onSelectSector}
+                        kpi={cellKpi}
+                        kpiMeta={kpi.data}
                       />
                     </Popup>
                   )}
@@ -422,7 +538,14 @@ export default function CellMapDrawer({
             <MeasureLayer active={measuring} points={measurePoints} onPointsChange={setMeasurePoints} onFinish={finishMeasure} />
           </MapContainer>
         )}
-        {bands.length > 0 && <Legend bands={bands} darkMode={darkMode} tier={prefs.tier} />}
+        {kpi.error && (
+          <div className="absolute top-2 left-12 right-2 z-[600] rounded-md bg-amber-500 text-white text-[11px] px-3 py-1.5 shadow">
+            KPI/status partly unavailable: {kpi.error}
+          </div>
+        )}
+        {bands.length > 0 && (
+          <Legend bands={bands} darkMode={darkMode} tier={prefs.tier} mode={mode} kpiMeta={kpi.data} ta={prefs.ta} />
+        )}
       </div>
     </aside>
   );
