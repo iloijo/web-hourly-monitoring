@@ -3,7 +3,7 @@ import {
   CircleMarker, MapContainer, Polygon, Popup, ScaleControl, TileLayer, Tooltip, useMap, useMapEvents,
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Crosshair, Layers, Loader2, Map as MapIcon, Palette, Radar, Ruler, Trash2, X } from 'lucide-react';
+import { Compass, Crosshair, Layers, Loader2, Map as MapIcon, Mountain, Palette, Radar, Ruler, Trash2, X } from 'lucide-react';
 import { getJson } from '../../../api/client';
 import MeasureLayer from './MeasureLayer';
 import useCellMap from './useCellMap';
@@ -11,7 +11,11 @@ import useCellKpi from './useCellKpi';
 import CovmoLayer from './CovmoLayer';
 import { COVMO_METRICS, COVMO_MIN_ZOOM } from './covmo';
 import { bandColor, COLOR_MODES, NO_DATA, statusColor } from './colorModes';
-import { bandLength, distanceM, formatDistance, sectorPolygon, siteSectorBase } from './geo';
+import { bandLength, destination, distanceM, formatDistance, sectorPolygon, siteSectorBase } from './geo';
+import { azimuthPath } from './profile';
+import ProfilePanel from './ProfilePanel';
+import { ProfileDrawLayer, ProfileShapes } from './ProfileLayer';
+import ProtractorLayer, { NEEDLE_COLORS, ProtractorPanel } from './ProtractorLayer';
 
 const BASEMAPS = {
   osm: {
@@ -171,7 +175,7 @@ function KpiSection({ kpi, meta }) {
   );
 }
 
-function CellPopup({ cell, site, siblings, canSelectSector, onSelectSector, kpi, kpiMeta }) {
+function CellPopup({ cell, site, siblings, canSelectSector, onSelectSector, kpi, kpiMeta, onProfile, onProtractor }) {
   const tilt = (cell.et ?? null) !== null || (cell.mt ?? null) !== null ? (cell.et || 0) + (cell.mt || 0) : null;
   const rows = [
     ['SiteID_CI', cell.siteid_ci],
@@ -228,6 +232,18 @@ function CellPopup({ cell, site, siblings, canSelectSector, onSelectSector, kpi,
           Show sector {cell.sector} in charts
         </button>
       )}
+      <div className="mt-1.5 grid grid-cols-2 gap-1">
+        <button type="button" onClick={() => onProfile(cell)} disabled={cell.indoor}
+          className="flex items-center justify-center gap-1 rounded-md border border-amber-500 text-amber-700 hover:bg-amber-50 font-semibold py-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Terrain profile from the site along this azimuth">
+          <Mountain className="w-3.5 h-3.5" /> Profile
+        </button>
+        <button type="button" onClick={() => onProtractor(cell.site_id)}
+          className="flex items-center justify-center gap-1 rounded-md border border-yellow-500 text-yellow-700 hover:bg-yellow-50 font-semibold py-1 cursor-pointer"
+          title="Bearing protractor on this site, one needle per sector">
+          <Compass className="w-3.5 h-3.5" /> Reazimuth
+        </button>
+      </div>
     </div>
   );
 }
@@ -339,8 +355,18 @@ const ToolbarButton = ({ active, onClick, title, children, darkMode }) => (
 
 // Right-side map drawer for 4G Daily / 4G Hourly (sector scope)
 export default function CellMapDrawer({
-  open, onClose, siteId, sectors = [], darkMode, width, onWidthChange, canSelectSector, onSelectSector,
+  open, onClose, onSlideEnd, siteId, sectors = [], darkMode, width, onWidthChange, canSelectSector, onSelectSector,
 }) {
+  // The drawer first renders closed and slides in on the next frames, also on the very first open
+  // (the lazy chunk mounts it with open already true). The map stays mounted after that, so reopening
+  // only slides an existing panel.
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    let id2;
+    const id1 = requestAnimationFrame(() => { id2 = requestAnimationFrame(() => setEntered(true)); });
+    return () => { cancelAnimationFrame(id1); cancelAnimationFrame(id2); };
+  }, []);
+  const shownOpen = open && entered;
   const [prefs, setPrefs] = useState(() => ({
     basemap: 'osm', tier: 0, otherSites: true, colorBy: 'band', ta: 0, opacity: 0.35, covmo: 'off', covmoOpacity: 0.4, ...readPrefs(),
   }));
@@ -350,6 +376,12 @@ export default function CellMapDrawer({
   const updatePrefs = (patch) => setPrefs(p => { const next = { ...p, ...patch }; writePrefs(next); return next; });
   const [measuring, setMeasuring] = useState(false);
   const [measurePoints, setMeasurePoints] = useState([]);
+  // Phase 4: elevation profile and bearing protractor
+  const [profileDrawing, setProfileDrawing] = useState(false);
+  const [profiles, setProfiles] = useState(null);      // [{ key, label, color, vertices, ctx, dashed }]
+  const [profileHover, setProfileHover] = useState(null);
+  const [placingProtractor, setPlacingProtractor] = useState(false);
+  const [protractor, setProtractor] = useState(null);
   const [headerH, setHeaderH] = useState(56);
   const mapRef = useRef(null);
   const { loading, error, data } = useCellMap(open, siteId, prefs.tier);
@@ -417,6 +449,85 @@ export default function CellMapDrawer({
   const bands = useMemo(() => [...new Set(shapes.map(s => s.cell.band))].sort(), [shapes]);
   const measureTotal = measurePoints.reduce((t, p, i) => (i ? t + distanceM(measurePoints[i - 1], p) : 0), 0);
   const finishMeasure = useCallback(() => setMeasuring(false), []);
+  const busy = measuring || profileDrawing || placingProtractor || !!protractor?.drawingLine;
+
+  // Tools are exclusive: starting one stops the others
+  const stopTools = () => { setMeasuring(false); setProfileDrawing(false); setPlacingProtractor(false); };
+
+  // Antenna height, band and total tilt of a cell for the profile (DESIQA values, fallbacks when missing)
+  const cellCtx = (c) => ({
+    txHeight: c.antenna_height ?? 30,
+    band: c.band,
+    tiltDeg: c.et != null || c.mt != null ? (Number(c.et) || 0) + (Number(c.mt) || 0) : null,
+  });
+  const reach = (c) => Math.max(2000, (kpiCells?.[c.siteid_ci]?.ta90 || 0) * 1.3);
+  const profileCell = (c) => {
+    stopTools();
+    setProfiles([{
+      key: `cell|${cellKey(c)}|${Date.now()}`,
+      label: `${c.cell_name} · ${c.band} · ${c.azimuth}°`,
+      color: '#d97706',
+      vertices: azimuthPath(c.lat, c.lon, c.azimuth, reach(c)),
+      ctx: cellCtx(c),
+    }]);
+  };
+  const finishProfile = useCallback((pts) => {
+    setProfileDrawing(false);
+    setProfiles([{ key: `line|${Date.now()}`, label: 'Drawn profile', color: '#d97706', vertices: pts, ctx: {} }]);
+  }, []);
+  const cancelProfile = useCallback(() => setProfileDrawing(false), []);
+
+  // One needle per macro sector of a site, at the sector's azimuth (median of its cells)
+  const sectorNeedles = (sid) => {
+    const bySector = {};
+    (data?.cells || []).filter(c => c.site_id === sid && !c.indoor && c.azimuth != null)
+      .forEach(c => { (bySector[c.sector] = bySector[c.sector] || []).push(c); });
+    return Object.keys(bySector).sort((x, y) => Number(x) - Number(y)).map((sec, i) => {
+      const cells = bySector[sec];
+      const azs = cells.map(c => Number(c.azimuth)).sort((x, y) => x - y);
+      const az = azs[Math.floor(azs.length / 2)];
+      const ref = cells.find(c => c.band === 'L1800') || cells[0];
+      const ta = Math.max(0, ...cells.map(c => kpiCells?.[c.siteid_ci]?.ta90 || 0));
+      return {
+        id: `${sid}-${sec}`, label: `S${sec}`, color: NEEDLE_COLORS[i % NEEDLE_COLORS.length],
+        az, origAz: az, beam: ref.beamwidth || 65, lenM: Math.round(ta > 0 ? ta : 1000), ctx: cellCtx(ref),
+      };
+    });
+  };
+  const openProtractorAt = (center, site) => {
+    stopTools();
+    const needles = site ? sectorNeedles(site.site_id) : [];
+    setProtractor({
+      center, siteId: site?.site_id || null, ringPx: 140, snap: true, lines: [], drawingLine: false,
+      bearings: needles.length ? needles : [{ id: Date.now(), label: 'B1', color: NEEDLE_COLORS[0], az: 0, origAz: null, beam: 65, lenM: 1000 }],
+    });
+  };
+  const protractorOnSite = (sid) => {
+    const s = sitesById[sid];
+    if (s) openProtractorAt([s.lat, s.lon], s);
+    mapRef.current?.closePopup();
+  };
+  const loadSectors = (sid) => setProtractor(prev => ({ ...prev, bearings: sectorNeedles(sid) }));
+
+  // Profile from the protractor: a needle (new vs original azimuth when moved) or a drawn line
+  const profileFromProtractor = ({ kind, bearing, line }) => {
+    const pr = protractor;
+    if (kind === 'line') {
+      setProfiles([{ key: `pl|${line.id}|${Date.now()}`, label: 'Protractor line', color: '#ef4444', vertices: [pr.center, line.to], ctx: {} }]);
+      return;
+    }
+    const len = Math.max(bearing.lenM, 500);
+    const main = {
+      key: `pn|${bearing.id}|${bearing.az}|${Date.now()}`,
+      label: `${bearing.label} ${Math.round(bearing.az)}°${bearing.origAz != null ? ' (proposed)' : ''}`,
+      color: bearing.color, vertices: [pr.center, destination(pr.center[0], pr.center[1], bearing.az, len)], ctx: bearing.ctx || {},
+    };
+    const moved = bearing.origAz != null && Math.round(bearing.origAz) !== Math.round(bearing.az);
+    setProfiles(moved ? [main, {
+      key: `po|${bearing.id}`, label: `${bearing.label} ${Math.round(bearing.origAz)}° (current)`, color: '#7c3aed', dashed: true,
+      vertices: [pr.center, destination(pr.center[0], pr.center[1], bearing.origAz, len)],
+    }] : [main]);
+  };
 
   const recenter = () => {
     if (data?.center && mapRef.current) mapRef.current.setView([data.center.lat, data.center.lon], Math.max(mapRef.current.getZoom(), 15));
@@ -426,11 +537,12 @@ export default function CellMapDrawer({
 
   return (
     <aside
-      className={`fixed right-0 bottom-0 z-[35] border-l shadow-[-12px_0_32px_rgba(0,0,0,0.18)] flex flex-col transition-transform duration-300 ease-out ${shell} ${
-        open ? 'translate-x-0' : 'translate-x-full pointer-events-none'
+      className={`fixed right-0 bottom-0 z-[35] border-l flex flex-col transition-[translate,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[translate] ${shell} ${
+        shownOpen ? 'translate-x-0 shadow-[-12px_0_32px_rgba(0,0,0,0.18)]' : 'translate-x-full pointer-events-none'
       }`}
       style={{ top: headerH, width }}
-      aria-hidden={!open}
+      aria-hidden={!shownOpen}
+      onTransitionEnd={(e) => { if (e.target === e.currentTarget && (e.propertyName === 'translate' || e.propertyName === 'transform')) onSlideEnd?.(shownOpen); }}
     >
       <div
         onPointerDown={startResize}
@@ -469,7 +581,7 @@ export default function CellMapDrawer({
         <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
         <ToolbarButton
           active={measuring}
-          onClick={() => { if (!measuring) setMeasurePoints([]); setMeasuring(!measuring); }}
+          onClick={() => { const on = !measuring; stopTools(); if (on) setMeasurePoints([]); setMeasuring(on); }}
           darkMode={darkMode}
           title="Ruler: click points, double-click or Esc to finish"
         >
@@ -480,6 +592,25 @@ export default function CellMapDrawer({
             <Trash2 className="w-3.5 h-3.5" />
           </ToolbarButton>
         )}
+        <ToolbarButton
+          active={profileDrawing}
+          onClick={() => { const on = !profileDrawing; stopTools(); setProfileDrawing(on); }}
+          darkMode={darkMode}
+          title="Elevation profile: click points, double-click to finish (max 20 km), Esc to cancel"
+        >
+          <Mountain className="w-3.5 h-3.5" /> Profile
+        </ToolbarButton>
+        <ToolbarButton
+          active={placingProtractor || !!protractor}
+          onClick={() => {
+            if (protractor) { setProtractor(null); return; }
+            const on = !placingProtractor; stopTools(); setPlacingProtractor(on);
+          }}
+          darkMode={darkMode}
+          title={protractor ? 'Remove the protractor' : 'Bearing protractor: click the map (near a site to stick to it)'}
+        >
+          <Compass className="w-3.5 h-3.5" /> Protractor
+        </ToolbarButton>
         <ToolbarButton onClick={recenter} darkMode={darkMode} title="Center on the searched site">
           <Crosshair className="w-3.5 h-3.5" />
         </ToolbarButton>
@@ -545,7 +676,7 @@ export default function CellMapDrawer({
             {error}
           </div>
         )}
-        {open && (
+        {entered && (
           <MapContainer
             ref={mapRef}
             center={[-2.5, 121.5]}
@@ -580,7 +711,7 @@ export default function CellMapDrawer({
                 <Polygon
                   key={cellKey(cell)}
                   positions={positions}
-                  interactive={!measuring}
+                  interactive={!busy}
                   pathOptions={ring ? {
                     // indoor TA ring: outline only, so only the line is clickable and nothing is shaded
                     color: highlighted ? '#0f172a' : color,
@@ -601,7 +732,7 @@ export default function CellMapDrawer({
                     {cell.cell_name} · {cell.band} · {indoor ? 'in-building' : `${cell.azimuth}°`}
                     {prefs.ta > 0 && ` · TA${prefs.ta} ${cellKpi?.[`ta${prefs.ta}`] ? formatDistance(cellKpi[`ta${prefs.ta}`]) : 'n/a'}`}
                   </Tooltip>
-                  {!measuring && (
+                  {!busy && (
                     <Popup maxWidth={340}>
                       <CellPopup
                         cell={cell}
@@ -611,6 +742,8 @@ export default function CellMapDrawer({
                         onSelectSector={onSelectSector}
                         kpi={cellKpi}
                         kpiMeta={kpi.data}
+                        onProfile={(c) => { profileCell(c); mapRef.current?.closePopup(); }}
+                        onProtractor={protractorOnSite}
                       />
                     </Popup>
                   )}
@@ -633,6 +766,15 @@ export default function CellMapDrawer({
             ))}
 
             <MeasureLayer active={measuring} points={measurePoints} onPointsChange={setMeasurePoints} onFinish={finishMeasure} />
+            <ProfileDrawLayer active={profileDrawing} onFinish={finishProfile} onCancel={cancelProfile} />
+            {profiles && <ProfileShapes profiles={profiles} hover={profileHover} />}
+            <ProtractorLayer
+              pr={protractor}
+              onChange={setProtractor}
+              sites={data?.sites}
+              placing={placingProtractor}
+              onPlace={(center, site) => { setPlacingProtractor(false); openProtractorAt(center, site); }}
+            />
           </MapContainer>
         )}
         {kpi.error && (
@@ -641,6 +783,29 @@ export default function CellMapDrawer({
           </div>
         )}
         {covmoMetric && <CovmoLegend metric={covmoMetric} status={covmoStatus} hover={covmoHover} darkMode={darkMode} />}
+        {placingProtractor && !protractor && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[640] rounded-md bg-yellow-400 text-slate-900 text-[11px] font-semibold px-2 py-1 shadow">
+            Click the map to place the protractor (near a site it sticks to the site)
+          </div>
+        )}
+        <ProtractorPanel
+          pr={protractor}
+          onChange={setProtractor}
+          onClose={() => setProtractor(null)}
+          onProfile={profileFromProtractor}
+          onLoadSectors={loadSectors}
+          sites={data?.sites}
+          darkMode={darkMode}
+        />
+        {profiles && (
+          <ProfilePanel
+            key={profiles[0].key}
+            profiles={profiles}
+            onClose={() => { setProfiles(null); setProfileHover(null); }}
+            onHover={setProfileHover}
+            darkMode={darkMode}
+          />
+        )}
         {bands.length > 0 && (
           <Legend bands={bands} darkMode={darkMode} tier={prefs.tier} mode={mode} kpiMeta={kpi.data} ta={prefs.ta} />
         )}

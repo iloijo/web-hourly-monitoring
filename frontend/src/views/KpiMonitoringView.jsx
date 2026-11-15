@@ -52,8 +52,15 @@ export default function KpiMonitoringView({
   }, []);
   const hasData = km.aggregationScope === 'sector' ? !!km.data?.sectors : !!km.aggregationData?.kpis;
   const mapVisible = showProperties && mapOpen;
-  const mapOffset = mapVisible ? mapWidth : 0;
+  // Smooth open/close: only the drawer animates (transform). The charts make room in one step once the
+  // drawer has finished sliding in, and get the space back as soon as it starts to close; animating
+  // their margin re-laid out every chart on every frame, which made the slide stutter.
+  const [mapSettled, setMapSettled] = useState(false);
+  const mapOffset = mapVisible && mapSettled ? mapWidth : 0; // page content
+  const overlayOffset = mapVisible ? mapWidth : 0;           // capsule and properties sheet follow the drawer
   const openMap = () => { setMapMounted(true); setMapOpen(true); };
+  const closeMap = () => { setMapSettled(false); setMapOpen(false); };
+  const handleMapSlideEnd = useCallback((isOpen) => setMapSettled(isOpen), []);
   const selectSectorFromMap = useCallback((sector) => km.setSelectedSector(String(sector)), [km]);
 
   // Excel export of the charts (and the properties table when it is open). The getter reads the
@@ -74,7 +81,7 @@ export default function KpiMonitoringView({
 
   return (
     <div
-      className="space-y-4 transition-[margin] duration-300"
+      className="space-y-4"
       style={{ marginRight: mapOffset }}
     >
       <ScopeFilterPanel km={km} activeMenu={activeMenu} siteNamesMap={siteNamesMap} darkMode={darkMode} />
@@ -114,20 +121,21 @@ export default function KpiMonitoringView({
             sidebarOpen={sidebarOpen}
             sortConfig={propSort}
             onSort={handlePropSort}
-            rightOffset={mapOffset}
+            rightOffset={overlayOffset}
           />
           <PanelCapsule
             propsOpen={propsOpen}
             onToggleProps={() => setPropsOpen(o => !o)}
             mapOpen={mapOpen}
-            onToggleMap={() => (mapOpen ? setMapOpen(false) : openMap())}
-            rightOffset={mapOffset}
+            onToggleMap={() => (mapOpen ? closeMap() : openMap())}
+            rightOffset={overlayOffset}
           />
           {mapMounted && (
             <Suspense fallback={null}>
               <CellMapDrawer
                 open={mapOpen}
-                onClose={() => setMapOpen(false)}
+                onClose={closeMap}
+                onSlideEnd={handleMapSlideEnd}
                 siteId={km.siteId}
                 sectors={sectors}
                 darkMode={darkMode}

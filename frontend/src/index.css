@@ -344,9 +344,13 @@ div.echarts-tooltip {
 .leaflet-tooltip.netpulse-site-label::before { display: none; }
 /* other sites in view: lighter and smaller than the shown sites */
 .leaflet-tooltip.netpulse-site-label.netpulse-site-label-other {
-  background: rgba(100, 116, 139, 0.75);
+  /* bright so they read on street, satellite and contour basemaps alike */
+  background: #fde047;
+  color: #111827;
+  border: 1px solid rgba(17, 24, 39, 0.55);
   font-size: 9px;
-  font-weight: 600;
+  font-weight: 700;
+  line-height: 13px;
 }
 .leaflet-tooltip.netpulse-measure-label {
   background: #facc15;
@@ -358,3 +362,13 @@ div.echarts-tooltip {
   border-radius: 3px;
 }
 .leaflet-tooltip.netpulse-measure-label::before { display: none; }
+
+/* bearing protractor labels: bright fill with a dark outline so they read on any basemap */
+.netpulse-protractor-text {
+  fill: #facc15;
+  stroke: #111827;
+  stroke-width: 3px;
+  paint-order: stroke;
+  font-weight: 700;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}

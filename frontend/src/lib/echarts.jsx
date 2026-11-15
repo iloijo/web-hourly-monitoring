@@ -4,7 +4,7 @@ import ReactEChartsCore from 'echarts-for-react/esm/core';
 import * as echarts from 'echarts/core';
 import { BarChart, LineChart, PieChart } from 'echarts/charts';
 import {
-  GraphicComponent, GridComponent, LegendComponent, MarkAreaComponent, MarkLineComponent,
+  GraphicComponent, GridComponent, LegendComponent, MarkAreaComponent, MarkLineComponent, MarkPointComponent,
   TitleComponent, TooltipComponent,
 } from 'echarts/components';
 import { LabelLayout } from 'echarts/features';
@@ -12,7 +12,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 
 echarts.use([
   LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent,
-  MarkLineComponent, MarkAreaComponent, GraphicComponent, LabelLayout, CanvasRenderer,
+  MarkLineComponent, MarkPointComponent, MarkAreaComponent, GraphicComponent, LabelLayout, CanvasRenderer,
 ]);
 
 export default function ReactECharts(props) {

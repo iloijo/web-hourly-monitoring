@@ -27,6 +27,7 @@ from .site_names import load_site_names, get_site_display_name, get_site_name
 from .queries_properties import get_site_properties
 from .queries_map import get_map_cells, get_map_covmo, get_map_sites_in_bbox
 from .queries_map_kpi import get_map_kpi
+from .elevation import get_elevations
 from .queries_scope_4g import get_scope_aggregation_data, get_hourly_scope_aggregation_data
 from .queries_worstcell import get_worst_cells, get_ztzp
 from .export_xlsx import build_workbook, safe_filename
@@ -525,6 +526,18 @@ def map_covmo(south: float = Query(...), west: float = Query(...), north: float 
         return get_map_covmo(south=south, west=west, north=north, east=east)
     except Exception as e:
         return {"error": str(e), "tiles": []}
+
+class ElevationPayload(BaseModel):
+    points: List[List[float]]  # [[lat, lon], ...], at most 400
+
+
+@app.post("/api/map/elevation")
+async def map_elevation(payload: ElevationPayload):
+    """Terrain heights for the elevation profile: OpenTopoData SRTM 30 m first, onedb GLO-30 as fallback."""
+    try:
+        return await run_in_threadpool(get_elevations, payload.points)
+    except Exception as e:
+        return {"error": str(e), "elevations": []}
 
 @app.get("/api/map/sites")
 def map_sites(south: float = Query(...), west: float = Query(...), north: float = Query(...), east: float = Query(...)):
