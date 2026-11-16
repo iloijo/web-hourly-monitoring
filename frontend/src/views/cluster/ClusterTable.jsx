@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import { memberSite, unitLabel } from './members';
 
 export const REMARK_COLOR = {
   Improve: '#16a34a',
@@ -26,6 +27,7 @@ export const fmt = (v) => (v === null || v === undefined
 
 export function RemarkBadge({ remark }) {
   const color = REMARK_COLOR[remark];
+  if (remark === '-') return <span className="opacity-60 text-[10px] italic" title="Neutral KPI: no better or worse direction, so no remark">Neutral</span>;
   if (!color) return <span className="opacity-50">{remark}</span>;
   return <span className="px-2 py-0.5 rounded-md text-white text-[10px] font-bold" style={{ backgroundColor: color }}>{remark}</span>;
 }
@@ -111,7 +113,7 @@ export default function ClusterTable({ result, kpiIds, siteNamesMap, darkMode, c
                   {isOpen && siteRows.map(r => (
                     <tr key={`${id}_${r.site}`} className={`border-t ${subCls}`}>
                       <td className={`${compact ? 'pl-6 pr-2 py-1 text-[10px]' : 'pl-9 pr-3 py-1 text-[11px]'} font-mono sticky left-0 z-10 ${stickySubBg} border-r ${borderCls} shadow-xs`}>
-                        {r.site}{siteNamesMap[r.site] ? <span className="font-sans opacity-60"> – {siteNamesMap[r.site]}</span> : null}
+                        {unitLabel(r.site)}{siteNamesMap[memberSite(r.site)] ? <span className="font-sans opacity-60"> – {siteNamesMap[memberSite(r.site)]}</span> : null}
                       </td>
                       <td className={`${pCell} opacity-50`}>{k.unit}</td>
                       <td className={`${pCell} font-mono`}>{fmt(r.before)}</td>

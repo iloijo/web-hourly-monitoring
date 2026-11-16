@@ -122,7 +122,10 @@ _BAND_5G = """CASE WHEN (m."NRPhysicalCellDU ID"::int %% 10) = 4 THEN 'NR2300'
 
 
 def _resolve_4g_cells(whole: List[str], sectors: List[str]):
-    """(eNodeBIds, cellIds, site per cell) of the members from CellListRCI."""
+    """(eNodeBIds, cellIds, unit per cell) of the members from CellListRCI.
+
+    The unit is the site of a whole-site member and "SITE_<sector>" of a sector member, so a breakdown never
+    hides which sector a number belongs to."""
     sites = sorted(set(whole) | {s.split("_")[0] for s in sectors})
     conn = get_onedb_connection(timeout=15)
     if not conn:
@@ -130,7 +133,7 @@ def _resolve_4g_cells(whole: List[str], sectors: List[str]):
     try:
         cur = conn.cursor()
         cur.execute(
-            """SELECT DISTINCT enodeb_id, ci, site_id FROM "CellListRCI"
+            """SELECT DISTINCT enodeb_id, ci, site_id, site_id_sector_id FROM "CellListRCI"
                WHERE enodeb_id IS NOT NULL AND ci IS NOT NULL
                  AND (site_id = ANY(%s) OR site_id_sector_id = ANY(%s))""",
             (list(whole), list(sectors)),
@@ -140,16 +143,23 @@ def _resolve_4g_cells(whole: List[str], sectors: List[str]):
     finally:
         conn.close()
     rows = [r for r in rows if r[2] in sites]
-    return [float(r[0]) for r in rows], [float(r[1]) for r in rows], [r[2] for r in rows]
+    whole_set = set(whole)
+    units = [r[2] if r[2] in whole_set else str(r[3]) for r in rows]
+    return [float(r[0]) for r in rows], [float(r[1]) for r in rows], units
 
 
 _MEMBER_WHERE = "(m._site = ANY(%s) OR (m._site || '_' || m._sector) = ANY(%s))"
 
 
-def _named_source(col: str, inner: str) -> str:
-    """Measurement rows of `inner` as alias m with _site / _sector from cell name `col`, cluster members only."""
+def _named_source(col: str, inner: str, whole: List[str]) -> str:
+    """Measurement rows of `inner` as alias m with _site / _sector / _unit from cell name `col`, members only.
+
+    _unit is the site for a whole-site member and SITE_<sector> for a sector member. Site ids are validated
+    ([A-Z0-9]{6}) by parse_members, so they are safe to inline."""
     site, sector = _SITE_SQL.format(col="x." + col), _SECTOR_SQL.format(col="x." + col)
-    return f"(SELECT x.*, {site} AS _site, {sector} AS _sector FROM ({inner}) x) m WHERE {_MEMBER_WHERE}"
+    arr = "ARRAY[" + ",".join(f"'{w}'" for w in whole) + "]::text[]"
+    unit = f"CASE WHEN {site} = ANY({arr}) THEN {site} ELSE {site} || '_' || ({sector})::text END"
+    return f"(SELECT x.*, {site} AS _site, {sector} AS _sector, {unit} AS _unit FROM ({inner}) x) m WHERE {_MEMBER_WHERE}"
 
 
 def _sources(tech: str, whole, sectors, start: str, end: str):
@@ -160,7 +170,7 @@ def _sources(tech: str, whole, sectors, start: str, end: str):
             return []
         out = []
         for table, agg in (("measDy4g", DAILY_DY_AGG), ("measBdbh4g", DAILY_BDBH_AGG)):
-            sql = (f'(SELECT d.*, f.site AS _site FROM "{table}" d '
+            sql = (f'(SELECT d.*, f.site AS _unit FROM "{table}" d '
                    f'JOIN unnest(%s::float8[], %s::float8[], %s::text[]) AS f(enb, ci, site) '
                    f'ON d."eNodeBId" = f.enb AND d."cellId" = f.ci '
                    f'WHERE d."Begin Time" >= %s::timestamp AND d."Begin Time" <= %s::timestamp '
@@ -173,11 +183,11 @@ def _sources(tech: str, whole, sectors, start: str, end: str):
 
     if tech == "2g":
         inner = 'SELECT * FROM "measDy2g" WHERE "Begin Time" >= %s AND "Begin Time" <= %s'
-        return [(KPI_2G_SELECT, _named_source('"BTS Name"', inner), [start, end, list(whole), list(sectors)], _BAND_2G)]
+        return [(KPI_2G_SELECT, _named_source('"BTS Name"', inner, whole), [start, end, list(whole), list(sectors)], _BAND_2G)]
 
     name = '"NRPhysicalCellDU Name"'
-    dy = _named_source(name, 'SELECT * FROM "measDy5g" WHERE "Begin Time" >= %s AND "Begin Time" <= %s')
-    bdbh = _named_source(name, _bdbh_5g_rows_sql())
+    dy = _named_source(name, 'SELECT * FROM "measDy5g" WHERE "Begin Time" >= %s AND "Begin Time" <= %s', whole)
+    bdbh = _named_source(name, _bdbh_5g_rows_sql(), whole)
     params = [start, end, list(whole), list(sectors)]
     return [(KPI_5G_SELECT, dy, params, _BAND_5G), (KPI_5G_BDBH_SELECT, bdbh, params, _BAND_5G)]
 
@@ -213,11 +223,18 @@ def get_site_sectors() -> Dict[str, List[int]]:
     return _SITE_SECTORS
 
 
-def _remark(polarity: Optional[str], growth: Optional[float]) -> str:
+def _remark(polarity: Optional[str], growth: Optional[float], delta: Optional[float] = None,
+            before: Optional[float] = None) -> str:
     if polarity is None:
         return "-"
     if growth is None:
-        return "N/A"
+        # Before is 0: no percentage, but the direction is clear (0 -> 0 is unchanged)
+        if before == 0 and delta is not None:
+            if delta == 0:
+                return "Maintain"
+            growth = float("inf") if delta > 0 else float("-inf")
+        else:
+            return "N/A"
     if polarity == _DOWN:
         growth = -growth
     return "Improve" if growth > THRESHOLD else "Degrade" if growth < -THRESHOLD else "Maintain"
@@ -226,7 +243,7 @@ def _remark(polarity: Optional[str], growth: Optional[float]) -> str:
 def _compare(before: Optional[float], after: Optional[float], polarity: Optional[str]) -> Dict[str, Any]:
     delta = round(after - before, 4) if before is not None and after is not None else None
     growth = round(delta / abs(before) * 100, 2) if delta is not None and before not in (None, 0) else None
-    return {"before": before, "after": after, "delta": delta, "growth": growth, "remark": _remark(polarity, growth)}
+    return {"before": before, "after": after, "delta": delta, "growth": growth, "remark": _remark(polarity, growth, delta, before)}
 
 
 MAX_CHART_DAYS = 180
@@ -282,14 +299,15 @@ def get_cluster_compare(tech: str = "4g", members: Optional[List[str]] = None,
                   f"WHEN {day_sql} BETWEEN '{a_start}' AND '{a_end}' THEN 'after' END")
     # every from_sql ends with a WHERE clause, so extra conditions are appended with AND
     # per-site daily lines are only offered for small clusters (fewer than SITE_CURVE_LIMIT sites)
-    per_site = len(sites) < SITE_CURVE_LIMIT
+    # (breakdown units: whole sites plus the picked sectors)
+    per_site = len(whole) + len(sectors) < SITE_CURVE_LIMIT
     jobs = []
     for select, from_sql, params, band_sql in sources:
         grouping = [f"({day_sql})", f"({day_sql}, {band_sql})"]
         # a column in the select list must belong to some grouping set, so the site column is added only with its set
-        site_sql = "m._site"
+        site_sql = "m._unit"
         if per_site:
-            grouping.append(f"({day_sql}, m._site)")
+            grouping.append(f"({day_sql}, m._unit)")
         else:
             site_sql = "NULL::text"
         jobs.append(("daily", f"""
@@ -297,9 +315,9 @@ def get_cluster_compare(tech: str = "4g", members: Optional[List[str]] = None,
             FROM {from_sql} AND {day_sql} BETWEEN '{c_start}' AND '{c_end}'
             GROUP BY GROUPING SETS ({", ".join(grouping)})""", params))
         jobs.append(("period", f"""
-            SELECT {period_sql} AS period, m._site AS site, COUNT(DISTINCT {day_sql}) AS n_days, {select}
+            SELECT {period_sql} AS period, m._unit AS site, COUNT(DISTINCT {day_sql}) AS n_days, {select}
             FROM {from_sql} AND ({day_sql} BETWEEN '{b_start}' AND '{b_end}' OR {day_sql} BETWEEN '{a_start}' AND '{a_end}')
-            GROUP BY GROUPING SETS (({period_sql}), ({period_sql}, m._site))""", params))
+            GROUP BY GROUPING SETS (({period_sql}), ({period_sql}, m._unit))""", params))
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(lambda j: (j[0], _query(j[1], j[2])), jobs))
@@ -333,7 +351,8 @@ def get_cluster_compare(tech: str = "4g", members: Optional[List[str]] = None,
     if tech == "4g":
         bands_found = [b for b in BAND_KEYS if b in bands_found] + (["L2600"] if "L2600" in bands_found else [])
         bands_found = list(dict.fromkeys(bands_found))
-    sites_with_data = sorted({s for (_, s) in period if s})
+    units_with_data = sorted({s for (_, s) in period if s})
+    sites_with_data = sorted({u.split("_")[0] for u in units_with_data})
 
     kpis_out, site_rows = {}, {}
     for kid, cfg in cfg_all.items():
@@ -353,7 +372,7 @@ def get_cluster_compare(tech: str = "4g", members: Optional[List[str]] = None,
         }
         site_rows[kid] = [
             {"site": s, **_compare(period[("before", s)].get(kid), period[("after", s)].get(kid), pol)}
-            for s in sites_with_data
+            for s in units_with_data
         ]
 
     return {
@@ -369,6 +388,7 @@ def get_cluster_compare(tech: str = "4g", members: Optional[List[str]] = None,
         "member_sites": sites,
         "site_curve": per_site,  # True when the By Site curve is offered (fewer than SITE_CURVE_LIMIT sites)
         "sites_with_data": sites_with_data,
+        "units_with_data": units_with_data,  # site_rows / site_series keys: SITE or SITE_<sector>
         "sites_without_data": [s for s in sites if s not in sites_with_data],
         "kpis": kpis_out,
         "site_rows": site_rows,

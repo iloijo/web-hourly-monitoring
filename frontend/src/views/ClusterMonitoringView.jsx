@@ -15,7 +15,7 @@ import ClusterEditor from './cluster/ClusterEditor';
 import ClusterTable, { sortSiteRows } from './cluster/ClusterTable';
 import PeriodControl, { periodError } from './cluster/PeriodControl';
 import MarkerControl from './kpi/MarkerControl';
-import { memberLabel, memberSite } from './cluster/members';
+import { memberLabel, memberSite, unitLabel } from './cluster/members';
 
 const TECHS = [['2g', '2G'], ['4g', '4G'], ['5g', '5G']];
 const DEFAULT_KPIS = {
@@ -294,8 +294,8 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
         return {
           title: `${k.title} (${k.unit + (k.per_day ? ' /day' : '')})`,
           rows: sorted.map(r => [
-            r.site,
-            siteNamesMap[r.site] || '',
+            unitLabel(r.site),
+            siteNamesMap[memberSite(r.site)] || '',
             r.before,
             r.after,
             r.delta,
@@ -308,7 +308,7 @@ export default function ClusterMonitoringView({ refData, chartsPerRow, darkMode,
       const perSiteSheet = {
         name: `Per Site ${t}`,
         style: 'cluster_grouped',
-        columns: ['Site', 'Site Name', 'Before', 'After', 'Delta', 'Growth (%)', 'Remark'],
+        columns: ['Site / Sector', 'Site Name', 'Before', 'After', 'Delta', 'Growth (%)', 'Remark'],
         groups: perSiteGroups,
         number_formats: {
           'Before': '#,##0.00',
