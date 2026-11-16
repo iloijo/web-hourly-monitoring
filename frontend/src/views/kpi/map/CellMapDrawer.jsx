@@ -16,7 +16,7 @@ import { azimuthPath } from './profile';
 import ProfilePanel from './ProfilePanel';
 import { ProfileDrawLayer, ProfileShapes } from './ProfileLayer';
 import ProtractorLayer, { NEEDLE_COLORS, ProtractorPanel } from './ProtractorLayer';
-import { CellEditSection, OVERRIDE_COLOR } from './CellEdit';
+import { CellEditSection, fieldDelta, fmtDelta, OVERRIDE_COLOR, WARN_DELTA } from './CellEdit';
 import MapHelp, { HelpButton } from './MapHelp';
 
 const BASEMAPS = {
@@ -60,6 +60,38 @@ const shortWeek = (w) => (w ? `W${String(w).slice(-2)}` : '');
 const fmtDay = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }) : '');
 // SuperAdmin, or a role with the "map-edit" permission (RNO by default); the server checks it again
 const userCanEdit = (u) => !!u && (u.is_super || (u.permissions || []).includes('map-edit'));
+const viewerOf = (u) => ({ canEdit: userCanEdit(u), username: u?.username || '', isSuper: !!u?.is_super });
+
+// Two fixes for the React content of a cell popup (ref callback of <Popup>):
+// - Leaflet re-measures a popup on every update (any re-render of the drawer): it clears the height for a
+//   moment, which throws a scrolled popup back to the top. Keep the scroll position across that.
+// - React handles a click inside the popup before Leaflet does. When the click swaps the button out (Edit →
+//   form, Delete → Yes/No, Reset → spinner) the target is detached by the time the click bubbles to the map,
+//   so Leaflet no longer sees it came from the popup and closes the popup as a map click. Clicks inside the
+//   content therefore stop at the content node; the × button, map clicks and Esc still close the popup.
+const stopAtContent = (e) => e.stopPropagation();
+const setupCellPopup = (popup) => {
+  if (!popup || popup.__cellPopup) return;
+  const layout = popup._updateLayout;
+  popup._updateLayout = function updateLayoutKeepScroll() {
+    const node = this._contentNode;
+    const top = node ? node.scrollTop : 0;
+    layout.call(this);
+    if (node && top) node.scrollTop = top;
+  };
+  // the content node exists once the popup is first added to the map
+  popup.on('add', () => {
+    const node = popup._contentNode;
+    if (node && !node.__stopsClicks) {
+      node.addEventListener('click', stopAtContent);
+      node.addEventListener('dblclick', stopAtContent);
+      node.__stopsClicks = true;
+    }
+  });
+  popup.__cellPopup = true;
+};
+// Two-column popup when the map is wide enough
+const WIDE_POPUP_MIN = 650;
 
 // Fits the view to the loaded sites whenever the site or the tier option changes
 function FitView({ data, fitKey }) {
@@ -81,6 +113,33 @@ function FitView({ data, fitKey }) {
 }
 
 // Keeps Leaflet's size in sync with the drawer width
+// Sector wedges live in their own SVG pane, under the site markers / tools (overlayPane 400) and above covmo.
+const CELL_PANE = 'cells';
+function CellPane() {
+  const map = useMap();
+  if (!map.getPane(CELL_PANE)) map.createPane(CELL_PANE).style.zIndex = 390;
+  return null;
+}
+
+// react-leaflet adds a layer to the SVG only when it mounts, so a new sort order (TA stretch, tier, edits)
+// never moves the existing paths. Re-stack them in `order` (longest first) so the shortest wedge ends on top.
+function useStackOrder(order) {
+  const layers = useRef(new Map());
+  const setRef = useCallback((key) => (layer) => {
+    if (layer) layers.current.set(key, layer); else layers.current.delete(key);
+  }, []);
+  useEffect(() => {
+    for (const key of order) layers.current.get(key)?.bringToFront();
+  }, [order]);
+  return setRef;
+}
+
+// Reports whether a popup is open (the legend steps aside so it does not cover a wide popup)
+function PopupWatcher({ onChange }) {
+  useMapEvents({ popupopen: () => onChange(true), popupclose: () => onChange(false) });
+  return null;
+}
+
 function SizeWatcher({ width }) {
   const map = useMap();
   useEffect(() => {
@@ -182,6 +241,7 @@ function KpiSection({ kpi, meta }) {
 
 function CellPopup({
   cell, site, siblings, sectorCells, canSelectSector, onSelectSector, kpi, kpiMeta, onProfile, onProtractor, canEdit, onSaved,
+  wide, viewer, batchCells,
 }) {
   const tilt = (cell.et ?? null) !== null || (cell.mt ?? null) !== null ? (cell.et || 0) + (cell.mt || 0) : null;
   const rows = [
@@ -204,8 +264,8 @@ function CellPopup({
     ['On air', cell.oa_date],
   ];
   if (site?.tier === 1) rows.push(['From main site', `${formatDistance(site.distance_km * 1000)} @ ${site.bearing}°`]);
-  return (
-    <div className="text-[11px] min-w-60">
+  const info = (
+    <>
       <div className="font-bold text-xs mb-1 break-all">{cell.cell_name}</div>
       <table className="w-full">
         <tbody>
@@ -217,29 +277,32 @@ function CellPopup({
           ))}
         </tbody>
       </table>
-      <KpiSection kpi={kpi} meta={kpiMeta} />
-      {siblings.length > 0 && (
-        <div className="mt-1.5 pt-1.5 border-t border-slate-200">
-          <div className="opacity-60 mb-0.5">Same direction on this site</div>
-          {siblings.map(s => (
-            <div key={cellKey(s)} className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: bandColor(s.band) }} />
-              <span className="truncate">{s.cell_name}</span>
-              <span className="opacity-60 ml-auto">{s.azimuth}°</span>
-            </div>
-          ))}
+    </>
+  );
+  const sameDirection = siblings.length > 0 && (
+    <div className="mt-1.5 pt-1.5 border-t border-slate-200">
+      <div className="opacity-60 mb-0.5">Same direction on this site</div>
+      {siblings.map(s => (
+        <div key={cellKey(s)} className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: bandColor(s.band) }} />
+          <span className="truncate">{s.cell_name}</span>
+          <span className="opacity-60 ml-auto">{s.azimuth}°</span>
         </div>
-      )}
+      ))}
+    </div>
+  );
+  const actions = (
+    <>
       {canSelectSector && (
         <button
           type="button"
           onClick={() => onSelectSector(cell.sector)}
-          className="mt-2 w-full rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1 cursor-pointer"
+          className={`${wide ? '' : 'mt-2 '}w-full rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1 cursor-pointer`}
         >
           Show sector {cell.sector} in charts
         </button>
       )}
-      <div className="mt-1.5 grid grid-cols-2 gap-1">
+      <div className={`${canSelectSector || !wide ? 'mt-1.5 ' : ''}grid grid-cols-2 gap-1`}>
         <button type="button" onClick={() => onProfile(cell)} disabled={cell.indoor}
           className="flex items-center justify-center gap-1 rounded-md border border-amber-500 text-amber-700 hover:bg-amber-50 font-semibold py-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           title="Terrain profile from the site along this azimuth">
@@ -251,7 +314,34 @@ function CellPopup({
           <Compass className="w-3.5 h-3.5" /> Reazimuth
         </button>
       </div>
-      <CellEditSection cell={cell} sectorCells={sectorCells} canEdit={canEdit} onSaved={onSaved} />
+    </>
+  );
+  const edit = (
+    <CellEditSection cell={cell} sectorCells={sectorCells} canEdit={canEdit} me={viewer} batchCells={batchCells} onSaved={onSaved} />
+  );
+  // Wide: cell data on the left; actions, KPI and edits on the right
+  if (wide) {
+    return (
+      <div className="text-[11px] grid grid-cols-2 gap-x-4 w-[580px]">
+        <div className="min-w-0">
+          {info}
+          {sameDirection}
+        </div>
+        <div className="min-w-0 border-l border-slate-200 pl-4">
+          {actions}
+          <KpiSection kpi={kpi} meta={kpiMeta} />
+          {edit}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="text-[11px] min-w-60">
+      {info}
+      <KpiSection kpi={kpi} meta={kpiMeta} />
+      {sameDirection}
+      {actions}
+      {edit}
     </div>
   );
 }
@@ -387,6 +477,7 @@ export default function CellMapDrawer({
   const covmoMetric = COVMO_METRICS[prefs.covmo] ? prefs.covmo : null;
   const [covmoStatus, setCovmoStatus] = useState({ state: 'zoom' });
   const [covmoHover, setCovmoHover] = useState(null);
+  const [popupOpen, setPopupOpen] = useState(false);
   const updatePrefs = (patch) => setPrefs(p => { const next = { ...p, ...patch }; writePrefs(next); return next; });
   const [measuring, setMeasuring] = useState(false);
   const [measurePoints, setMeasurePoints] = useState([]);
@@ -402,11 +493,12 @@ export default function CellMapDrawer({
   const [version, setVersion] = useState(0);
   const reloadCells = useCallback(() => setVersion(v => v + 1), []);
   // stored login first, then the server's current view of the role (also covers open access without login)
-  const [canEdit, setCanEdit] = useState(() => userCanEdit(getStoredAuthUser()));
+  const [viewer, setViewer] = useState(() => viewerOf(getStoredAuthUser()));
+  const canEdit = viewer.canEdit;
   useEffect(() => {
     let cancelled = false;
     getJson('/api/auth/check')
-      .then(j => { if (!cancelled) setCanEdit(userCanEdit(j.user)); })
+      .then(j => { if (!cancelled) setViewer(viewerOf(j.user)); })
       .catch(() => { /* keep the stored value */ });
     return () => { cancelled = true; };
   }, []);
@@ -417,6 +509,7 @@ export default function CellMapDrawer({
   // Popups scroll inside the map height instead of running past its bottom edge
   const mapBoxRef = useRef(null);
   const [mapH, setMapH] = useState(600);
+  const widePopup = Number(width) >= WIDE_POPUP_MIN;
   useEffect(() => {
     const el = mapBoxRef.current;
     if (!el) return undefined;
@@ -492,8 +585,11 @@ export default function CellMapDrawer({
         const beam = c.beamwidth || 65;
         return { cell: c, site, radius, noTa, positions: sectorPolygon(c.lat, c.lon, c.azimuth, beam, radius) };
       })
-      .sort((a, b) => b.radius - a.radius);
+      // longest first; equal length: 1st tier before the main site, so the main site wedge is on top
+      .sort((a, b) => (b.radius - a.radius) || ((b.site?.tier ?? 0) - (a.site?.tier ?? 0)));
   }, [data, sitesById, prefs.ta, kpiCells]);
+  const stackOrder = useMemo(() => shapes.map(s => cellKey(s.cell)), [shapes]);
+  const stackRef = useStackOrder(stackOrder);
 
   const bands = useMemo(() => [...new Set(shapes.map(s => s.cell.band))].sort(), [shapes]);
   const measureTotal = measurePoints.reduce((t, p, i) => (i ? t + distanceM(measurePoints[i - 1], p) : 0), 0);
@@ -561,9 +657,15 @@ export default function CellMapDrawer({
   // Protractor needle -> azimuth edit of every macro cell of that sector
   const saveNeedleAzimuth = async (b) => {
     const az = Math.round(b.az) % 360;
-    const cells = (data?.cells || []).filter(c => c.site_id === b.siteId && Number(c.sector) === b.sector && !c.indoor)
-      .map(c => ({ site_id: c.site_id, ci: c.ci, cell_name: c.cell_name }));
-    if (!cells.length) throw new Error('No macro cell in this sector.');
+    const sector = (data?.cells || []).filter(c => c.site_id === b.siteId && Number(c.sector) === b.sector && !c.indoor);
+    if (!sector.length) throw new Error('No macro cell in this sector.');
+    // same guard as the popup edit: a big move from DESIQA needs an explicit OK
+    const far = sector.map(c => ({ c, d: fieldDelta('azimuth', az, c.desiqa?.azimuth ?? c.azimuth) }))
+      .filter(x => x.d !== null && Math.abs(x.d) > WARN_DELTA.azimuth);
+    if (far.length && !window.confirm(`Azimuth ${az}° is more than ${WARN_DELTA.azimuth}° away from DESIQA for:\n`
+      + far.map(x => `• ${x.c.cell_name}: DESIQA ${x.c.desiqa?.azimuth ?? x.c.azimuth}° (${fmtDelta(x.d)})`).join('\n')
+      + '\n\nSave anyway?')) return;
+    const cells = sector.map(c => ({ site_id: c.site_id, ci: c.ci, cell_name: c.cell_name }));
     await postJson('/api/map/overrides', { cells, values: { azimuth: az }, note: `Reazimuth ${b.label} via protractor` });
     setProtractor(prev => (prev ? { ...prev, bearings: prev.bearings.map(x => (x.id === b.id ? { ...x, az, origAz: az } : x)) } : prev));
     reloadCells();
@@ -780,6 +882,8 @@ export default function CellMapDrawer({
             <ScaleControl position="bottomleft" imperial={false} />
             <FitView data={data} fitKey={data ? `${data.site_id}|${data.sites.length}` : ''} />
             <SizeWatcher width={width} />
+            <PopupWatcher onChange={setPopupOpen} />
+            <CellPane />
             <OtherSites enabled={prefs.otherSites} shownIds={shownIds} />
             <CovmoLayer metric={covmoMetric} week={covmoWeek} opacity={prefs.covmoOpacity ?? 0.4} onStatus={setCovmoStatus} onHover={setCovmoHover} />
 
@@ -798,6 +902,8 @@ export default function CellMapDrawer({
               return (
                 <Polygon
                   key={cellKey(cell)}
+                  ref={stackRef(cellKey(cell))}
+                  pane={CELL_PANE}
                   positions={positions}
                   interactive={!busy}
                   pathOptions={ring ? {
@@ -822,8 +928,14 @@ export default function CellMapDrawer({
                     {edited && ' · Edited'}
                   </Tooltip>
                   {!busy && (
-                    <Popup maxWidth={340} maxHeight={Math.max(220, mapH - 60)}>
+                    <Popup key={widePopup ? 'wide' : 'narrow'} ref={setupCellPopup}
+                      maxWidth={widePopup ? 640 : 340} maxHeight={Math.max(220, mapH - 60)}
+                      autoPanPaddingTopLeft={[48, 10]} autoPanPaddingBottomRight={[10, 10]}>
                       <CellPopup
+                        wide={widePopup}
+                        viewer={viewer}
+                        batchCells={cell.override?.batch_id
+                          ? data.cells.filter(o => o.override?.batch_id === cell.override.batch_id) : []}
                         cell={cell}
                         site={site}
                         siblings={siblings}
@@ -905,7 +1017,7 @@ export default function CellMapDrawer({
             darkMode={darkMode}
           />
         )}
-        {bands.length > 0 && (
+        {bands.length > 0 && !popupOpen && (
           <Legend bands={bands} darkMode={darkMode} tier={prefs.tier} mode={mode} kpiMeta={kpi.data} ta={prefs.ta} edited={data?.edited || 0} />
         )}
       </div>
