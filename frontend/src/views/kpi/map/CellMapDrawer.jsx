@@ -3,7 +3,9 @@ import {
   CircleMarker, MapContainer, Polygon, Popup, ScaleControl, TileLayer, Tooltip, useMap, useMapEvents,
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Compass, Crosshair, Layers, Loader2, Map as MapIcon, Mountain, Palette, Pin, PinOff, Radar, Ruler, Trash2, X } from 'lucide-react';
+import {
+  Compass, Crosshair, Hand, Layers, Loader2, Map as MapIcon, MapPinned, Mountain, Palette, Pin, PinOff, Ruler, Signal, Trash2, Wrench, X, ZoomIn, ZoomOut,
+} from 'lucide-react';
 import { getJson, getStoredAuthUser, postJson } from '../../../api/client';
 import MeasureLayer from './MeasureLayer';
 import useCellMap from './useCellMap';
@@ -20,6 +22,7 @@ import { setupCellPopup } from './popupSetup';
 import { GotoInput, GotoLayer } from './GotoPoint';
 import { CellEditSection, fieldDelta, fmtDelta, OVERRIDE_COLOR, WARN_DELTA } from './CellEdit';
 import MapHelp, { HelpButton } from './MapHelp';
+import { MapRail, MenuDivider, MenuField, MenuItem, RailMenu, useRail } from './MapRail';
 
 const BASEMAPS = {
   osm: {
@@ -400,8 +403,8 @@ function CovmoLegend({ metric, status, hover, darkMode }) {
   );
 }
 
-const OpacitySlider = ({ label, title, min, value, onChange }) => (
-  <label className="flex items-center gap-1.5 text-[11px] font-semibold" title={title}>
+const OpacitySlider = ({ label, title, min, value, onChange, wide }) => (
+  <label className={`flex items-center gap-1.5 text-[11px] font-semibold ${wide ? 'w-full' : ''}`} title={title}>
     {label && <span className="opacity-60">{label}</span>}
     <input
       type="range"
@@ -410,26 +413,61 @@ const OpacitySlider = ({ label, title, min, value, onChange }) => (
       step={5}
       value={Math.round(value * 100)}
       onChange={e => onChange(Number(e.target.value) / 100)}
-      className="w-20 accent-blue-600 cursor-pointer"
+      className={`${wide ? 'flex-1 min-w-0' : 'w-20'} accent-blue-600 cursor-pointer`}
     />
     <span className="w-8 tabular-nums">{Math.round(value * 100)}%</span>
   </label>
 );
 
-const ToolbarButton = ({ active, onClick, title, children, darkMode }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    title={title}
-    className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border transition cursor-pointer ${
-      active
-        ? 'bg-blue-600 border-blue-600 text-white'
-        : darkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:bg-slate-100'
-    }`}
-  >
-    {children}
-  </button>
+// One choice out of a few, drawn as joined buttons
+const Segmented = ({ options, value, onChange, darkMode }) => (
+  <div className={`flex h-7 w-full rounded-md border overflow-hidden ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+    {options.map((o, i) => (
+      <button
+        key={String(o.id)}
+        type="button"
+        onClick={() => onChange(o.id)}
+        title={o.title}
+        aria-pressed={value === o.id}
+        className={`flex-1 px-2 text-[11px] font-semibold transition cursor-pointer ${
+          i ? (darkMode ? 'border-l border-slate-700' : 'border-l border-slate-200') : ''
+        } ${
+          value === o.id
+            ? 'bg-blue-600 text-white'
+            : darkMode ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-100'
+        }`}
+      >
+        {o.label}
+      </button>
+    ))}
+  </div>
 );
+
+
+// Cursor modes: pan is Leaflet's default drag; the zoom modes zoom one level around the clicked point
+function CursorLayer({ mode }) {
+  const map = useMap();
+  useEffect(() => {
+    if (mode === 'pan') return undefined;
+    const el = map.getContainer();
+    map.doubleClickZoom.disable();
+    el.style.cursor = mode === 'zoomin' ? 'zoom-in' : 'zoom-out';
+    return () => { map.doubleClickZoom.enable(); el.style.cursor = ''; };
+  }, [mode, map]);
+  useMapEvents({
+    click(e) {
+      if (mode === 'pan') return;
+      map.setZoomAround(e.latlng, map.getZoom() + (mode === 'zoomin' ? 1 : -1));
+    },
+  });
+  return null;
+}
+
+// Go-to input inside the Tools dropdown; the dropdown closes once the pin is placed
+function GotoField({ point, onGo, onClear, darkMode }) {
+  const { setOpen } = useRail();
+  return <GotoInput point={point} onGo={(p) => { onGo(p); setOpen(null); }} onClear={onClear} darkMode={darkMode} />;
+}
 
 // Right-side map drawer for 4G Daily / 4G Hourly (sector scope)
 export default function CellMapDrawer({
@@ -455,6 +493,7 @@ export default function CellMapDrawer({
   const [popupOpen, setPopupOpen] = useState(false);
   const updatePrefs = (patch) => setPrefs(p => { const next = { ...p, ...patch }; writePrefs(next); return next; });
   const [measuring, setMeasuring] = useState(false);
+  const [cursor, setCursor] = useState('pan');
   const [measurePoints, setMeasurePoints] = useState([]);
   // Phase 4: elevation profile and bearing protractor
   const [profileDrawing, setProfileDrawing] = useState(false);
@@ -570,6 +609,8 @@ export default function CellMapDrawer({
   const measureTotal = measurePoints.reduce((t, p, i) => (i ? t + distanceM(measurePoints[i - 1], p) : 0), 0);
   const finishMeasure = useCallback(() => setMeasuring(false), []);
   const busy = measuring || profileDrawing || placingProtractor || !!protractor?.drawingLine;
+  // A drawing tool takes the mouse: the zoom cursor steps back to pan
+  useEffect(() => { if (busy && cursor !== 'pan') setCursor('pan'); }, [busy, cursor]);
 
   // Tools are exclusive: starting one stops the others
   const stopTools = () => { setMeasuring(false); setProfileDrawing(false); setPlacingProtractor(false); };
@@ -678,6 +719,7 @@ export default function CellMapDrawer({
     if (data?.center && mapRef.current) mapRef.current.setView([data.center.lat, data.center.lon], Math.max(mapRef.current.getZoom(), 15));
   };
 
+  const selectCls = `h-7 rounded-md border px-1.5 text-[11px] font-semibold cursor-pointer ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`;
   const shell = darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800';
 
   return (
@@ -695,7 +737,8 @@ export default function CellMapDrawer({
         title="Drag to resize"
       />
 
-      <div className={`flex flex-wrap items-center gap-1.5 px-3 py-2 border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+      <div className={`px-3 py-2 border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+      <div className="flex items-center gap-1.5">
         <MapIcon className="w-4 h-4 text-blue-500" />
         <span className="text-xs font-bold uppercase tracking-wider">Cell Map</span>
         <span className="text-xs font-semibold">{mainSite || siteId}</span>
@@ -725,137 +768,12 @@ export default function CellMapDrawer({
         <button type="button" onClick={onClose} className="p-1 rounded hover:bg-slate-500/15 cursor-pointer" title="Close map">
           <X className="w-4 h-4" />
         </button>
-        <div className="basis-full h-0" />
-        <div className="flex items-center gap-1">
-          <Layers className="w-3.5 h-3.5 opacity-60" />
-          {Object.entries(BASEMAPS).map(([id, b]) => (
-            <ToolbarButton key={id} active={prefs.basemap === id} onClick={() => updatePrefs({ basemap: id })} darkMode={darkMode}>
-              {b.label}
-            </ToolbarButton>
-          ))}
-        </div>
-        <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
-        <ToolbarButton active={prefs.tier === 0} onClick={() => updatePrefs({ tier: 0 })} darkMode={darkMode} title="Only the searched site">
-          Main site
-        </ToolbarButton>
-        <ToolbarButton active={prefs.tier === 1} onClick={() => updatePrefs({ tier: 1 })} darkMode={darkMode} title="Searched site and its 1st tier">
-          + 1st tier
-        </ToolbarButton>
-        <ToolbarButton active={prefs.otherSites} onClick={() => updatePrefs({ otherSites: !prefs.otherSites })} darkMode={darkMode} title="Grey dots for other sites in view (zoom 11+)">
-          Other sites
-        </ToolbarButton>
-        <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
-        <ToolbarButton
-          active={measuring}
-          onClick={() => { const on = !measuring; stopTools(); if (on) setMeasurePoints([]); setMeasuring(on); }}
-          darkMode={darkMode}
-          title="Ruler: click points, double-click or Esc to finish"
-        >
-          <Ruler className="w-3.5 h-3.5" /> {measurePoints.length > 1 ? formatDistance(measureTotal) : 'Ruler'}
-        </ToolbarButton>
-        {measurePoints.length > 0 && (
-          <ToolbarButton onClick={() => { setMeasurePoints([]); setMeasuring(false); }} darkMode={darkMode} title="Clear ruler">
-            <Trash2 className="w-3.5 h-3.5" />
-          </ToolbarButton>
-        )}
-        <ToolbarButton
-          active={profileDrawing}
-          onClick={() => { const on = !profileDrawing; stopTools(); setProfileDrawing(on); }}
-          darkMode={darkMode}
-          title="Elevation profile: click points, double-click to finish (max 20 km), Esc to cancel"
-        >
-          <Mountain className="w-3.5 h-3.5" /> Profile
-        </ToolbarButton>
-        <ToolbarButton
-          active={placingProtractor || !!protractor}
-          onClick={() => {
-            if (protractor) { setProtractor(null); return; }
-            const on = !placingProtractor; stopTools(); setPlacingProtractor(on);
-          }}
-          darkMode={darkMode}
-          title={protractor ? 'Remove the protractor' : 'Bearing protractor: click the map (near a site to stick to it)'}
-        >
-          <Compass className="w-3.5 h-3.5" /> Protractor
-        </ToolbarButton>
-        <ToolbarButton onClick={recenter} darkMode={darkMode} title="Center on the searched site">
-          <Crosshair className="w-3.5 h-3.5" />
-        </ToolbarButton>
-        <GotoInput point={gotoPoint} onGo={setGotoPoint} onClear={() => setGotoPoint(null)} darkMode={darkMode} />
-        <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
-        <label className="flex items-center gap-1 text-[11px] font-semibold" title="Colour sectors by">
-          <Palette className="w-3.5 h-3.5 opacity-60" />
-          <select
-            value={mode}
-            onChange={e => updatePrefs({ colorBy: e.target.value })}
-            className={`rounded-md border px-1.5 py-1 text-[11px] font-semibold cursor-pointer ${
-              darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'
-            }`}
-          >
-            {Object.entries(COLOR_MODES).map(([id, m]) => <option key={id} value={id}>{m.label}</option>)}
-          </select>
-        </label>
-        <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
-        <div className="flex items-center gap-1">
-        <Radar className="w-3.5 h-3.5 opacity-60" />
-        {TA_OPTIONS.map(t => (
-          <ToolbarButton
-            key={t}
-            active={prefs.ta === t}
-            onClick={() => updatePrefs({ ta: t })}
-            darkMode={darkMode}
-            title={t ? `Stretch each sector to its TA ${t}% distance (${kpi.data?.ta_date || 'last day'})` : 'Default sector length'}
-          >
-            {t ? `TA${t}` : 'TA off'}
-          </ToolbarButton>
-        ))}
-        </div>
-        <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
-        <OpacitySlider label="Opacity" title="Sector fill opacity" min={5} value={prefs.opacity} onChange={v => updatePrefs({ opacity: v })} />
-        <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
-        <div className="flex items-center gap-1">
-        <span className="text-[11px] font-semibold opacity-60">Covmo</span>
-        {['off', 'rsrp', 'rsrq'].map(c => (
-          <ToolbarButton
-            key={c}
-            active={(covmoMetric || 'off') === c}
-            onClick={() => { setCovmoHover(null); updatePrefs({ covmo: c }); }}
-            darkMode={darkMode}
-            title={c === 'off' ? 'Hide the covmo grid' : `Covmo ${COVMO_METRICS[c].label} grid (zoom ${COVMO_MIN_ZOOM}+)`}
-          >
-            {c === 'off' ? 'Off' : COVMO_METRICS[c].label}
-          </ToolbarButton>
-        ))}
-        {covmoMetric && covmoWeeks.length > 0 && (
-          <select
-            value={covmoWeek}
-            onChange={e => { setCovmoHover(null); setCovmoWeek(e.target.value); }}
-            title="Covmo week (default the latest)"
-            className={`rounded-md border px-1.5 py-1 text-[11px] font-semibold cursor-pointer ${
-              darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'
-            } ${covmoWeek ? 'text-amber-600' : ''}`}
-          >
-            {covmoWeeks.map((w, i) => (
-              <option key={w.week} value={i === 0 ? '' : w.week}>
-                W{w.week} · {fmtDay(w.start)}–{fmtDay(w.end)}{i === 0 ? ' (latest)' : ''}
-              </option>
-            ))}
-          </select>
-        )}
-        {covmoMetric && (
-          <OpacitySlider
-            title="Covmo grid opacity"
-            min={10}
-            value={prefs.covmoOpacity ?? 0.4}
-            onChange={v => updatePrefs({ covmoOpacity: v })}
-          />
-        )}
-        </div>
-        {kpi.loading && <span className="flex items-center gap-1 text-[10px] opacity-60"><Loader2 className="w-3 h-3 animate-spin" /> KPI</span>}
+      </div>
       </div>
 
-      <div ref={mapBoxRef} className="relative flex-1 min-h-0">
+      <div ref={mapBoxRef} className={`relative flex-1 min-h-0 ${cursor !== 'pan' ? '[&_.leaflet-interactive]:pointer-events-none!' : ''}`}>
         {error && (
-          <div className="absolute top-2 left-2 right-2 z-[600] rounded-md bg-rose-600 text-white text-xs px-3 py-2 shadow">
+          <div className="absolute top-2 left-2 right-12 z-[600] rounded-md bg-rose-600 text-white text-xs px-3 py-2 shadow">
             {error}
           </div>
         )}
@@ -866,7 +784,7 @@ export default function CellMapDrawer({
             zoom={6}
             maxZoom={19}
             className="h-full w-full"
-            zoomControl
+            zoomControl={false}
           >
             <TileLayer
               key={prefs.basemap}
@@ -927,7 +845,7 @@ export default function CellMapDrawer({
                   {!busy && (
                     <Popup key={widePopup ? 'wide' : 'narrow'} ref={setupCellPopup}
                       maxWidth={widePopup ? 640 : 340} maxHeight={Math.max(220, mapH - 60)}
-                      autoPanPaddingTopLeft={[48, 10]} autoPanPaddingBottomRight={[10, 10]}>
+                      autoPanPaddingTopLeft={[10, 10]} autoPanPaddingBottomRight={[52, 10]}>
                       <CellPopup
                         wide={widePopup}
                         viewer={viewer}
@@ -966,6 +884,7 @@ export default function CellMapDrawer({
               </CircleMarker>
             ))}
 
+            <CursorLayer mode={cursor} />
             <MeasureLayer active={measuring} points={measurePoints} onPointsChange={setMeasurePoints} onFinish={finishMeasure} />
             <ProfileDrawLayer active={profileDrawing} onFinish={finishProfile} onCancel={cancelProfile} />
             {profiles && <ProfileShapes profiles={profiles} hover={profileHover} />}
@@ -980,7 +899,7 @@ export default function CellMapDrawer({
           </MapContainer>
         )}
         {kpi.error && (
-          <div className="absolute top-2 left-12 right-2 z-[600] rounded-md bg-amber-500 text-white text-[11px] px-3 py-1.5 shadow">
+          <div className="absolute top-2 left-2 right-12 z-[600] rounded-md bg-amber-500 text-white text-[11px] px-3 py-1.5 shadow">
             KPI/status partly unavailable: {kpi.error}
           </div>
         )}
@@ -989,6 +908,149 @@ export default function CellMapDrawer({
             {data.override_error}
           </div>
         )}
+        <MapRail darkMode={darkMode}>
+          <RailMenu
+            id="cursor"
+            label="Cursor"
+            width={184}
+            icon={cursor === 'zoomin' ? ZoomIn : cursor === 'zoomout' ? ZoomOut : Hand}
+            active={cursor !== 'pan'}
+          >
+            <MenuItem icon={Hand} selected={cursor === 'pan'} onClick={() => setCursor('pan')}>Pan (drag)</MenuItem>
+            <MenuItem icon={ZoomIn} selected={cursor === 'zoomin'} onClick={() => { stopTools(); setCursor('zoomin'); }}>Zoom in (click)</MenuItem>
+            <MenuItem icon={ZoomOut} selected={cursor === 'zoomout'} onClick={() => { stopTools(); setCursor('zoomout'); }}>Zoom out (click)</MenuItem>
+          </RailMenu>
+
+          <RailMenu id="map" label="Map" icon={Layers} width={176}>
+            {Object.entries(BASEMAPS).map(([id, b]) => (
+              <MenuItem key={id} selected={prefs.basemap === id} onClick={() => updatePrefs({ basemap: id })}>{b.label}</MenuItem>
+            ))}
+          </RailMenu>
+
+          <RailMenu id="sites" label="Sites" icon={MapPinned} active={prefs.tier === 1 || prefs.otherSites} width={200}>
+            <MenuItem selected={prefs.tier === 0} onClick={() => updatePrefs({ tier: 0 })} title="Only the searched site">Main site</MenuItem>
+            <MenuItem selected={prefs.tier === 1} onClick={() => updatePrefs({ tier: 1 })} title="Searched site and its 1st tier">+ 1st tier</MenuItem>
+            <MenuDivider />
+            <MenuItem
+              kind="check"
+              keepOpen
+              selected={prefs.otherSites}
+              onClick={() => updatePrefs({ otherSites: !prefs.otherSites })}
+              title="Grey dots for other sites in view (zoom 11+)"
+            >
+              Other sites
+            </MenuItem>
+          </RailMenu>
+
+          <RailMenu
+            id="tools"
+            label="Tools"
+            icon={Wrench}
+            active={measuring || profileDrawing || placingProtractor || !!protractor || !!gotoPoint}
+            width={236}
+          >
+            <MenuItem
+              kind="plain"
+              icon={Ruler}
+              selected={measuring}
+              onClick={() => { const on = !measuring; stopTools(); if (on) setMeasurePoints([]); setMeasuring(on); }}
+              title="Ruler: click points, double-click or Esc to finish"
+            >
+              {measurePoints.length > 1 ? `Ruler · ${formatDistance(measureTotal)}` : 'Ruler'}
+            </MenuItem>
+            {measurePoints.length > 0 && (
+              <MenuItem kind="plain" icon={Trash2} keepOpen onClick={() => { setMeasurePoints([]); setMeasuring(false); }}>Clear ruler</MenuItem>
+            )}
+            <MenuItem
+              kind="plain"
+              icon={Mountain}
+              selected={profileDrawing}
+              onClick={() => { const on = !profileDrawing; stopTools(); setProfileDrawing(on); }}
+              title="Elevation profile: click points, double-click to finish (max 20 km), Esc to cancel"
+            >
+              Elevation profile
+            </MenuItem>
+            <MenuItem
+              kind="plain"
+              icon={Compass}
+              selected={placingProtractor || !!protractor}
+              onClick={() => {
+                if (protractor) { setProtractor(null); return; }
+                const on = !placingProtractor; stopTools(); setPlacingProtractor(on);
+              }}
+              title={protractor ? 'Remove the protractor' : 'Bearing protractor: click the map (near a site to stick to it)'}
+            >
+              {protractor ? 'Remove protractor' : 'Protractor'}
+            </MenuItem>
+            <MenuItem kind="plain" icon={Crosshair} onClick={recenter} title="Center on the searched site">Center on site</MenuItem>
+            <MenuDivider />
+            <MenuField label="Go to coordinate">
+              <GotoField point={gotoPoint} onGo={setGotoPoint} onClear={() => setGotoPoint(null)} darkMode={darkMode} />
+            </MenuField>
+          </RailMenu>
+
+          <RailMenu id="sector" label="Sectors" icon={Palette} active={prefs.ta > 0 || mode !== 'band'} width={244}>
+            <MenuField label="Colour by">
+              <select value={mode} onChange={e => updatePrefs({ colorBy: e.target.value })} className={`${selectCls} w-full`}>
+                {Object.entries(COLOR_MODES).map(([id, m]) => <option key={id} value={id}>{m.label}</option>)}
+              </select>
+            </MenuField>
+            <MenuField label="Length">
+              <Segmented
+                darkMode={darkMode}
+                value={prefs.ta}
+                onChange={v => updatePrefs({ ta: v })}
+                options={TA_OPTIONS.map(t => ({
+                  id: t,
+                  label: t ? `TA${t}` : 'TA off',
+                  title: t ? `Stretch each sector to its TA ${t}% distance (${kpi.data?.ta_date || 'last day'})` : 'Default sector length',
+                }))}
+              />
+            </MenuField>
+            <MenuField label="Opacity">
+              <OpacitySlider wide title="Sector fill opacity" min={5} value={prefs.opacity} onChange={v => updatePrefs({ opacity: v })} />
+            </MenuField>
+            {kpi.loading && (
+              <div className="px-1.5 flex items-center gap-1 text-[10px] opacity-60"><Loader2 className="w-3 h-3 animate-spin" /> Loading KPI…</div>
+            )}
+          </RailMenu>
+
+          <RailMenu id="covmo" label="Covmo grid" icon={Signal} active={!!covmoMetric} width={244}>
+            <MenuField>
+              <Segmented
+                darkMode={darkMode}
+                value={covmoMetric || 'off'}
+                onChange={c => { setCovmoHover(null); updatePrefs({ covmo: c }); }}
+                options={['off', 'rsrp', 'rsrq'].map(c => ({
+                  id: c,
+                  label: c === 'off' ? 'Off' : COVMO_METRICS[c].label,
+                  title: c === 'off' ? 'Hide the covmo grid' : `Covmo ${COVMO_METRICS[c].label} grid (zoom ${COVMO_MIN_ZOOM}+)`,
+                }))}
+              />
+            </MenuField>
+            {covmoMetric && covmoWeeks.length > 0 && (
+              <MenuField label="Week">
+                <select
+                  value={covmoWeek}
+                  onChange={e => { setCovmoHover(null); setCovmoWeek(e.target.value); }}
+                  title="Covmo week (default the latest)"
+                  className={`${selectCls} w-full ${covmoWeek ? 'text-amber-600' : ''}`}
+                >
+                  {covmoWeeks.map((w, i) => (
+                    <option key={w.week} value={i === 0 ? '' : w.week}>
+                      W{w.week} · {fmtDay(w.start)}–{fmtDay(w.end)}{i === 0 ? ' (latest)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </MenuField>
+            )}
+            {covmoMetric && (
+              <MenuField label="Opacity">
+                <OpacitySlider wide title="Covmo grid opacity" min={10} value={prefs.covmoOpacity ?? 0.4} onChange={v => updatePrefs({ covmoOpacity: v })} />
+              </MenuField>
+            )}
+          </RailMenu>
+        </MapRail>
         <MapHelp open={helpOpen} onClose={() => setHelpOpen(false)} darkMode={darkMode} />
         {covmoMetric && <CovmoLegend metric={covmoMetric} status={covmoStatus} hover={covmoHover} darkMode={darkMode} />}
         {placingProtractor && !protractor && (
