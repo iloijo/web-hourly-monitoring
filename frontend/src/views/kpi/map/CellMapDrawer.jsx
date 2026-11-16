@@ -3,7 +3,7 @@ import {
   CircleMarker, MapContainer, Polygon, Popup, ScaleControl, TileLayer, Tooltip, useMap, useMapEvents,
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Compass, Crosshair, Layers, Loader2, Map as MapIcon, Mountain, Palette, Radar, Ruler, Trash2, X } from 'lucide-react';
+import { Compass, Crosshair, Layers, Loader2, Map as MapIcon, Mountain, Palette, Pin, PinOff, Radar, Ruler, Trash2, X } from 'lucide-react';
 import { getJson, getStoredAuthUser, postJson } from '../../../api/client';
 import MeasureLayer from './MeasureLayer';
 import useCellMap from './useCellMap';
@@ -434,6 +434,7 @@ const ToolbarButton = ({ active, onClick, title, children, darkMode }) => (
 // Right-side map drawer for 4G Daily / 4G Hourly (sector scope)
 export default function CellMapDrawer({
   open, onClose, onSlideEnd, siteId, sectors = [], darkMode, width, onWidthChange, canSelectSector, onSelectSector,
+  pinned = false, onPinnedChange,
 }) {
   // The drawer first renders closed and slides in on the next frames, also on the very first open
   // (the lazy chunk mounts it with open already true). The map stays mounted after that, so reopening
@@ -707,6 +708,19 @@ export default function CellMapDrawer({
         )}
         {loading && <Loader2 className="w-3.5 h-3.5 animate-spin opacity-70" />}
         <span className="ml-auto" />
+        {onPinnedChange && (
+          <button
+            type="button"
+            onClick={() => onPinnedChange(!pinned)}
+            className={`p-1 rounded cursor-pointer ${pinned ? 'bg-blue-600 text-white hover:bg-blue-700' : 'hover:bg-slate-500/15'}`}
+            title={pinned
+              ? 'Pinned: the charts make room for the map (the menu bar hides). Click to float the map over the page.'
+              : 'Floating over the page. Pin to make the charts move aside and stay visible next to the map.'}
+            aria-pressed={pinned}
+          >
+            {pinned ? <Pin className="w-4 h-4" /> : <PinOff className="w-4 h-4" />}
+          </button>
+        )}
         <HelpButton onClick={() => setHelpOpen(v => !v)} active={helpOpen} darkMode={darkMode} />
         <button type="button" onClick={onClose} className="p-1 rounded hover:bg-slate-500/15 cursor-pointer" title="Close map">
           <X className="w-4 h-4" />

@@ -267,6 +267,7 @@ export default function App() {
               siteNamesMap={ref.siteNamesMap}
               chartsPerRow={chartsPerRow}
               sidebarOpen={sidebarOpen}
+              setSidebarOpen={setSidebarOpen}
               markers={markers}
               setMarkers={setMarkers}
               darkMode={darkMode}
