@@ -12,6 +12,7 @@ const SECTIONS = [
       ['Main site / + 1st tier', 'Hanya site yang dicari, atau ditambah site tier 1 di sekelilingnya (garis putus-putus). Other sites = titik abu-abu site lain dari zoom 11, label site ID kuning dari zoom 14.'],
       ['Sektor', 'Klik sektor untuk melihat properti DESIQA, KPI hari terakhir (BDBH), TA 70/80/90 dan status RCI / CEI / Unbalance. Sektor yang sedang dipilih di chart diberi garis tebal. Cell indoor digambar sebagai lingkaran kecil di site.'],
       ['Crosshair', 'Kembali ke tengah site yang dicari.'],
+      ['Go to coordinate', 'Ketik atau paste lat, long (-5.102156, 119.59453; koma desimal juga bisa), DMS, link Google Maps atau geohash (qxhbtbs), lalu Enter. Pin menampilkan sektor yang mengarah ke titik itu, 3 site terdekat dan tombol profile ke pin. Esc atau × menghapus pin.'],
     ],
   },
   {
