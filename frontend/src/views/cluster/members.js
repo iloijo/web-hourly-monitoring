@@ -4,6 +4,8 @@ const ID_RE = /^([A-Z0-9]{6})(?:[_.-](\d{1,3}))?$/;
 
 export const memberSite = (m) => m.split('_')[0];
 export const memberSector = (m) => (m.includes('_') ? Number(m.split('_')[1]) : null);
+// Breakdown unit from the backend: SITE or SITE_<sector>
+export const unitLabel = (u) => (u.includes('_') ? `${memberSite(u)} sec ${memberSector(u)}` : u);
 
 // Pasted text (Excel column or row, comma, semicolon, tab, space, |, /, dot) -> member ids.
 // A dot followed by a sector number stays part of the id: "UPD001.1" = UPD001 sector 1.
