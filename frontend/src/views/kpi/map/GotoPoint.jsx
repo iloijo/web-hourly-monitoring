@@ -35,9 +35,10 @@ export function GotoInput({ point, onGo, onClear, darkMode }) {
   const clear = () => { setText(''); setError(null); onClear(); };
   const base = darkMode ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-700';
   return (
+    <div className="w-full">
     <form
       onSubmit={e => { e.preventDefault(); go(text); }}
-      className={`flex items-center gap-1 rounded-md border px-1.5 py-0.5 ${base}`}
+      className={`flex items-center gap-1 h-7 w-full rounded-md border px-1.5 ${base}`}
       style={error ? { borderColor: '#f43f5e' } : point ? { borderColor: PIN_COLOR } : undefined}
       title={error || 'Go to a coordinate: "-5.102156, 119.59453", comma decimals, DMS, a Google Maps link or a geohash (qxhbtbs). Enter or paste.'}
     >
@@ -53,7 +54,7 @@ export function GotoInput({ point, onGo, onClear, darkMode }) {
         }}
         onKeyDown={e => { if (e.key === 'Escape') clear(); }}
         placeholder="lat, long / geohash"
-        className="w-40 bg-transparent outline-none text-[11px] font-semibold placeholder:font-normal placeholder:opacity-60"
+        className="flex-1 min-w-0 bg-transparent outline-none text-[11px] font-semibold placeholder:font-normal placeholder:opacity-60"
         aria-label="Go to coordinate"
       />
       {(point || text) && (
@@ -62,6 +63,8 @@ export function GotoInput({ point, onGo, onClear, darkMode }) {
         </button>
       )}
     </form>
+    {error && <div className="mt-1 text-[10px] leading-tight text-rose-500">{error}</div>}
+    </div>
   );
 }
 
@@ -214,7 +217,7 @@ export function GotoLayer({ point, data, onProfile }) {
         pathOptions={{ color: '#ffffff', weight: 2.5, fillColor: PIN_COLOR, fillOpacity: 1 }}
       >
         <Tooltip direction="top" offset={[0, -8]}>{fmtCoord(point)}</Tooltip>
-        <Popup ref={setupCellPopup} maxWidth={340} autoPanPaddingTopLeft={[48, 10]}>
+        <Popup ref={setupCellPopup} maxWidth={340} autoPanPaddingTopLeft={[10, 10]} autoPanPaddingBottomRight={[52, 10]}>
           <PinInfo point={point} data={data} onProfile={onProfile} />
         </Popup>
       </CircleMarker>

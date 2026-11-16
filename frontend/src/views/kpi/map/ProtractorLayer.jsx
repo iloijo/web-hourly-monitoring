@@ -296,7 +296,7 @@ export function ProtractorPanel({ pr, onChange, onClose, onProfile, onLoadSector
   const nextColor = NEEDLE_COLORS[pr.bearings.length % NEEDLE_COLORS.length];
   const btn = 'flex items-center gap-1 px-1.5 py-0.5 rounded border border-slate-500/30 hover:bg-slate-500/15 cursor-pointer';
   return (
-    <div className={`absolute top-2 right-2 z-[640] w-80 max-h-[60%] overflow-auto rounded-lg border shadow-lg text-[11px] ${shell}`}>
+    <div className={`absolute top-2 right-12 z-[640] w-80 max-h-[60%] overflow-auto rounded-lg border shadow-lg text-[11px] ${shell}`}>
       <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-slate-500/20">
         <span className="font-bold uppercase tracking-wider">Protractor</span>
         <span className="opacity-70">{pr.siteId || `${pr.center[0].toFixed(5)}, ${pr.center[1].toFixed(5)}`}</span>
