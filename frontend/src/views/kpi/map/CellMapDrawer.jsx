@@ -3,7 +3,7 @@ import {
   CircleMarker, MapContainer, Polygon, Popup, ScaleControl, TileLayer, Tooltip, useMap, useMapEvents,
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Compass, Crosshair, Layers, Loader2, Map as MapIcon, Mountain, Palette, Radar, Ruler, Trash2, X } from 'lucide-react';
+import { Compass, Crosshair, Layers, Loader2, Map as MapIcon, Mountain, Palette, Pin, PinOff, Radar, Ruler, Trash2, X } from 'lucide-react';
 import { getJson, getStoredAuthUser, postJson } from '../../../api/client';
 import MeasureLayer from './MeasureLayer';
 import useCellMap from './useCellMap';
@@ -16,6 +16,8 @@ import { azimuthPath } from './profile';
 import ProfilePanel from './ProfilePanel';
 import { ProfileDrawLayer, ProfileShapes } from './ProfileLayer';
 import ProtractorLayer, { NEEDLE_COLORS, ProtractorPanel } from './ProtractorLayer';
+import { setupCellPopup } from './popupSetup';
+import { GotoInput, GotoLayer } from './GotoPoint';
 import { CellEditSection, fieldDelta, fmtDelta, OVERRIDE_COLOR, WARN_DELTA } from './CellEdit';
 import MapHelp, { HelpButton } from './MapHelp';
 
@@ -62,34 +64,6 @@ const fmtDay = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('id-ID',
 const userCanEdit = (u) => !!u && (u.is_super || (u.permissions || []).includes('map-edit'));
 const viewerOf = (u) => ({ canEdit: userCanEdit(u), username: u?.username || '', isSuper: !!u?.is_super });
 
-// Two fixes for the React content of a cell popup (ref callback of <Popup>):
-// - Leaflet re-measures a popup on every update (any re-render of the drawer): it clears the height for a
-//   moment, which throws a scrolled popup back to the top. Keep the scroll position across that.
-// - React handles a click inside the popup before Leaflet does. When the click swaps the button out (Edit →
-//   form, Delete → Yes/No, Reset → spinner) the target is detached by the time the click bubbles to the map,
-//   so Leaflet no longer sees it came from the popup and closes the popup as a map click. Clicks inside the
-//   content therefore stop at the content node; the × button, map clicks and Esc still close the popup.
-const stopAtContent = (e) => e.stopPropagation();
-const setupCellPopup = (popup) => {
-  if (!popup || popup.__cellPopup) return;
-  const layout = popup._updateLayout;
-  popup._updateLayout = function updateLayoutKeepScroll() {
-    const node = this._contentNode;
-    const top = node ? node.scrollTop : 0;
-    layout.call(this);
-    if (node && top) node.scrollTop = top;
-  };
-  // the content node exists once the popup is first added to the map
-  popup.on('add', () => {
-    const node = popup._contentNode;
-    if (node && !node.__stopsClicks) {
-      node.addEventListener('click', stopAtContent);
-      node.addEventListener('dblclick', stopAtContent);
-      node.__stopsClicks = true;
-    }
-  });
-  popup.__cellPopup = true;
-};
 // Two-column popup when the map is wide enough
 const WIDE_POPUP_MIN = 650;
 
@@ -460,6 +434,7 @@ const ToolbarButton = ({ active, onClick, title, children, darkMode }) => (
 // Right-side map drawer for 4G Daily / 4G Hourly (sector scope)
 export default function CellMapDrawer({
   open, onClose, onSlideEnd, siteId, sectors = [], darkMode, width, onWidthChange, canSelectSector, onSelectSector,
+  pinned = false, onPinnedChange,
 }) {
   // The drawer first renders closed and slides in on the next frames, also on the very first open
   // (the lazy chunk mounts it with open already true). The map stays mounted after that, so reopening
@@ -622,6 +597,14 @@ export default function CellMapDrawer({
   }, []);
   const cancelProfile = useCallback(() => setProfileDrawing(false), []);
 
+  // Go to coordinate: one pin at a time, kept until removed (not saved)
+  const [gotoPoint, setGotoPoint] = useState(null);
+  const profileToPin = ({ from, to, label, cell }) => {
+    stopTools();
+    setProfiles([{ key: `pin|${label}|${Date.now()}`, label, color: '#e11d48', vertices: [from, to], ctx: cell ? cellCtx(cell) : {} }]);
+    mapRef.current?.closePopup();
+  };
+
   // One needle per macro sector of a site, at the sector's azimuth (median of its cells)
   const sectorNeedles = (sid) => {
     const bySector = {};
@@ -725,6 +708,19 @@ export default function CellMapDrawer({
         )}
         {loading && <Loader2 className="w-3.5 h-3.5 animate-spin opacity-70" />}
         <span className="ml-auto" />
+        {onPinnedChange && (
+          <button
+            type="button"
+            onClick={() => onPinnedChange(!pinned)}
+            className={`p-1 rounded cursor-pointer ${pinned ? 'bg-blue-600 text-white hover:bg-blue-700' : 'hover:bg-slate-500/15'}`}
+            title={pinned
+              ? 'Pinned: the charts make room for the map (the menu bar hides). Click to float the map over the page.'
+              : 'Floating over the page. Pin to make the charts move aside and stay visible next to the map.'}
+            aria-pressed={pinned}
+          >
+            {pinned ? <Pin className="w-4 h-4" /> : <PinOff className="w-4 h-4" />}
+          </button>
+        )}
         <HelpButton onClick={() => setHelpOpen(v => !v)} active={helpOpen} darkMode={darkMode} />
         <button type="button" onClick={onClose} className="p-1 rounded hover:bg-slate-500/15 cursor-pointer" title="Close map">
           <X className="w-4 h-4" />
@@ -784,6 +780,7 @@ export default function CellMapDrawer({
         <ToolbarButton onClick={recenter} darkMode={darkMode} title="Center on the searched site">
           <Crosshair className="w-3.5 h-3.5" />
         </ToolbarButton>
+        <GotoInput point={gotoPoint} onGo={setGotoPoint} onClear={() => setGotoPoint(null)} darkMode={darkMode} />
         <span className="w-px h-5 bg-slate-500/30 mx-0.5" />
         <label className="flex items-center gap-1 text-[11px] font-semibold" title="Colour sectors by">
           <Palette className="w-3.5 h-3.5 opacity-60" />
@@ -972,6 +969,7 @@ export default function CellMapDrawer({
             <MeasureLayer active={measuring} points={measurePoints} onPointsChange={setMeasurePoints} onFinish={finishMeasure} />
             <ProfileDrawLayer active={profileDrawing} onFinish={finishProfile} onCancel={cancelProfile} />
             {profiles && <ProfileShapes profiles={profiles} hover={profileHover} />}
+            <GotoLayer point={gotoPoint} data={data} onProfile={profileToPin} />
             <ProtractorLayer
               pr={protractor}
               onChange={setProtractor}

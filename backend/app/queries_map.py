@@ -5,6 +5,7 @@ kept in memory (about 8k sites) to find the 1st tier and the sites shown inside 
 """
 import math
 import re
+import statistics
 import threading
 import time
 from decimal import Decimal
@@ -23,6 +24,9 @@ TIER_RADIUS_MAX_KM = 35.0   # rural sites: widen the search when too few neighbo
 TIER_MAX_SITES = 12
 TIER_ANGLE_DEG = 30.0       # a farther site in the same direction (within +-30 deg) is "behind" a nearer one
 TIER_SAME_RING = 1.3        # ...unless it is less than 1.3x as far (same ring of sites)
+TIER_RING_SITES = 6         # the nearest ring: median distance of the first 6 accepted neighbours...
+TIER_RING_CAP = 2.5         # ...and no 1st tier site farther than 2.5x that median (a gap between two
+                            # near neighbours must not pull in a site far behind them)
 COLOCATED_KM = 0.05
 
 
@@ -104,6 +108,14 @@ def _first_tier(main: Dict[str, Any], sites: List[Dict[str, Any]]) -> List[Dict[
             accepted.append(c)
         if len(accepted) >= TIER_MAX_SITES:
             break
+
+    # Drop sites far beyond the nearest ring. The direction rule alone lets a far site through the narrow
+    # gap between two near neighbours (e.g. 2 km away when the ring is at 0.3 km), and the same-ring rule
+    # then lets the next one behind it through as well.
+    ring = [a["distance_km"] for a in accepted if a["distance_km"] > COLOCATED_KM][:TIER_RING_SITES]
+    if ring:
+        limit = TIER_RING_CAP * statistics.median(ring)
+        accepted = [a for a in accepted if a["distance_km"] <= limit]
     return accepted
 
 
