@@ -26,7 +26,8 @@ from .queries_twamp import get_twamp_packet_loss_data, get_twamp_scope_aggregati
 from .site_names import load_site_names, get_site_display_name, get_site_name
 from .queries_properties import get_site_properties
 from .queries_map import get_map_cells, get_map_covmo, get_map_sites_in_bbox, get_covmo_weeks
-from .queries_map_override import apply_overrides, save_overrides, reset_overrides, get_override_history, OverrideError
+from .queries_map_override import (apply_overrides, save_overrides, reset_overrides, rollback_overrides, delete_override,
+                                    get_override_history, OverrideError)
 from .queries_map_kpi import get_map_kpi
 from .elevation import get_elevations
 from .queries_scope_4g import get_scope_aggregation_data, get_hourly_scope_aggregation_data
@@ -532,10 +533,20 @@ class OverridePayload(BaseModel):
     cells: List[OverrideCell]
     values: dict = {}       # only the fields being changed: azimuth / mt / et
     note: str = ""
+    batch_id: Optional[str] = None   # add these cells to an earlier save (one rollback undoes both)
 
 
 class OverrideResetPayload(BaseModel):
     cells: List[OverrideCell]
+
+
+class OverrideRollbackPayload(BaseModel):
+    cells: List[OverrideCell] = []
+    batch_id: Optional[str] = None
+
+
+class OverrideDeletePayload(BaseModel):
+    id: int
 
 
 def _edit_guard(request: Request):
@@ -552,7 +563,8 @@ def map_override_save(payload: OverridePayload, request: Request):
     if denied:
         return denied
     try:
-        result = save_overrides([c.model_dump() for c in payload.cells], payload.values, payload.note, user["username"])
+        result = save_overrides([c.model_dump() for c in payload.cells], payload.values, payload.note, user["username"],
+                                payload.batch_id)
     except OverrideError as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     except Exception as e:
@@ -580,11 +592,47 @@ def map_override_reset(payload: OverrideResetPayload, request: Request):
     return {"success": True, **result}
 
 
-@app.get("/api/map/overrides/history")
-def map_override_history(site_id: str = Query(...)):
-    """Every azimuth / tilt edit of a site (active, replaced, reset, synced), newest first."""
+@app.post("/api/map/overrides/rollback")
+def map_override_rollback(payload: OverrideRollbackPayload, request: Request):
+    """Undo the latest change of the given cells (or of every cell of one save, by batch_id)."""
+    user, denied = _edit_guard(request)
+    if denied:
+        return denied
     try:
-        return get_override_history(site_id)
+        result = rollback_overrides([c.model_dump() for c in payload.cells], payload.batch_id, user["username"])
+    except OverrideError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    target = ", ".join(f"{c.site_id}_{c.ci}" for c in payload.cells[:10]) or f"batch {payload.batch_id}"
+    auth_store.log(user["username"], "map_override_rollback", target, ip=_client_ip(request))
+    return {"success": True, **result}
+
+
+@app.post("/api/map/overrides/delete")
+def map_override_delete(payload: OverrideDeletePayload, request: Request):
+    """Soft delete of a closed edit: hidden from History, kept in the table."""
+    user, denied = _edit_guard(request)
+    if denied:
+        return denied
+    try:
+        result = delete_override(payload.id, user["username"], bool(user.get("is_super")))
+    except OverrideError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    auth_store.log(user["username"], "map_override_delete", f"{result['site_id']}_{result['ci']} #{payload.id}",
+                   ip=_client_ip(request))
+    return {"success": True, **result}
+
+
+@app.get("/api/map/overrides/history")
+def map_override_history(request: Request, site_id: str = Query(...), include_deleted: bool = Query(False)):
+    """Every azimuth / tilt edit of a site (active, replaced, reset, synced, rolledback), newest first.
+    Soft-deleted edits are listed for SuperAdmin only, with include_deleted."""
+    try:
+        user = getattr(request.state, "user", None) or {}
+        return get_override_history(site_id, include_deleted=include_deleted and bool(user.get("is_super")))
     except Exception as e:
         return {"error": str(e), "rows": []}
 
