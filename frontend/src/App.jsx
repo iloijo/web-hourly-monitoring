@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import DataLoadingOverlay from './components/DataLoadingOverlay';
 import AppSidebar from './components/layout/AppSidebar';
 import AppHeader from './components/layout/AppHeader';
@@ -25,6 +25,15 @@ const CeiView = lazy(() => import('./views/CeiView'));
 const CrowdsourceView = lazy(() => import('./views/CrowdsourceView'));
 const AdminView = lazy(() => import('./views/AdminView'));
 
+// A page kept mounted between visits: hidden (not unmounted) while another menu is open
+function KeptPage({ active, children }) {
+  return (
+    <div hidden={!active} className="space-y-4">
+      <Suspense fallback={active ? <DataLoadingOverlay /> : null}>{children}</Suspense>
+    </div>
+  );
+}
+
 // Worst Cell / ZTZP rows open the daily sector charts of that technology
 const TECH_TO_MENU = { '2g': '2g', '4g': '4g-daily', '5g': '5g' };
 
@@ -35,7 +44,11 @@ export default function App() {
   const [chartsPerRow, setChartsPerRow] = useState(3);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [markers, setMarkers] = useState([]); // temporary chart markers, cleared on reload
-  const [exportGetter, setExportGetter] = useState(null);
+  // menu -> export function registered by that page (pages stay mounted, so each keeps its own)
+  const [exportGetters, setExportGetters] = useState({});
+  // Pages opened in this session stay mounted (hidden) so switching back shows them as they were left
+  const [visited, setVisited] = useState(() => new Set());
+  const scrollByMenu = useRef({});
 
   // Authentication state. authUser = { username, full_name, role_name, is_super, permissions: [menuId] }
   const [authUser, setAuthUser] = useState(getStoredAuthUser);
@@ -49,8 +62,24 @@ export default function App() {
   const km = useKpiMonitoring(activeMenu, ref);
   const isKpiMenu = KPI_MENUS.includes(activeMenu) && permissions.includes(activeMenu);
 
-  // Pages register a function returning their Excel sheets (or null when there is nothing to export)
-  const registerExport = useCallback((getter) => setExportGetter(() => getter), []);
+  // Pages register a function returning their Excel sheets (or null when there is nothing to export).
+  // One stable register function per page, so a hidden page never replaces the visible page's export.
+  const exportRegistrars = useMemo(() => {
+    const make = (key) => (getter) => setExportGetters((prev) => (prev[key] === getter ? prev : { ...prev, [key]: getter }));
+    return Object.fromEntries([...MENU_ORDER, 'kpi'].map((m) => [m, make(m)]));
+  }, []);
+  const exportGetter = (isKpiMenu ? exportGetters.kpi : exportGetters[activeMenu]) || null;
+
+  // Updated during render (not in an effect) so the page is marked visited in the same pass
+  if (!visited.has(activeMenu)) setVisited(new Set(visited).add(activeMenu));
+
+  // Each page keeps its own scroll position; a page shown again also re-measures its charts and maps
+  // (they were laid out at zero size while hidden)
+  useLayoutEffect(() => {
+    window.scrollTo(0, scrollByMenu.current[activeMenu] || 0);
+    const raf = requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+    return () => cancelAnimationFrame(raf);
+  }, [activeMenu]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -67,7 +96,18 @@ export default function App() {
     }
     setAuthUser(null);
     setIsAuthenticated(false);
+    // Nothing of this user's pages stays in memory for the next login
+    setVisited(new Set());
+    setExportGetters({});
+    scrollByMenu.current = {};
   }, []);
+
+  // KPI menus keep their data in the hook (one per app): forget it on logout too
+  const forgetRef = useRef(km.forgetMenus);
+  useEffect(() => { forgetRef.current = km.forgetMenus; });
+  useEffect(() => {
+    if (!isAuthenticated) forgetRef.current();
+  }, [isAuthenticated]);
 
   // Check the session on startup and refresh the user's role / permissions from the server
   useEffect(() => {
@@ -113,8 +153,11 @@ export default function App() {
   useIdleLogout(isAuthenticated, handleLogout, 30 * 60 * 1000);
 
   // Opening a menu never queries KPI data; the user picks a site or clicks Generate
+  const rememberScroll = () => { scrollByMenu.current[activeMenu] = window.scrollY; };
+
   const handleSwitchMenu = (menu) => {
     if (menu === activeMenu || !can(menu)) return;
+    rememberScroll();
     setActiveMenu(menu);
     if (KPI_MENUS.includes(menu)) km.prepareMenu(menu);
   };
@@ -122,13 +165,16 @@ export default function App() {
   const openSite = (tech, site) => {
     const menu = TECH_TO_MENU[tech];
     if (!can(menu)) return;
+    rememberScroll();
+    scrollByMenu.current[menu] = 0; // a new site starts at the top
     setActiveMenu(menu);
     km.openSiteInMenu(menu, site);
   };
 
   const show = (menu) => activeMenu === menu && can(menu);
-
-  const common = { darkMode, onExportData: registerExport };
+  // Mounted when it is open now or was opened before in this session (and the role still allows it)
+  const keep = (menu) => (activeMenu === menu || visited.has(menu)) && can(menu);
+  const pageProps = (menu) => ({ darkMode, onExportData: exportRegistrars[menu] });
 
   // If not authenticated, present the interactive NetPulse Animated Login Portal
   if (!isAuthenticated) {
@@ -168,35 +214,51 @@ export default function App() {
         </AppHeader>
 
         <main className="p-4 sm:p-5 grow space-y-4">
-          <Suspense fallback={<DataLoadingOverlay />}>
-            {show('overview') && (
-              <OverviewView onOpenSite={openSite} hierarchyData={ref.hierarchyData} {...common} />
-            )}
-            {(show('ta-4g') || show('ta-5g')) && (
+          {keep('overview') && (
+            <KeptPage active={activeMenu === 'overview'}>
+              <OverviewView onOpenSite={openSite} hierarchyData={ref.hierarchyData} {...pageProps('overview')} />
+            </KeptPage>
+          )}
+          {['ta-4g', 'ta-5g'].map((menu) => keep(menu) && (
+            <KeptPage key={menu} active={activeMenu === menu}>
               <TimingAdvanceView
-                key={activeMenu}
-                tech={activeMenu === 'ta-5g' ? '5g' : '4g'}
-                allSites={activeMenu === 'ta-5g' && ref.sites5g.length > 0 ? ref.sites5g : ref.allSites}
+                tech={menu === 'ta-5g' ? '5g' : '4g'}
+                allSites={menu === 'ta-5g' && ref.sites5g.length > 0 ? ref.sites5g : ref.allSites}
                 siteNamesMap={ref.siteNamesMap}
-                {...common}
+                {...pageProps(menu)}
               />
-            )}
-            {show('packet-loss') && (
-              <PacketLossView allSites={ref.allSites} siteNamesMap={ref.siteNamesMap} hierarchyData={ref.hierarchyData} {...common} />
-            )}
-            {show('worst-cell') && (
-              <WorstCellView hierarchyData={ref.hierarchyData} onOpenSite={openSite} {...common} />
-            )}
-            {show('cluster') && (
-              <ClusterMonitoringView refData={ref} chartsPerRow={chartsPerRow} authUser={authUser} {...common} />
-            )}
-            {show('cei') && <CeiView {...common} />}
-            {show('crowdsource') && <CrowdsourceView {...common} />}
-            {show('ztzp') && (
-              <ZtzpView hierarchyData={ref.hierarchyData} onOpenSite={openSite} {...common} />
-            )}
-            {show('admin') && <AdminView authUser={authUser} darkMode={darkMode} />}
-          </Suspense>
+            </KeptPage>
+          ))}
+          {keep('packet-loss') && (
+            <KeptPage active={activeMenu === 'packet-loss'}>
+              <PacketLossView allSites={ref.allSites} siteNamesMap={ref.siteNamesMap} hierarchyData={ref.hierarchyData} {...pageProps('packet-loss')} />
+            </KeptPage>
+          )}
+          {keep('worst-cell') && (
+            <KeptPage active={activeMenu === 'worst-cell'}>
+              <WorstCellView hierarchyData={ref.hierarchyData} onOpenSite={openSite} {...pageProps('worst-cell')} />
+            </KeptPage>
+          )}
+          {keep('cluster') && (
+            <KeptPage active={activeMenu === 'cluster'}>
+              <ClusterMonitoringView refData={ref} chartsPerRow={chartsPerRow} authUser={authUser} {...pageProps('cluster')} />
+            </KeptPage>
+          )}
+          {keep('cei') && (
+            <KeptPage active={activeMenu === 'cei'}><CeiView {...pageProps('cei')} /></KeptPage>
+          )}
+          {keep('crowdsource') && (
+            <KeptPage active={activeMenu === 'crowdsource'}><CrowdsourceView {...pageProps('crowdsource')} /></KeptPage>
+          )}
+          {keep('ztzp') && (
+            <KeptPage active={activeMenu === 'ztzp'}>
+              <ZtzpView hierarchyData={ref.hierarchyData} onOpenSite={openSite} {...pageProps('ztzp')} />
+            </KeptPage>
+          )}
+          {/* Admin always reloads: users and roles must be fresh */}
+          {show('admin') && (
+            <Suspense fallback={<DataLoadingOverlay />}><AdminView authUser={authUser} darkMode={darkMode} /></Suspense>
+          )}
 
           {isKpiMenu && (
             <KpiMonitoringView
@@ -207,7 +269,8 @@ export default function App() {
               sidebarOpen={sidebarOpen}
               markers={markers}
               setMarkers={setMarkers}
-              {...common}
+              darkMode={darkMode}
+              onExportData={exportRegistrars.kpi}
             />
           )}
         </main>
@@ -215,7 +278,7 @@ export default function App() {
         <AppFooter activeMenu={activeMenu} km={km} isKpiMenu={isKpiMenu} darkMode={darkMode} />
       </div>
 
-      {km.loading && <DataLoadingOverlay />}
+      {isKpiMenu && km.loading && <DataLoadingOverlay />}
     </div>
   );
 }

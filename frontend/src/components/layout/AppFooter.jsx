@@ -18,6 +18,14 @@ export default function AppFooter({ activeMenu, km, isKpiMenu, darkMode }) {
           Target NE: {km.data.enodeb_name}
         </div>
       )}
+      {isKpiMenu && km.fetchedAt && (
+        <div title="Data shown is kept while you switch menus; click Generate to reload it">
+          <span className="font-semibold">Loaded: </span>
+          <span className="font-mono font-medium">
+            {new Date(km.fetchedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
+      )}
       {isKpiMenu && (
         <div>
           <span className="font-semibold">Scope: </span>

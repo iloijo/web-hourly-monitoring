@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { getJson } from '../api/client';
 import {
   ALL_BAND_IDS, HOURLY_KPIS, SECTORAL_KPIS, DEFAULT_HOURLY_KPIS, DEFAULT_DAILY_KPIS, FALLBACK_DAILY_KPIS,
-  REGIONAL_DEFAULT_KPIS, BAND_OPTIONS_4G, BAND_OPTIONS_5G, BAND_OPTIONS_2G, bandOptionsFor, orderKpiIds,
+  REGIONAL_DEFAULT_KPIS, KPI_MENUS, BAND_OPTIONS_4G, BAND_OPTIONS_5G, BAND_OPTIONS_2G, bandOptionsFor, orderKpiIds,
 } from '../constants/kpis';
 import { getInitialDateRange, loadLatestDates } from '../constants/dates';
 
@@ -77,9 +77,17 @@ export default function useKpiMonitoring(activeMenu, ref) {
 
   const [data, setData] = useState(null);
   const [aggregationData, setAggregationData] = useState(null);
+  const [fetchedAt, setFetchedAt] = useState(null); // when the data on screen was loaded
   const [loading, setLoading] = useState(false);
-  const requestId = useRef(0);
+  // Requests are counted per menu: a newer request makes older answers of that menu stale,
+  // and an answer for a menu the user already left goes into that menu's snapshot
+  const requestIds = useRef({});
+  const pendingMenus = useRef(new Set());
+  // menu -> everything needed to show that menu again exactly as it was left
+  const snapshots = useRef({});
   const menuRef = useRef(activeMenu);
+  // The KPI menu whose state is in the hook right now (it stays there while a non-KPI page is open)
+  const liveMenu = useRef(KPI_MENUS.includes(activeMenu) ? activeMenu : null);
   const datesEditedRef = useRef(false);
   useEffect(() => { menuRef.current = activeMenu; }, [activeMenu]);
 
@@ -94,7 +102,7 @@ export default function useKpiMonitoring(activeMenu, ref) {
   // user opened another menu, so it is applied to the menu open at that moment, unless dates were edited.
   useEffect(() => {
     loadLatestDates().then(() => {
-      if (!datesEditedRef.current) applyDefaultDates(menuRef.current);
+      if (!datesEditedRef.current) applyDefaultDates(liveMenu.current || menuRef.current);
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -114,16 +122,40 @@ export default function useKpiMonitoring(activeMenu, ref) {
   // Data loading. A newer request makes older responses stale, so a slow answer
   // for a previous menu or site never overwrites the current one.
   // ---------------------------------------------------------------------------
-  const runRequest = (path, params, onData) => {
-    const id = ++requestId.current;
-    setLoading(true);
+  // field is 'data' (sector charts) or 'aggregationData' (scope charts)
+  const applyResult = (menu, field, json) => {
+    const at = json?.error ? null : Date.now();
+    if (menu === liveMenu.current) {
+      (field === 'data' ? setData : setAggregationData)(json);
+      setFetchedAt(at);
+    } else if (snapshots.current[menu]) {
+      snapshots.current[menu] = { ...snapshots.current[menu], [field]: json, fetchedAt: at };
+    }
+  };
+
+  const runRequest = (path, params, field, menu) => {
+    const id = (requestIds.current[menu] || 0) + 1;
+    requestIds.current[menu] = id;
+    pendingMenus.current.add(menu);
+    if (menu === menuRef.current) setLoading(true);
+    const current = () => requestIds.current[menu] === id;
     getJson(path, params)
-      .then(json => { if (id === requestId.current) onData(json); })
+      .then(json => { if (current()) applyResult(menu, field, json); })
       .catch(err => {
         console.error(`Failed to fetch ${path}:`, err);
-        if (id === requestId.current) onData({ error: 'Cannot connect to the backend API server.' });
+        if (current()) applyResult(menu, field, { error: 'Cannot connect to the backend API server.' });
       })
-      .finally(() => { if (id === requestId.current) setLoading(false); });
+      .finally(() => {
+        if (!current()) return;
+        pendingMenus.current.delete(menu);
+        if (menu === menuRef.current) setLoading(false);
+      });
+  };
+
+  // Drops any in-flight answer of that menu
+  const cancelRequests = (menu) => {
+    requestIds.current[menu] = (requestIds.current[menu] || 0) + 1;
+    pendingMenus.current.delete(menu);
   };
 
   const fetchSectorData = (targetSite, start, end, menu = activeMenu, cellType = filterType) => {
@@ -139,7 +171,7 @@ export default function useKpiMonitoring(activeMenu, ref) {
       end_date: end,
       cell_type: cellType,
       days_back: menu === '4g-hourly' ? 6 : 14,
-    }, setData);
+    }, 'data', menu);
   };
 
   const fetchScopeAggregationData = (scope, mode, start, end, nops, cities, kecs, sites, bands, menu = activeMenu) => {
@@ -156,9 +188,10 @@ export default function useKpiMonitoring(activeMenu, ref) {
     // Nothing chosen yet (no default area): drop older answers and show the empty state
     const chosen = { nop: params.nops, city: params.cities, kecamatan: params.kecamatans, site: params.sites }[scope];
     if (chosen && chosen.length === 0) {
-      requestId.current += 1;
+      cancelRequests(menu);
       setLoading(false);
       setAggregationData(null);
+      setFetchedAt(null);
       return;
     }
 
@@ -170,14 +203,15 @@ export default function useKpiMonitoring(activeMenu, ref) {
       '5g': '/api/5g/aggregation',
       '4g-hourly': '/api/hourly/aggregation',
     }[menu] || '/api/daily/aggregation';
-    runRequest(endpoint, params, setAggregationData);
+    runRequest(endpoint, params, 'aggregationData', menu);
   };
 
-  const clearData = () => {
-    requestId.current += 1; // drop any in-flight response
+  const clearData = (menu = activeMenu) => {
+    cancelRequests(menu);
     setLoading(false);
     setData(null);
     setAggregationData(null);
+    setFetchedAt(null);
   };
 
   // ---------------------------------------------------------------------------
@@ -252,8 +286,52 @@ export default function useKpiMonitoring(activeMenu, ref) {
     }
   };
 
-  // Called by App when the user opens a KPI menu: reset menu-specific state, no query
-  const prepareMenu = (targetMenu) => {
+  // Everything a KPI menu shows: saved when the user leaves it, restored when they come back
+  const takeSnapshot = () => ({
+    timeMode, aggregationScope, aggregationMode,
+    selectedNops, selectedCities, selectedKecamatans, selectedSites, cityFilterNops, kecFilterNop, kecFilterKab,
+    siteId, selectedSector, selectedBands, filterType, sectorViewMode, sectoralSectors,
+    startDate, endDate, datesEdited: datesEditedRef.current,
+    data, aggregationData, fetchedAt,
+  });
+
+  const restoreSnapshot = (s) => {
+    setTimeMode(s.timeMode); setAggregationScope(s.aggregationScope); setAggregationMode(s.aggregationMode);
+    setSelectedNops(s.selectedNops); setSelectedCities(s.selectedCities); setSelectedKecamatans(s.selectedKecamatans);
+    setSelectedSites(s.selectedSites); setCityFilterNops(s.cityFilterNops); setKecFilterNop(s.kecFilterNop); setKecFilterKab(s.kecFilterKab);
+    setSiteId(s.siteId); setSelectedSector(s.selectedSector); setSelectedBands(s.selectedBands); setFilterType(s.filterType);
+    setSectorViewMode(s.sectorViewMode); setSectoralSectors(s.sectoralSectors);
+    setStartDate(s.startDate); setEndDate(s.endDate); datesEditedRef.current = s.datesEdited;
+    setData(s.data); setAggregationData(s.aggregationData); setFetchedAt(s.fetchedAt);
+  };
+
+  // Logout: nothing of the previous user stays in memory
+  const forgetMenus = () => {
+    snapshots.current = {};
+    Object.keys(requestIds.current).forEach(cancelRequests);
+    clearData();
+  };
+
+  // Called by App when the user opens a KPI menu. The menu being left is saved; a menu seen before
+  // comes back as it was left (no query). fresh = start the target menu from its defaults.
+  const prepareMenu = (targetMenu, { fresh = false } = {}) => {
+    menuRef.current = targetMenu;
+    const live = liveMenu.current;
+    if (live === targetMenu && !fresh) {
+      // back from a non-KPI page: the state of this menu never left the hook
+      setLoading(pendingMenus.current.has(targetMenu));
+      return;
+    }
+    if (live && live !== targetMenu) snapshots.current[live] = takeSnapshot();
+    liveMenu.current = targetMenu; // answers arriving from now on for this menu go on screen
+
+    const saved = !fresh && snapshots.current[targetMenu];
+    if (saved) {
+      restoreSnapshot(saved);
+      setLoading(pendingMenus.current.has(targetMenu));
+      return;
+    }
+
     if (targetMenu === '5g') {
       const list = sites5g.length > 0 ? sites5g : FALLBACK_5G_SITES;
       // the last 4G site may have no 5G cells: leave the picker empty instead of a fixed default
@@ -280,12 +358,12 @@ export default function useKpiMonitoring(activeMenu, ref) {
     setTimeMode(targetMenu === '4g-hourly' ? 'hourly' : 'daily');
     datesEditedRef.current = false;
     applyDefaultDates(targetMenu);
-    clearData();
+    clearData(targetMenu);
   };
 
   // Opened from Worst Cell / ZTZP: show that site's sector charts in the given KPI menu
   const openSiteInMenu = (menu, site) => {
-    prepareMenu(menu);
+    prepareMenu(menu, { fresh: true });
     setAggregationScope('sector');
     setSiteId(site);
     const dates = getInitialDateRange(menu === '4g-hourly' ? 'hourly' : 'daily', menu);
@@ -475,13 +553,13 @@ export default function useKpiMonitoring(activeMenu, ref) {
     siteId, selectedSector, setSelectedSector, selectedBands, filterType, setFilterType: handleFilterTypeChange,
     sectorViewMode, sectoralSectors, setSectoralSectors,
     startDate, setStartDate: editStartDate, endDate, setEndDate: editEndDate,
-    data, aggregationData, loading,
+    data, aggregationData, loading, fetchedAt,
     // derived
     activeBandOptions, allActiveBandIds, activeSitesList, activeKpiCatalog, activeSelectedKpiIds,
     availableSectors, nopOptions, cityOptions, kecCityOptions, kecOptions, scopeReady,
     currentSiteMeta, resolvedNeName,
     // handlers
-    prepareMenu, handleSitesChange, openSiteInMenu, handleGetData, handleSelectSectorSite, handleSelectScope, handleSwitchAggregationMode,
+    prepareMenu, forgetMenus, handleSitesChange, openSiteInMenu, handleGetData, handleSelectSectorSite, handleSelectScope, handleSwitchAggregationMode,
     handleNopsChange, handleCityNopsChange, handleCitiesChange, handleKecNopChange, handleKecKabChange,
     handleKecamatansChange, handleToggleBand, handleToggleAllBands,
     handleToggleKpi, handleSelectAllKpis, handleDeselectAllKpis, handleToggleCategory, handleSelectDefaultKpis,
