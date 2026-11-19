@@ -421,3 +421,20 @@ def get_override_history(site_id: str, limit: int = 300, include_deleted: bool =
     finally:
         conn.close()
     return {"site_id": site_id.strip().upper(), "rows": rows}
+
+
+def list_active_overrides(limit: int = 20000) -> List[Dict[str, Any]]:
+    """Active azimuth / tilt edits of every site, newest first (for the RNO vs DESIQA export)."""
+    conn = get_onedb_connection(timeout=10)
+    if not conn:
+        raise OverrideError("OneDb is not reachable.")
+    try:
+        cur = conn.cursor()
+        _ensure_table(cur)
+        cur.execute(_SELECT + " WHERE status = 'active' ORDER BY edited_at DESC, id DESC LIMIT %s", (limit,))
+        rows = [_public(r) for r in _rows(cur)]
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
+    return rows

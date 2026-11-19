@@ -4,13 +4,16 @@ import {
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
-  Compass, Crosshair, Hand, Layers, Loader2, Map as MapIcon, MapPinned, Mountain, Palette, Pin, PinOff, Ruler, Signal, Trash2, Wrench, X, ZoomIn, ZoomOut,
+  Compass, Crosshair, Hand, Spline, Layers, Loader2, Map as MapIcon, MapPinned, Mountain, Palette, Pin, PinOff, Ruler, Signal, Trash2, Wrench, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { getJson, getStoredAuthUser, postJson } from '../../../api/client';
 import MeasureLayer from './MeasureLayer';
 import useCellMap from './useCellMap';
 import useCellKpi from './useCellKpi';
 import CovmoLayer from './CovmoLayer';
+import BorderLayer, { BORDER_LAYERS } from './BorderLayer';
+import DesiqaEditor, { RNO_COLOR } from './DesiqaEditor';
+import { HorizonPanel, HorizonShapes, horizonFor } from './HorizonLayer';
 import { COVMO_METRICS, COVMO_MIN_ZOOM } from './covmo';
 import { bandColor, COLOR_MODES, NO_DATA, statusColor } from './colorModes';
 import { bandLength, destination, distanceM, formatDistance, sectorPolygon, siteSectorBase } from './geo';
@@ -216,25 +219,36 @@ function KpiSection({ kpi, meta }) {
   );
 }
 
+const RNO_ROW_KEYS = {
+  Bandwidth: ['bandwidth'], PCI: ['pci'], Beamwidth: ['beamwidth'], 'Antenna height': ['antenna_height'],
+  'Antenna type': ['antenna_type'], 'Lat / Long': ['lat', 'lon'],
+};
+const rnoTitle = (cell, row) => {
+  const hits = (RNO_ROW_KEYS[row] || []).map(k => cell.rno?.[k]).filter(Boolean);
+  return hits.length ? hits.map(h => `RNO ${h.value} (DESIQA ${h.original ?? '–'}) · ${h.edited_by}${h.note ? ` · ${h.note}` : ''}`).join('\n') : undefined;
+};
+
 function CellPopup({
   cell, site, siblings, sectorCells, canSelectSector, onSelectSector, kpi, kpiMeta, onProfile, onProtractor, canEdit, onSaved,
-  wide, viewer, batchCells,
+  wide, viewer, batchCells, onDesiqa, onHorizon,
 }) {
   const tilt = (cell.et ?? null) !== null || (cell.mt ?? null) !== null ? (cell.et || 0) + (cell.mt || 0) : null;
+  // RNO-revised DESIQA values get a mark; the tooltip of the row tells the DESIQA value
+  const rno = (...keys) => (keys.some(k => cell.rno?.[k]) ? ' ✎' : '');
   const rows = [
     ['SiteID_CI', cell.siteid_ci],
     ['Sector', cell.sector],
     ['Band', `${cell.band} (${fmt(cell.band_label)})`],
-    ['Bandwidth', cell.bandwidth],
-    ['PCI', cell.pci],
+    ['Bandwidth', cell.bandwidth != null ? `${cell.bandwidth}${rno('bandwidth')}` : null],
+    ['PCI', cell.pci != null ? `${cell.pci}${rno('pci')}` : null],
     ['LAC / CI', `${fmt(cell.lac)} / ${fmt(cell.ci)}`],
     ['Azimuth', cell.azimuth !== null ? `${cell.azimuth}°${cell.override?.pending.includes('azimuth') ? ' ✎' : ''}` : null],
-    ['Beamwidth', cell.beamwidth ? `${cell.beamwidth}°` : '65° (default)'],
+    ['Beamwidth', cell.beamwidth ? `${cell.beamwidth}°${rno('beamwidth')}` : '65° (default)'],
     ['E-Tilt / M-Tilt', `${fmt(cell.et)} / ${fmt(cell.mt)}${cell.override?.pending.some(f => f !== 'azimuth') ? ' ✎' : ''}`],
     ['Total tilt', tilt !== null ? `${tilt}°` : null],
-    ['Antenna height', cell.antenna_height !== null ? `${cell.antenna_height} m` : null],
-    ['Antenna type', cell.antenna_type],
-    ['Lat / Long', `${cell.lat}, ${cell.lon}`],
+    ['Antenna height', cell.antenna_height != null ? `${cell.antenna_height} m${rno('antenna_height')}` : null],
+    ['Antenna type', cell.antenna_type ? `${cell.antenna_type}${rno('antenna_type')}` : null],
+    ['Lat / Long', `${cell.lat}, ${cell.lon}${rno('lat', 'lon')}`],
     ['Type', [cell.micro_macro, cell.site_type].filter(Boolean).join(' · ')],
     ['Kabupaten', [cell.kecamatan, cell.kabupaten].filter(Boolean).join(', ')],
     ['NOP', cell.nop],
@@ -249,7 +263,8 @@ function CellPopup({
           {rows.map(([k, v]) => (
             <tr key={k}>
               <td className="pr-2 py-px opacity-60 whitespace-nowrap align-top">{k}</td>
-              <td className="py-px font-semibold">{fmt(v)}</td>
+              <td className="py-px font-semibold" style={String(v ?? '').endsWith(' ✎') && !['Azimuth', 'E-Tilt / M-Tilt'].includes(k) ? { color: RNO_COLOR } : undefined}
+                title={rnoTitle(cell, k)}>{fmt(v)}</td>
             </tr>
           ))}
         </tbody>
@@ -279,7 +294,7 @@ function CellPopup({
           Show sector {cell.sector} in charts
         </button>
       )}
-      <div className={`${canSelectSector || !wide ? 'mt-1.5 ' : ''}grid grid-cols-2 gap-1`}>
+      <div className={`${canSelectSector || !wide ? 'mt-1.5 ' : ''}grid grid-cols-3 gap-1`}>
         <button type="button" onClick={() => onProfile(cell)} disabled={cell.indoor}
           className="flex items-center justify-center gap-1 rounded-md border border-amber-500 text-amber-700 hover:bg-amber-50 font-semibold py-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           title="Terrain profile from the site along this azimuth">
@@ -290,7 +305,17 @@ function CellPopup({
           title="Bearing protractor on this site, one needle per sector">
           <Compass className="w-3.5 h-3.5" /> Reazimuth
         </button>
+        <button type="button" onClick={() => onHorizon(cell)} disabled={cell.indoor || cell.azimuth == null}
+          className="flex items-center justify-center gap-1 rounded-md border border-blue-500 text-blue-700 hover:bg-blue-50 font-semibold py-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Ground reached by the low / mid / high part of the vertical beam, darker where terrain blocks it (now vs proposed tilt)">
+          <Layers className="w-3.5 h-3.5" /> Horizon
+        </button>
       </div>
+      <button type="button" onClick={() => onDesiqa(cell.site_id)}
+        className="mt-1 w-full flex items-center justify-center gap-1 rounded-md border border-slate-400 hover:bg-slate-500/10 font-semibold py-1 cursor-pointer"
+        title="All DESIQA fields of this site: Original next to the RNO revision">
+        DESIQA · Original / RNO{cell.rno ? ' ✎' : ''}
+      </button>
     </>
   );
   const edit = (
@@ -485,11 +510,13 @@ export default function CellMapDrawer({
   }, []);
   const shownOpen = open && entered;
   const [prefs, setPrefs] = useState(() => ({
-    basemap: 'osm', tier: 0, otherSites: true, colorBy: 'band', ta: 0, opacity: 0.35, covmo: 'off', covmoOpacity: 0.4, ...readPrefs(),
+    basemap: 'osm', tier: 0, otherSites: true, colorBy: 'band', ta: 0, opacity: 0.35, covmo: 'off', covmoOpacity: 0.4, borders: {}, desiqa: 'rno', ...readPrefs(),
   }));
   const covmoMetric = COVMO_METRICS[prefs.covmo] ? prefs.covmo : null;
   const [covmoStatus, setCovmoStatus] = useState({ state: 'zoom' });
   const [covmoHover, setCovmoHover] = useState(null);
+  const [borderHover, setBorderHover] = useState(null);
+  const borders = prefs.borders || {};
   const [popupOpen, setPopupOpen] = useState(false);
   const updatePrefs = (patch) => setPrefs(p => { const next = { ...p, ...patch }; writePrefs(next); return next; });
   const [measuring, setMeasuring] = useState(false);
@@ -531,7 +558,9 @@ export default function CellMapDrawer({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const { loading, error, data } = useCellMap(open, siteId, prefs.tier, version);
+  const { loading, error, data } = useCellMap(open, siteId, prefs.tier, version, prefs.desiqa === 'original' ? 'original' : 'rno');
+  const [desiqaSite, setDesiqaSite] = useState(null);
+  const [horizon, setHorizon] = useState(null);
   const basemap = BASEMAPS[prefs.basemap] || BASEMAPS.osm;
 
   useEffect(() => {
@@ -742,7 +771,17 @@ export default function CellMapDrawer({
         <MapIcon className="w-4 h-4 text-blue-500" />
         <span className="text-xs font-bold uppercase tracking-wider">Cell Map</span>
         <span className="text-xs font-semibold">{mainSite || siteId}</span>
-        {data?.week && <span className="text-[10px] opacity-60">DESIQA W{data.week}</span>}
+        {data?.week && (
+          <span className="text-[10px] opacity-60" title="DESIQA version on the map (Sites menu)">
+            DESIQA W{data.week} · {data.source === 'original' ? 'Original' : 'RNO'}
+          </span>
+        )}
+        {data?.revised > 0 && (
+          <span className="text-[10px] font-semibold px-1.5 py-px rounded-full text-white" style={{ background: RNO_COLOR }}
+            title="Cells with RNO-revised DESIQA fields (coordinates, antenna height, beamwidth...)">
+            {data.revised} revised
+          </span>
+        )}
         {data?.edited > 0 && (
           <span className="text-[10px] font-semibold px-1.5 py-px rounded-full text-white" style={{ background: OVERRIDE_COLOR }}
             title="Cells whose azimuth / tilt was edited and DESIQA does not carry yet">
@@ -800,6 +839,8 @@ export default function CellMapDrawer({
             <PopupWatcher onChange={setPopupOpen} />
             <CellPane />
             <OtherSites enabled={prefs.otherSites} shownIds={shownIds} />
+            {horizon?.data && <HorizonShapes horizon={horizon} />}
+            <BorderLayer layers={borders} dark={prefs.basemap === 'satellite'} onHover={setBorderHover} />
             <CovmoLayer metric={covmoMetric} week={covmoWeek} opacity={prefs.covmoOpacity ?? 0.4} onStatus={setCovmoStatus} onHover={setCovmoHover} />
 
             {shapes.map(({ cell, site, positions, noTa, indoor, ring }) => {
@@ -863,6 +904,8 @@ export default function CellMapDrawer({
                         kpiMeta={kpi.data}
                         onProfile={(c) => { profileCell(c); mapRef.current?.closePopup(); }}
                         onProtractor={protractorOnSite}
+                        onDesiqa={(sid) => { setDesiqaSite(sid); mapRef.current?.closePopup(); }}
+                        onHorizon={(c) => { setHorizon(horizonFor(c, cellCtx(c))); mapRef.current?.closePopup(); }}
                       />
                     </Popup>
                   )}
@@ -927,9 +970,35 @@ export default function CellMapDrawer({
             ))}
           </RailMenu>
 
+          <RailMenu id="borders" label="Borders" icon={Spline} active={Object.values(borders).some(Boolean)} width={200}>
+            {Object.entries(BORDER_LAYERS).map(([id, b]) => (
+              <MenuItem
+                key={id} kind="check" keepOpen selected={!!borders[id]}
+                title={b.minZoom ? `${b.label} border (shown from zoom ${b.minZoom})` : `${b.label} border`}
+                onClick={() => updatePrefs({ borders: { ...borders, [id]: !borders[id] } })}
+              >
+                <span className="inline-block w-4 align-middle mr-1.5 border-t-2" style={{ borderColor: b.light, borderTopStyle: b.dash ? 'dashed' : 'solid' }} />
+                {b.label}{b.minZoom ? <span className="opacity-50 font-normal"> · zoom {b.minZoom}+</span> : null}
+              </MenuItem>
+            ))}
+            <div className="px-1.5 pt-1 text-[10px] opacity-50 leading-snug">Source: Border Kab &amp; Kec (BPS V20.9). NOP = NOP of most sites in each kecamatan.</div>
+          </RailMenu>
+
           <RailMenu id="sites" label="Sites" icon={MapPinned} active={prefs.tier === 1 || prefs.otherSites} width={200}>
             <MenuItem selected={prefs.tier === 0} onClick={() => updatePrefs({ tier: 0 })} title="Only the searched site">Main site</MenuItem>
             <MenuItem selected={prefs.tier === 1} onClick={() => updatePrefs({ tier: 1 })} title="Searched site and its 1st tier">+ 1st tier</MenuItem>
+            <MenuDivider />
+            <MenuField label="DESIQA version">
+              <Segmented
+                darkMode={darkMode}
+                value={prefs.desiqa === 'original' ? 'original' : 'rno'}
+                onChange={v => updatePrefs({ desiqa: v })}
+                options={[
+                  { id: 'original', label: 'Original', title: 'raw_desiqa as synced every week' },
+                  { id: 'rno', label: 'RNO', title: 'DESIQA with the RNO revisions and azimuth / tilt edits' },
+                ]}
+              />
+            </MenuField>
             <MenuDivider />
             <MenuItem
               kind="check"
@@ -1051,7 +1120,25 @@ export default function CellMapDrawer({
             )}
           </RailMenu>
         </MapRail>
+        {horizon && (
+          <HorizonPanel horizon={horizon} setHorizon={setHorizon} darkMode={darkMode} onClose={() => setHorizon(null)} />
+        )}
+        {desiqaSite && (
+          <DesiqaEditor siteId={desiqaSite} canEdit={canEdit} darkMode={darkMode}
+            onClose={() => setDesiqaSite(null)} onSaved={reloadCells} />
+        )}
         <MapHelp open={helpOpen} onClose={() => setHelpOpen(false)} darkMode={darkMode} />
+        {borderHover && (
+          <div className={`absolute bottom-2 left-1/2 -translate-x-1/2 z-[500] rounded-md border px-2 py-1 text-[11px] shadow pointer-events-none whitespace-nowrap ${
+            darkMode ? 'bg-slate-900/90 border-slate-700 text-slate-200' : 'bg-white/95 border-slate-200 text-slate-700'
+          }`}>
+            {[
+              borderHover.nop && `NOP ${borderHover.nop.name}`,
+              (borderHover.kab || borderHover.kec) && `${(borderHover.kab?.name || borderHover.kec?.kab || '')}`,
+              borderHover.kec && `Kec. ${borderHover.kec.name}`,
+            ].filter(Boolean).join(' · ')}
+          </div>
+        )}
         {covmoMetric && <CovmoLegend metric={covmoMetric} status={covmoStatus} hover={covmoHover} darkMode={darkMode} />}
         {placingProtractor && !protractor && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[640] rounded-md bg-yellow-400 text-slate-900 text-[11px] font-semibold px-2 py-1 shadow">

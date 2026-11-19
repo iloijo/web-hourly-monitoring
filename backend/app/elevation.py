@@ -191,3 +191,20 @@ def get_elevations(points: Sequence[Sequence[float]]) -> Dict:
         "api_blocked": time.time() < _api_state["blocked_until"],
         "api_error": _api_state["last_error"] if counts["local"] else None,
     }
+
+
+def get_local_elevations(points: Sequence[Sequence[float]], chunk: int = 2500) -> List[Optional[float]]:
+    """Heights for many points (beam footprint): cache first, then the onedb GLO-30 only (the public API
+    allows 100 points a second, far too slow for thousands of points)."""
+    keys = [_key(float(p[0]), float(p[1])) for p in points]
+    uniq = list(dict.fromkeys(keys))
+    found: Dict[Tuple[float, float], float] = {}
+    for src in ("api", "local"):
+        for k, h in _cache_get(uniq, src).items():
+            found.setdefault(k, h)
+    missing = [k for k in uniq if k not in found]
+    for i in range(0, len(missing), chunk):
+        local = _local_fetch(missing[i:i + chunk])
+        _cache_put(local, "local")
+        found.update(local)
+    return [round(found[k], 1) if k in found else None for k in keys]
