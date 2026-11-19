@@ -6,7 +6,7 @@ import { destination, formatDistance } from './geo';
 import { BAND_VBW_DEG } from './profile';
 
 // Beam footprint ("horizon") of one sector: the ground reached by the low / mid / high third of the vertical
-// half-power beam, from the DEM. Ground hidden behind nearer terrain is drawn darker by how high it is blocked.
+// half-power beam, from the DEM. Ground hidden behind nearer terrain (no line of sight) is not drawn.
 // Current tilt and a proposed tilt are computed together, so switching between them is instant.
 
 export const HORIZON_ZONES = {
@@ -16,15 +16,6 @@ export const HORIZON_ZONES = {
   low: { label: 'Lower beam', color: '#15803d' },
   under: { label: 'Under the beam', color: '#4ade80' },
 };
-const SHADE_MIX = [0, 0.3, 0.48, 0.62, 0.75];          // share of black per blocking class
-const SHADE_LABEL = ['visible', '0–5 m', '5–20 m', '20–50 m', '> 50 m'];
-
-const mix = (hex, k) => {
-  const n = parseInt(hex.slice(1), 16);
-  const ch = (s) => Math.round(((n >> s) & 255) * (1 - k));
-  return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
-};
-export const horizonColor = (zone, shade) => mix(HORIZON_ZONES[zone].color, SHADE_MIX[shade] || 0);
 
 function wedge(lat, lon, az0, az1, d0, d1) {
   const outer = [destination(lat, lon, az0, d1), destination(lat, lon, (az0 + az1) / 2, d1), destination(lat, lon, az1, d1)];
@@ -32,7 +23,7 @@ function wedge(lat, lon, az0, az1, d0, d1) {
   return [...outer, destination(lat, lon, az1, d0), destination(lat, lon, az0, d0)];
 }
 
-// Map layer: one polygon per run (same zone and blocking class along a ray)
+// Map layer: one polygon per visible run (same zone along a ray); blocked runs (shade > 0) are left out
 export function HorizonShapes({ horizon, opacity = 0.5 }) {
   const map = useMap();
   if (!map.getPane('horizon')) {
@@ -48,8 +39,8 @@ export function HorizonShapes({ horizon, opacity = 0.5 }) {
   const shapes = useMemo(() => {
     if (!res) return [];
     const { lat, lon } = horizon.cell;
-    return res.runs.map(([az0, az1, d0, d1, zone, shade], i) => ({
-      key: i, color: horizonColor(zone, shade), positions: wedge(lat, lon, az0, az1, d0, d1),
+    return res.runs.filter(r => !r[5]).map(([az0, az1, d0, d1, zone], i) => ({
+      key: i, color: HORIZON_ZONES[zone].color, positions: wedge(lat, lon, az0, az1, d0, d1),
     }));
   }, [res, horizon]);
   // A new computation zooms the map out to the whole footprint (switching now / proposed does not)
@@ -186,14 +177,6 @@ export function HorizonPanel({ horizon, setHorizon, darkMode, onClose, opacity, 
               </tr>
             </tbody>
           </table>
-          <div className="flex items-center gap-1 flex-wrap">
-            <span className="opacity-60 mr-1">Blocked by</span>
-            {SHADE_LABEL.map((l, i) => (
-              <span key={l} className="flex items-center gap-0.5">
-                <span className="inline-block w-3 h-2.5 rounded-sm" style={{ background: horizonColor('mid', i) }} />{l}
-              </span>
-            ))}
-          </div>
           <label className="flex items-center gap-2 pt-1 border-t border-slate-500/20" title="Opacity of the horizon colours on the map">
             <span className="opacity-60">Opacity</span>
             <input type="range" min={10} max={90} step={5} value={Math.round(opacity * 100)}
@@ -202,7 +185,7 @@ export function HorizonPanel({ horizon, setHorizon, darkMode, onClose, opacity, 
           </label>
           <div className="opacity-50 leading-snug">
             Terrain GLO-30 (onedb), {horizon.data.rays} rays, step {horizon.data.step_m} m, up to {formatDistance(horizon.data.radius_m)}.
-            Earth curvature k = 4/3. Darker = the ground is behind higher terrain.
+            Earth curvature k = 4/3. Ground behind higher terrain (no line of sight) is not drawn; its share is the "blocked" %.
           </div>
         </>
       )}
