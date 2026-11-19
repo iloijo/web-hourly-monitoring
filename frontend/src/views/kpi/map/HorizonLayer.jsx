@@ -10,10 +10,11 @@ import { BAND_VBW_DEG } from './profile';
 // Current tilt and a proposed tilt are computed together, so switching between them is instant.
 
 export const HORIZON_ZONES = {
-  high: { label: 'High (upper beam, far)', color: '#dc2626' },
-  mid: { label: 'Mid (main beam)', color: '#2563eb' },
-  low: { label: 'Low (lower beam, near)', color: '#16a34a' },
-  under: { label: 'Under the beam', color: '#94a3b8' },
+  far: { label: 'Far (above the beam)', color: '#dc2626' },
+  high: { label: 'Upper beam', color: '#facc15' },
+  mid: { label: 'Main beam', color: '#2563eb' },
+  low: { label: 'Lower beam', color: '#15803d' },
+  under: { label: 'Under the beam', color: '#4ade80' },
 };
 const SHADE_MIX = [0, 0.3, 0.48, 0.62, 0.75];          // share of black per blocking class
 const SHADE_LABEL = ['visible', '0–5 m', '5–20 m', '20–50 m', '> 50 m'];
@@ -87,7 +88,7 @@ const Num = ({ label, value, onChange, step = 0.5, darkMode, title }) => (
   </label>
 );
 
-export function HorizonPanel({ horizon, setHorizon, darkMode, onClose }) {
+export function HorizonPanel({ horizon, setHorizon, darkMode, onClose, opacity, onOpacity, atBottom = false }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const { cell } = horizon;
@@ -123,11 +124,11 @@ export function HorizonPanel({ horizon, setHorizon, darkMode, onClose }) {
   const stale = computed && computed !== params;
 
   return (
-    <div className={`absolute top-12 left-2 z-[640] w-[290px] rounded-lg border shadow-lg p-2.5 text-[11px] space-y-2 ${shell}`}>
+    <div className={`absolute ${atBottom ? 'bottom-8' : 'top-12'} left-2 z-[640] w-[290px] max-h-[calc(100%-4rem)] overflow-auto rounded-lg border shadow-lg p-2.5 text-[11px] space-y-2 ${shell}`}>
       <div className="flex items-start gap-2">
         <div className="min-w-0">
           <div className="font-bold">Beam horizon</div>
-          <div className="opacity-60 truncate">{cell.cell_name} · {cell.band} · {cell.azimuth}° · BW {cell.beamwidth || 65}°</div>
+          <div className="opacity-60 truncate">{[cell.cell_name, cell.band, `${Math.round(cell.azimuth)}°`, `BW ${cell.beamwidth || 65}°`].filter(Boolean).join(' · ')}</div>
         </div>
         <button type="button" onClick={() => setFolded(f => !f)} className="ml-auto p-0.5 rounded hover:bg-slate-500/15 cursor-pointer"
           title={folded ? 'Show the panel' : 'Fold the panel to see the map'}>
@@ -166,7 +167,7 @@ export function HorizonPanel({ horizon, setHorizon, darkMode, onClose }) {
               </tr>
             </thead>
             <tbody>
-              {['high', 'mid', 'low', 'under'].map(z => (
+              {['far', 'high', 'mid', 'low', 'under'].map(z => (
                 <tr key={z}>
                   <td className="py-px">
                     <span className="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-middle" style={{ background: HORIZON_ZONES[z].color }} />
@@ -193,6 +194,12 @@ export function HorizonPanel({ horizon, setHorizon, darkMode, onClose }) {
               </span>
             ))}
           </div>
+          <label className="flex items-center gap-2 pt-1 border-t border-slate-500/20" title="Opacity of the horizon colours on the map">
+            <span className="opacity-60">Opacity</span>
+            <input type="range" min={10} max={90} step={5} value={Math.round(opacity * 100)}
+              onChange={e => onOpacity(Number(e.target.value) / 100)} className="flex-1 min-w-0 accent-blue-600 cursor-pointer" />
+            <span className="w-8 tabular-nums text-right">{Math.round(opacity * 100)}%</span>
+          </label>
           <div className="opacity-50 leading-snug">
             Terrain GLO-30 (onedb), {horizon.data.rays} rays, step {horizon.data.step_m} m, up to {formatDistance(horizon.data.radius_m)}.
             Earth curvature k = 4/3. Darker = the ground is behind higher terrain.

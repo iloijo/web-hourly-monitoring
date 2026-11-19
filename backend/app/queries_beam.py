@@ -4,7 +4,7 @@ Rays leave the antenna every RAY_STEP degrees across the horizontal beamwidth; a
 sampled from the DEM. For each ground point:
 - zone: which part of the vertical half-power beam reaches it, from its depression angle seen from the antenna
     high = upper third of the beam (far reach), mid = around the main beam (tilt), low = lower third (near),
-    under = below the lower -3 dB edge (close to the site), none = above the upper -3 dB edge.
+    under = below the lower -3 dB edge (close to the site), far = above the upper -3 dB edge (beyond the beam).
 - shade: how hidden it is behind nearer terrain = the height (m) it would have to rise to be in line of sight
     of the antenna (0 = visible). The map draws higher blocking darker.
 Earth curvature (k = 4/3) lowers far points. Consecutive samples with the same zone and shade class are merged
@@ -100,7 +100,7 @@ def beam_footprint(lat: float, lon: float, azimuth: float, beamwidth: float, tx_
                 return "mid"
             if th >= hi_edge:
                 return "high"
-            return "none"
+            return "far"
 
         runs, area, blocked = [], {}, {}
         landing = None
@@ -116,10 +116,10 @@ def beam_footprint(lat: float, lon: float, azimuth: float, beamwidth: float, tx_
                 if cur and cur[4] == z and cur[5] == s:
                     cur[3] = d + step / 2
                 else:
-                    if cur and cur[4] != "none":
+                    if cur:
                         runs.append(cur)
                     cur = [round(az - half, 2), round(az + half, 2), round(max(0.0, d - step / 2), 1), d + step / 2, z, s]
-            if cur and cur[4] != "none":
+            if cur:
                 runs.append(cur)
             # main beam landing on the centre ray: first point at or below the tilt line
             if abs(az - azimuth) <= half + 1e-6 and landing is None:
@@ -130,8 +130,8 @@ def beam_footprint(lat: float, lon: float, azimuth: float, beamwidth: float, tx_
             "tilt": tilt,
             "runs": runs,   # [az0, az1, d0, d1, zone, shade class]
             "landing_m": round(landing, 0) if landing else None,
-            "area_km2": {z: round(v / 1e6, 3) for z, v in area.items() if z != "none"},
-            "blocked_pct": {z: round(100 * blocked.get(z, 0) / v, 1) for z, v in area.items() if z != "none" and v > 0},
+            "area_km2": {z: round(v / 1e6, 3) for z, v in area.items()},
+            "blocked_pct": {z: round(100 * blocked.get(z, 0) / v, 1) for z, v in area.items() if v > 0},
         })
     return {
         "radius_m": round(radius), "step_m": round(step, 1), "rays": n_rays, "vbw": vbw, "tx_height": tx_height,

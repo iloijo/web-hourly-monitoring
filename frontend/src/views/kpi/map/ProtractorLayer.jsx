@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import L from 'leaflet';
 import { useMap, useMapEvents } from 'react-leaflet';
-import { Loader2, Mountain, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react';
+import { Layers, Loader2, Mountain, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react';
 import { bearingDeg, destination, distanceM, formatDistance } from './geo';
 
 // Bearing protractor for re-azimuth planning: a floating ring (fixed size on screen, 0 deg = true north)
@@ -277,7 +277,7 @@ function NumInput({ value, onCommit, min = -Infinity, max = Infinity, step, clas
 }
 
 // Side panel: needles table, lines and actions
-export function ProtractorPanel({ pr, onChange, onClose, onProfile, onLoadSectors, onSaveAzimuth, sites, darkMode }) {
+export function ProtractorPanel({ pr, onChange, onClose, onProfile, onHorizon, onLoadSectors, onSaveAzimuth, sites, darkMode }) {
   const [count, setCount] = useState(3);
   const [saving, setSaving] = useState({});   // needle id -> 'busy' | error text
   const saveNeedle = async (b) => {
@@ -333,6 +333,11 @@ export function ProtractorPanel({ pr, onChange, onClose, onProfile, onLoadSector
                   <div className="flex gap-0.5">
                     <button type="button" className="p-0.5 rounded hover:bg-slate-500/15 cursor-pointer" title={d ? 'Profile: new azimuth vs original' : 'Elevation profile along this needle'}
                       onClick={() => onProfile({ kind: 'needle', bearing: b })}><Mountain className="w-3.5 h-3.5 text-amber-600" /></button>
+                    {onHorizon && b.beam > 0 && b.beam < 360 && (
+                      <button type="button" className="p-0.5 rounded hover:bg-slate-500/15 cursor-pointer"
+                        title="Beam horizon along this needle (its azimuth and beamwidth, tilt and height of the sector)"
+                        onClick={() => onHorizon(b)}><Layers className="w-3.5 h-3.5 text-blue-600" /></button>
+                    )}
                     {onSaveAzimuth && b.sector != null && d ? (
                       <button type="button" className="p-0.5 rounded hover:bg-slate-500/15 cursor-pointer disabled:opacity-40"
                         disabled={saving[b.id] === 'busy'}

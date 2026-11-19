@@ -839,7 +839,7 @@ export default function CellMapDrawer({
             <PopupWatcher onChange={setPopupOpen} />
             <CellPane />
             <OtherSites enabled={prefs.otherSites} shownIds={shownIds} />
-            {horizon?.data && <HorizonShapes horizon={horizon} />}
+            {horizon?.data && <HorizonShapes horizon={horizon} opacity={prefs.horizonOpacity ?? 0.35} />}
             <BorderLayer layers={borders} dark={prefs.basemap === 'satellite'} onHover={setBorderHover} />
             <CovmoLayer metric={covmoMetric} week={covmoWeek} opacity={prefs.covmoOpacity ?? 0.4} onStatus={setCovmoStatus} onHover={setCovmoHover} />
 
@@ -1121,7 +1121,9 @@ export default function CellMapDrawer({
           </RailMenu>
         </MapRail>
         {horizon && (
-          <HorizonPanel horizon={horizon} setHorizon={setHorizon} darkMode={darkMode} onClose={() => setHorizon(null)} />
+          <HorizonPanel horizon={horizon} setHorizon={setHorizon} darkMode={darkMode} onClose={() => setHorizon(null)}
+            opacity={prefs.horizonOpacity ?? 0.35} onOpacity={v => updatePrefs({ horizonOpacity: v })}
+            atBottom={!!protractor} />
         )}
         {desiqaSite && (
           <DesiqaEditor siteId={desiqaSite} canEdit={canEdit} darkMode={darkMode}
@@ -1150,6 +1152,11 @@ export default function CellMapDrawer({
           onChange={setProtractor}
           onClose={() => setProtractor(null)}
           onProfile={profileFromProtractor}
+          onHorizon={(b) => setHorizon(horizonFor({
+            // a needle acts as a sector at the protractor centre; tilt / height come from the sector it was loaded from
+            lat: protractor.center[0], lon: protractor.center[1], azimuth: b.az, beamwidth: b.beam, band: b.ctx?.band,
+            cell_name: `${protractor.siteId || 'Protractor'} ${b.label}`, siteid_ci: `needle|${b.id}|${Math.round(b.az)}|${b.beam}`,
+          }, b.ctx || {}))}
           onLoadSectors={loadSectors}
           onSaveAzimuth={canEdit ? saveNeedleAzimuth : null}
           sites={data?.sites}
