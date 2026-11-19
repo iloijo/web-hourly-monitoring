@@ -30,10 +30,13 @@ from .queries_twamp import get_twamp_packet_loss_data, get_twamp_scope_aggregati
 from .site_names import load_site_names, get_site_display_name, get_site_name
 from .queries_properties import get_site_properties
 from .queries_map import get_map_cells, get_map_covmo, get_map_sites_in_bbox, get_covmo_weeks
-from .queries_map_override import (apply_overrides, save_overrides, reset_overrides, rollback_overrides, delete_override,
+from .queries_map_override import (list_active_overrides, apply_overrides, save_overrides, reset_overrides, rollback_overrides, delete_override,
                                     get_override_history, OverrideError)
 from .queries_map_kpi import get_map_kpi
 from .elevation import get_elevations
+from .queries_borders import get_borders
+from .queries_beam import beam_footprint
+from .queries_desiqa_rev import RevisionError, apply_revisions, get_record, list_revisions, save_revisions
 from .queries_scope_4g import get_scope_aggregation_data, get_hourly_scope_aggregation_data
 from .queries_worstcell import get_worst_cells, get_ztzp
 from .export_xlsx import build_workbook, safe_filename
@@ -585,14 +588,74 @@ def get_daily_payload_sectors(
 
 @app.get("/api/map/cells")
 def map_cells(site_id: str = Query(..., description="Site ID e.g. MRW002"),
-              tier: int = Query(0, ge=0, le=1, description="1 = add the 1st tier sites")):
+              tier: int = Query(0, ge=0, le=1, description="1 = add the 1st tier sites"),
+              source: str = Query("rno", pattern="^(rno|original)$", description="rno = DESIQA + RNO edits, original = DESIQA only")):
     """Cell geometry (raw_desiqa latest week) of a site, optionally with its 1st tier sites, with RNO edits applied."""
     try:
         data = get_map_cells(site_id=site_id, tier=tier)
     except Exception as e:
         return {"error": public_error(e), "site_id": site_id, "sites": [], "cells": []}
+    if data.get("error"):
+        return data
+    data["source"] = source
+    if source == "original":
+        data["cells"] = [dict(c, desiqa={f: c.get(f) for f in ("azimuth", "mt", "et")}) for c in data["cells"]]
+        return data
     # DESIQA geometry is cached; the edits are read fresh on every request
-    return apply_overrides(data) if not data.get("error") else data
+    return apply_revisions(apply_overrides(data))
+
+
+class RevisionChange(BaseModel):
+    ci: Optional[int] = None        # None = site field
+    cell_name: str = ""
+    field: str
+    value: Optional[str] = None     # empty = back to DESIQA
+
+
+class RevisionPayload(BaseModel):
+    site_id: str
+    changes: List[RevisionChange]
+    note: str = ""
+
+
+@app.get("/api/desiqa/record")
+def desiqa_record(site_id: str = Query(...)):
+    """Original (DESIQA latest week) and RNO value of every field of a site and its 4G cells."""
+    try:
+        return get_record(site_id)
+    except RevisionError as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": public_error(e)}
+
+
+@app.post("/api/desiqa/revisions")
+def desiqa_revisions_save(payload: RevisionPayload, request: Request):
+    user, denied = _edit_guard(request)
+    if denied:
+        return denied
+    try:
+        result = save_revisions(payload.site_id, [c.model_dump() for c in payload.changes], payload.note, user["username"])
+    except RevisionError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": public_error(e)})
+    auth_store.log(user["username"], "desiqa_revision", payload.site_id, f"{result['saved']} saved, {result['cleared']} cleared")
+    return result
+
+
+@app.get("/api/desiqa/revisions")
+def desiqa_revisions_list(site_id: Optional[str] = Query(None), status: str = Query("active", pattern="^(active|all)$")):
+    """RNO revisions (all sites unless site_id) for the RNO vs DESIQA list and export."""
+    try:
+        out = list_revisions(site_id=site_id, status=status)
+        if not site_id and status == "active":
+            out["tilt_rows"] = list_active_overrides()
+        return out
+    except RevisionError as e:
+        return {"error": str(e), "rows": []}
+    except Exception as e:
+        return {"error": public_error(e), "rows": []}
 
 
 MAP_EDIT_PERMISSION = "map-edit"
@@ -753,6 +816,39 @@ async def map_elevation(payload: ElevationPayload):
         return await run_in_threadpool(get_elevations, payload.points)
     except Exception as e:
         return {"error": public_error(e), "elevations": []}
+
+class FootprintPayload(BaseModel):
+    lat: float
+    lon: float
+    azimuth: float
+    beamwidth: float = 65
+    tx_height: float = 30
+    tilts: List[float]             # current tilt, optionally a proposed one
+    vbw: float = 7
+    radius_m: Optional[float] = None
+
+
+@app.post("/api/map/beam-footprint")
+async def map_beam_footprint(payload: FootprintPayload):
+    """Ground reached by the low / mid / high part of the vertical beam of a sector, darker where terrain blocks it."""
+    if not payload.tilts:
+        return {"error": "Tilt is needed."}
+    try:
+        return await run_in_threadpool(beam_footprint, payload.lat, payload.lon, payload.azimuth, payload.beamwidth,
+                                       payload.tx_height, payload.tilts, payload.vbw, payload.radius_m)
+    except ValueError as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": public_error(e)}
+
+@app.get("/api/map/borders")
+def map_borders(layer: str = Query(..., pattern="^(kab|kec|nop)$"), zoom: int = Query(..., ge=0, le=22),
+                south: float = Query(...), west: float = Query(...), north: float = Query(...), east: float = Query(...)):
+    """Kabupaten / kecamatan / NOP borders touching the viewport, simplified for the zoom (GeoJSON)."""
+    try:
+        return get_borders(layer, zoom, south, west, north, east)
+    except Exception as e:
+        return {"error": public_error(e), "features": []}
 
 @app.get("/api/map/sites")
 def map_sites(south: float = Query(...), west: float = Query(...), north: float = Query(...), east: float = Query(...)):

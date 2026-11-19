@@ -1,5 +1,6 @@
 import { AlertTriangle, Building2, Globe, MapPin, MousePointerClick, Network, Radio, SlidersHorizontal } from 'lucide-react';
 import SectorPayloadChart from '../../components/SectorPayloadChart';
+import { thresholdTech } from './ThresholdControl';
 
 const SCOPE_ICON = { regional: Globe, nop: Network, city: Building2, kecamatan: MapPin };
 const SCOPE_CAPTION = {
@@ -79,6 +80,9 @@ export default function KpiChartsPanel({
           : (Number(thresholdSettings.thpValue4g) || 1.5);
         threshold = { value: val, unit: 'Mbps' };
       }
+    } else {
+      const own = thresholdSettings?.custom?.[thresholdTech(activeMenu)]?.find(c => c.id === effectiveId && c.on);
+      if (own) threshold = { value: own.value, unit: kpiData.unit || '' };
     }
     return {
       unit: kpiData.unit,

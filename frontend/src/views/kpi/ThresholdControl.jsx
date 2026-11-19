@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { SlidersHorizontal, RotateCcw, X, Check } from 'lucide-react';
+import { SlidersHorizontal, RotateCcw, X, Check, Plus, Trash2 } from 'lucide-react';
 import useClickOutside from '../../hooks/useClickOutside';
 
 export const DEFAULT_THRESHOLDS = {
@@ -8,6 +8,23 @@ export const DEFAULT_THRESHOLDS = {
   showThp: true,
   thpValue4g: 1.5,
   thpValue5g: 20,
+  custom: { '2g': [], '4g': [], '5g': [] },   // own thresholds per technology: [{ id, label, value, on }]
+};
+
+// KPIs that already have a fixed threshold above
+export const BUILTIN_THRESHOLD_KPIS = ['dl_prb', 'ul_prb', 'user_dl_thp', 'user_ul_thp'];
+// 4G Hourly and 4G Daily share one list
+export const thresholdTech = (activeMenu) => (activeMenu === '2g' ? '2g' : activeMenu === '5g' ? '5g' : '4g');
+
+const readCustom = (c) => {
+  const out = { '2g': [], '4g': [], '5g': [] };
+  if (!c || typeof c !== 'object') return out;
+  for (const t of Object.keys(out)) {
+    out[t] = (Array.isArray(c[t]) ? c[t] : [])
+      .filter(x => x && typeof x.id === 'string' && typeof x.value === 'number' && Number.isFinite(x.value))
+      .map(x => ({ id: x.id, label: String(x.label || x.id), value: x.value, on: x.on !== false }));
+  }
+  return out;
 };
 
 export const THRESHOLD_STORAGE_KEY = 'netpulse_thresholds';
@@ -23,6 +40,7 @@ export function loadThresholdSettings() {
       showThp: typeof parsed.showThp === 'boolean' ? parsed.showThp : DEFAULT_THRESHOLDS.showThp,
       thpValue4g: (typeof parsed.thpValue4g === 'number' && parsed.thpValue4g > 0) ? parsed.thpValue4g : DEFAULT_THRESHOLDS.thpValue4g,
       thpValue5g: (typeof parsed.thpValue5g === 'number' && parsed.thpValue5g > 0) ? parsed.thpValue5g : DEFAULT_THRESHOLDS.thpValue5g,
+      custom: readCustom(parsed.custom),
     };
   } catch {
     return { ...DEFAULT_THRESHOLDS };
@@ -41,13 +59,20 @@ export default function ThresholdControl({
   activeMenu,
   settings,
   onUpdateSettings,
+  kpiCatalog = [],
   darkMode
 }) {
   const [open, setOpen] = useState(false);
+  const [newId, setNewId] = useState('');
+  const [newValue, setNewValue] = useState('');
   const ref = useRef(null);
   useClickOutside(ref, useCallback(() => setOpen(false), []));
 
   const is5G = activeMenu === '5g';
+  const is2G = activeMenu === '2g';
+  const tech = thresholdTech(activeMenu);
+  const customList = settings.custom?.[tech] || [];
+  const addable = kpiCatalog.filter(k => !BUILTIN_THRESHOLD_KPIS.includes(k.id) && !customList.some(c => c.id === k.id));
   const thpValue = is5G ? settings.thpValue5g : settings.thpValue4g;
 
   const update = (patch) => {
@@ -74,8 +99,20 @@ export default function ThresholdControl({
     }
   };
 
+  const setCustom = (list) => update({ custom: { ...DEFAULT_THRESHOLDS.custom, ...settings.custom, [tech]: list } });
+  const patchCustom = (id, patch) => setCustom(customList.map(c => (c.id === id ? { ...c, ...patch } : c)));
+  const addCustom = () => {
+    const kpi = kpiCatalog.find(k => k.id === newId);
+    const value = parseFloat(newValue);
+    if (!kpi || isNaN(value)) return;
+    setCustom([...customList, { id: kpi.id, label: kpi.label, value, on: true }]);
+    setNewId('');
+    setNewValue('');
+  };
+
   const handleReset = () => {
-    const reset = { ...DEFAULT_THRESHOLDS };
+    // own thresholds stay; only the fixed PRB / throughput values go back to their defaults
+    const reset = { ...DEFAULT_THRESHOLDS, custom: settings.custom };
     saveThresholdSettings(reset);
     onUpdateSettings(reset);
   };
@@ -84,7 +121,7 @@ export default function ThresholdControl({
     darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
   }`;
 
-  const isActive = settings.showPrb || settings.showThp;
+  const isActive = (!is2G && (settings.showPrb || settings.showThp)) || customList.some(c => c.on);
 
   return (
     <div className="relative inline-block" ref={ref}>
@@ -129,6 +166,7 @@ export default function ThresholdControl({
           </div>
 
           {/* PRB Threshold */}
+          {!is2G && (<>
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="flex items-center gap-2 cursor-pointer font-semibold text-xs select-none">
@@ -192,6 +230,52 @@ export default function ThresholdControl({
               Applies to User DL & UL Throughput ({is5G ? 'default 20 Mbps' : 'default 1.5 Mbps'})
             </div>
           </div>
+          </>)}
+
+          {/* Own thresholds for any other KPI of this technology */}
+          <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="font-semibold text-xs">Other KPIs ({tech.toUpperCase()})</div>
+            {customList.length === 0 && (
+              <div className="text-[10px] text-slate-400">No own threshold yet. Pick a KPI below to add one.</div>
+            )}
+            {customList.map(c => {
+              const unit = kpiCatalog.find(k => k.id === c.id)?.unit;
+              return (
+                <div key={c.id} className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer select-none" title={c.label}>
+                    <input type="checkbox" checked={c.on} onChange={(e) => patchCustom(c.id, { on: e.target.checked })}
+                      className="rounded text-blue-600 cursor-pointer w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">{c.label}</span>
+                  </label>
+                  <input type="number" step="any" disabled={!c.on} defaultValue={c.value} key={`${c.id}_${c.value}`}
+                    onBlur={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) patchCustom(c.id, { value: v }); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                    className={`${field} w-16 text-right font-mono disabled:opacity-40`} />
+                  {unit && <span className="text-[10px] text-slate-400 w-8 truncate" title={unit}>{unit}</span>}
+                  <button type="button" onClick={() => setCustom(customList.filter(x => x.id !== c.id))}
+                    className="p-1 rounded text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 cursor-pointer" title="Remove this threshold">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+            {addable.length > 0 && (
+              <div className="flex items-center gap-1.5 pt-1">
+                <select value={newId} onChange={(e) => setNewId(e.target.value)} className={`${field} flex-1 min-w-0`}>
+                  <option value="">Add KPI…</option>
+                  {addable.map(k => <option key={k.id} value={k.id}>{k.label}</option>)}
+                </select>
+                <input type="number" step="any" placeholder="Value" value={newValue} onChange={(e) => setNewValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') addCustom(); }}
+                  className={`${field} w-20 text-right font-mono`} />
+                <button type="button" onClick={addCustom} disabled={!newId || newValue === '' || isNaN(parseFloat(newValue))}
+                  className="p-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white cursor-pointer disabled:opacity-40 disabled:cursor-default" title="Add threshold">
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+            <div className="text-[10px] text-slate-400">Drawn as a dashed line on that KPI's charts. Saved in this browser.</div>
+          </div>
 
 
 
@@ -201,7 +285,7 @@ export default function ThresholdControl({
               type="button"
               onClick={handleReset}
               className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
-              title="Reset all thresholds to defaults"
+              title="Reset PRB and throughput to their defaults (own thresholds are kept)"
             >
               <RotateCcw className="w-3 h-3" />
               <span>Reset defaults</span>
