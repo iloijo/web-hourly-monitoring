@@ -1,28 +1,24 @@
 import DataLoadingOverlay from './DataLoadingOverlay';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactECharts from '../lib/echarts';
-import { 
-  Globe, 
-  Network, 
-  Building2, 
-  MapPin, 
-  Radio, 
+import {
+  Globe,
+  Network,
+  Building2,
+  MapPin,
+  Radio,
   SlidersHorizontal,
-  Calendar, 
-  Search, 
-  RotateCw, 
-  Download, 
-  FileSpreadsheet, 
-  ChevronDown, 
-  Check, 
-  Activity, 
-  Clock, 
-  ShieldAlert, 
-  CheckCircle2, 
+  Search,
+  RotateCw,
+  Download,
+  FileSpreadsheet,
+  ChevronDown,
+  Check,
+  Activity,
+  Clock,
+  ShieldAlert,
   AlertTriangle,
-  Layers,
   ArrowUpRight,
-  X
 } from 'lucide-react';
 import { formatAxisDate } from './SectorPayloadChart';
 import MultiSelectDropdown from './MultiSelectDropdown';

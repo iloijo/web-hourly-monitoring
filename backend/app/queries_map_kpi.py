@@ -10,6 +10,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
+from .errors import public_error
 from .db import get_latest_data_date, get_onedb_connection, get_twodb_connection
 from .queries_ta import TA_4G_BINS
 
@@ -120,7 +121,7 @@ def _onedb_kpi(site_ids: List[str]) -> Dict[str, Any]:
         cur.close()
     except Exception as e:
         logger.error(f"map kpi onedb error: {e}")
-        out["error"] = str(e)
+        out["error"] = public_error(e)
     finally:
         conn.close()
     return out
@@ -159,7 +160,7 @@ def _twodb_status(site_ids: List[str]) -> Dict[str, Any]:
         cur.close()
     except Exception as e:
         logger.error(f"map status twodb error: {e}")
-        out["error"] = str(e)
+        out["error"] = public_error(e)
     finally:
         conn.close()
     return out

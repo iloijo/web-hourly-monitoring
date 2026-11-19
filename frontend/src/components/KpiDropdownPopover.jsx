@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Search, X, Check, CheckSquare, Square, RotateCcw, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { Search, X, Check, SlidersHorizontal } from 'lucide-react';
 
 const ORDERED_CATEGORIES = [
   "Productivity",

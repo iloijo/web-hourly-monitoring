@@ -1,5 +1,8 @@
+import json
+import logging
 import os
 import threading
+from contextlib import asynccontextmanager
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -12,7 +15,8 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 from .config import settings
 from . import auth_store
-from .db import check_db_health, get_twodb_connection, get_latest_data_date
+from .db import check_db_health, get_twodb_connection, get_onedb_connection, get_latest_data_date
+from .errors import public_error
 from .queries import get_site_payload_data
 from .queries_daily import (
     get_hierarchy_data, 
@@ -59,26 +63,48 @@ _RESULT_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()
 _RESULT_CACHE_LOCK = threading.Lock()
 _RESULT_CACHE_TTL_SEC = 600
 _RESULT_CACHE_MAX = 256
+# One lock per cache key being computed: when several users open the same scope at once, the query
+# runs once and the others wait for its result instead of each sending the same heavy query.
+_KEY_LOCKS: dict = {}
+
+def _cache_get(key):
+    with _RESULT_CACHE_LOCK:
+        hit = _RESULT_CACHE.get(key)
+        if hit and time.time() - hit[0] < _RESULT_CACHE_TTL_SEC:
+            _RESULT_CACHE.move_to_end(key)
+            return hit
+    return None
 
 def _cached(fn):
     def wrapper(**kwargs):
         key = (fn.__name__,) + tuple(
             (k, tuple(v) if isinstance(v, list) else v) for k, v in sorted(kwargs.items())
         )
-        now = time.time()
+        hit = _cache_get(key)
+        if hit:
+            return hit[1]
         with _RESULT_CACHE_LOCK:
-            hit = _RESULT_CACHE.get(key)
-            if hit and now - hit[0] < _RESULT_CACHE_TTL_SEC:
-                _RESULT_CACHE.move_to_end(key)
-                return hit[1]
-        result = fn(**kwargs)
-        if isinstance(result, dict) and not result.get("error"):
+            entry = _KEY_LOCKS.setdefault(key, [threading.Lock(), 0])
+            entry[1] += 1
+        try:
+            with entry[0]:
+                hit = _cache_get(key)  # computed by another request while this one waited
+                if hit:
+                    return hit[1]
+                now = time.time()
+                result = fn(**kwargs)
+                if isinstance(result, dict) and not result.get("error"):
+                    with _RESULT_CACHE_LOCK:
+                        _RESULT_CACHE[key] = (now, result)
+                        _RESULT_CACHE.move_to_end(key)
+                        while len(_RESULT_CACHE) > _RESULT_CACHE_MAX:
+                            _RESULT_CACHE.popitem(last=False)
+                return result
+        finally:
             with _RESULT_CACHE_LOCK:
-                _RESULT_CACHE[key] = (now, result)
-                _RESULT_CACHE.move_to_end(key)
-                while len(_RESULT_CACHE) > _RESULT_CACHE_MAX:
-                    _RESULT_CACHE.popitem(last=False)
-        return result
+                entry[1] -= 1
+                if entry[1] == 0:
+                    _KEY_LOCKS.pop(key, None)
     return wrapper
 
 get_site_payload_data = _cached(get_site_payload_data)
@@ -114,13 +140,19 @@ get_crowd_trend = _cached(get_crowd_trend)
 get_crowd_trend_grid = _cached(get_crowd_trend_grid)
 get_crowd_contributors = _cached(get_crowd_contributors)
 get_crowd_map = _cached(get_crowd_map)
-app = FastAPI(title="netPulse - KPI Monitoring Dashboard", version="3.8.0")
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+logger = logging.getLogger("netpulse")
 
-@app.on_event("startup")
-def startup_event():
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
     auth_store.init_db()
+    if not auth_store.auth_required() and not settings.ALLOW_OPEN_ACCESS:
+        logger.warning("No dashboard user exists: every API is refused. Set DASHBOARD_USER / DASHBOARD_PASS in "
+                       "backend/.env and restart (or ALLOW_OPEN_ACCESS=1 for local testing only).")
     threading.Thread(target=prewarm_overview_cache, daemon=True).start()
+    yield
+
+app = FastAPI(title="netPulse - KPI Monitoring Dashboard", version="3.8.0", lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 class LoginPayload(BaseModel):
     username: str
@@ -154,7 +186,9 @@ API_MENU_RULES = [
     ("/api/2g/payload_sectors", ("2g",)),
 ]
 PUBLIC_API = {"/api/auth/login", "/api/auth/check", "/api/auth/logout"}
-# Used when no user exists yet (fresh install without DASHBOARD_USER): everything stays open as before.
+NO_USER_MESSAGE = ("Belum ada user di server. Isi DASHBOARD_USER / DASHBOARD_PASS di backend/.env "
+                   "lalu restart server.")
+# Used only when no user exists yet AND ALLOW_OPEN_ACCESS=1 (local testing): everything stays open.
 OPEN_ACCESS_USER = {
     "id": None, "username": "Admin", "full_name": "Admin", "role_id": auth_store.SUPERADMIN_ROLE,
     "role_name": "SuperAdmin", "is_super": True, "permissions": list(auth_store.MENU_IDS),
@@ -164,8 +198,39 @@ def _bearer(request: Request) -> str:
     header = request.headers.get("authorization", "")
     return header[7:].strip() if header.lower().startswith("bearer ") else ""
 
+_LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+
 def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else ""
+    """Real client address. Behind cloudflared (which connects from this machine) every request comes
+    from 127.0.0.1, so the address Cloudflare saw is taken from its header, trusted only from loopback."""
+    peer = request.client.host if request.client else ""
+    if peer in _LOOPBACK:
+        forwarded = (request.headers.get("cf-connecting-ip")
+                     or request.headers.get("x-forwarded-for", "").split(",")[0]).strip()
+        if forwarded:
+            return forwarded[:64]
+    return peer
+
+# Failed logins per client address: the per-user lockout alone lets one address try many usernames
+# (and lock all of them). LOGIN_IP_MAX failures within LOGIN_IP_WINDOW_SEC block that address.
+LOGIN_IP_MAX = 20
+LOGIN_IP_WINDOW_SEC = 10 * 60
+_LOGIN_FAILS: dict = {}
+_LOGIN_FAILS_LOCK = threading.Lock()
+
+def _login_blocked(ip: str) -> bool:
+    cutoff = time.time() - LOGIN_IP_WINDOW_SEC
+    with _LOGIN_FAILS_LOCK:
+        for addr in [a for a, ts in _LOGIN_FAILS.items() if not ts or ts[-1] <= cutoff]:
+            del _LOGIN_FAILS[addr]
+        fails = [t for t in _LOGIN_FAILS.get(ip, []) if t > cutoff]
+        if fails:
+            _LOGIN_FAILS[ip] = fails
+        return len(fails) >= LOGIN_IP_MAX
+
+def _login_failed(ip: str):
+    with _LOGIN_FAILS_LOCK:
+        _LOGIN_FAILS.setdefault(ip, []).append(time.time())
 
 def _required_menus(path: str):
     for prefix, menus in API_MENU_RULES:
@@ -173,8 +238,11 @@ def _required_menus(path: str):
             return menus
     return ()
 
+def _open_access() -> bool:
+    return settings.ALLOW_OPEN_ACCESS and not auth_store.auth_required()
+
 def _current_user(request: Request) -> Optional[dict]:
-    if not auth_store.auth_required():
+    if _open_access():
         return OPEN_ACCESS_USER
     return auth_store.resolve_token(_bearer(request))
 
@@ -186,6 +254,8 @@ async def session_auth(request: Request, call_next):
         return await call_next(request)
 
     user = await run_in_threadpool(_current_user, request)
+    if not user and not await run_in_threadpool(auth_store.auth_required):
+        return JSONResponse(status_code=503, content={"error": NO_USER_MESSAGE, "message": NO_USER_MESSAGE})
     if not user:
         # 401 JSON without WWW-Authenticate so the browser shows no native login dialog
         return JSONResponse(status_code=401, content={"error": "Unauthorized", "message": "Silakan login ulang."})
@@ -200,20 +270,27 @@ async def session_auth(request: Request, call_next):
 @app.post("/api/auth/login")
 def api_login(payload: LoginPayload, request: Request):
     """Checks username/password against the user database and returns a session token."""
-    if not auth_store.auth_required():
+    if _open_access():
         return {"success": True, "user": OPEN_ACCESS_USER, "token": "open_access", "auth_required": False}
+    if not auth_store.auth_required():
+        return JSONResponse(status_code=503, content={"success": False, "error": NO_USER_MESSAGE})
+    ip = _client_ip(request)
+    if _login_blocked(ip):
+        return JSONResponse(status_code=429, content={
+            "success": False, "error": "Terlalu banyak percobaan login gagal dari alamat ini. Coba lagi 10 menit lagi."})
     try:
         result = auth_store.authenticate(payload.username, payload.password)
     except auth_store.AuthError as e:
-        auth_store.log(payload.username.strip()[:64], "login_failed", detail=str(e), ip=_client_ip(request))
-        return JSONResponse(status_code=401, content={"success": False, "error": str(e)})
-    auth_store.log(result["user"]["username"], "login", ip=_client_ip(request))
+        _login_failed(ip)
+        auth_store.log(payload.username.strip()[:64], "login_failed", detail=str(e), ip=ip)
+        return JSONResponse(status_code=401, content={"success": False, "error": public_error(e)})
+    auth_store.log(result["user"]["username"], "login", ip=ip)
     return {"success": True, "user": result["user"], "token": result["token"], "auth_required": True}
 
 @app.get("/api/auth/check")
 def api_check_auth(request: Request):
     """Verifies the stored session token and returns the user with their menu permissions."""
-    if not auth_store.auth_required():
+    if _open_access():
         return {"authenticated": True, "auth_required": False, "user": OPEN_ACCESS_USER}
     user = auth_store.resolve_token(_bearer(request))
     if user:
@@ -235,17 +312,19 @@ def api_change_own_password(body: dict, request: Request):
     if user.get("id") is None:
         return JSONResponse(status_code=400, content={"error": "Login belum diaktifkan di server ini."})
     try:
-        auth_store.change_own_password(user["id"], str(body.get("old_password") or ""), str(body.get("new_password") or ""))
+        # other devices of this user are logged out; this session stays
+        auth_store.change_own_password(user["id"], str(body.get("old_password") or ""), str(body.get("new_password") or ""),
+                                       keep_token=_bearer(request))
     except auth_store.AuthError as e:
-        return JSONResponse(status_code=400, content={"error": str(e)})
+        return JSONResponse(status_code=400, content={"error": public_error(e)})
     auth_store.log(user["username"], "change_password", user["username"], ip=_client_ip(request))
     return {"success": True}
 
 # ------------------------------------------------------------------ Administrasi (SuperAdmin)
 def _admin_error(e: Exception):
     if isinstance(e, auth_store.AuthError):
-        return JSONResponse(status_code=400, content={"error": str(e)})
-    return JSONResponse(status_code=500, content={"error": f"Gagal menyimpan: {e}"})
+        return JSONResponse(status_code=400, content={"error": public_error(e)})
+    return JSONResponse(status_code=500, content={"error": f"Gagal menyimpan: {public_error(e)}"})
 
 @app.get("/api/admin/meta")
 def admin_meta():
@@ -438,7 +517,7 @@ def get_payload_sectors(
         )
         return data
     except Exception as e:
-        return {"error": str(e), "site_id": site_id, "sectors": {}}
+        return {"error": public_error(e), "site_id": site_id, "sectors": {}}
 
 @app.get("/api/hierarchy")
 def get_hierarchy():
@@ -449,7 +528,7 @@ def get_hierarchy():
     try:
         return get_hierarchy_data()
     except Exception as e:
-        return {"error": str(e), "nops": [], "tree": {}, "sites": []}
+        return {"error": public_error(e), "nops": [], "tree": {}, "sites": []}
 
 @app.get("/api/daily/kpi_list")
 def get_daily_kpis():
@@ -502,7 +581,7 @@ def get_daily_payload_sectors(
         )
         return data
     except Exception as e:
-        return {"error": str(e), "site_id": site_id if isinstance(site_id, str) else "MRW002", "sectors": {}}
+        return {"error": public_error(e), "site_id": site_id if isinstance(site_id, str) else "MRW002", "sectors": {}}
 
 @app.get("/api/map/cells")
 def map_cells(site_id: str = Query(..., description="Site ID e.g. MRW002"),
@@ -511,7 +590,7 @@ def map_cells(site_id: str = Query(..., description="Site ID e.g. MRW002"),
     try:
         data = get_map_cells(site_id=site_id, tier=tier)
     except Exception as e:
-        return {"error": str(e), "site_id": site_id, "sites": [], "cells": []}
+        return {"error": public_error(e), "site_id": site_id, "sites": [], "cells": []}
     # DESIQA geometry is cached; the edits are read fresh on every request
     return apply_overrides(data) if not data.get("error") else data
 
@@ -566,9 +645,9 @@ def map_override_save(payload: OverridePayload, request: Request):
         result = save_overrides([c.model_dump() for c in payload.cells], payload.values, payload.note, user["username"],
                                 payload.batch_id)
     except OverrideError as e:
-        return JSONResponse(status_code=400, content={"error": str(e)})
+        return JSONResponse(status_code=400, content={"error": public_error(e)})
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return JSONResponse(status_code=500, content={"error": public_error(e)})
     detail = ", ".join(f"{k}={v}" for k, v in payload.values.items())
     target = ", ".join(f"{c.site_id}_{c.ci}" for c in payload.cells[:10])
     auth_store.log(user["username"], "map_override", target, detail, _client_ip(request))
@@ -584,9 +663,9 @@ def map_override_reset(payload: OverrideResetPayload, request: Request):
     try:
         result = reset_overrides([c.model_dump() for c in payload.cells], user["username"])
     except OverrideError as e:
-        return JSONResponse(status_code=400, content={"error": str(e)})
+        return JSONResponse(status_code=400, content={"error": public_error(e)})
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return JSONResponse(status_code=500, content={"error": public_error(e)})
     auth_store.log(user["username"], "map_override_reset", ", ".join(f"{c.site_id}_{c.ci}" for c in payload.cells[:10]),
                    ip=_client_ip(request))
     return {"success": True, **result}
@@ -601,9 +680,9 @@ def map_override_rollback(payload: OverrideRollbackPayload, request: Request):
     try:
         result = rollback_overrides([c.model_dump() for c in payload.cells], payload.batch_id, user["username"])
     except OverrideError as e:
-        return JSONResponse(status_code=400, content={"error": str(e)})
+        return JSONResponse(status_code=400, content={"error": public_error(e)})
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return JSONResponse(status_code=500, content={"error": public_error(e)})
     target = ", ".join(f"{c.site_id}_{c.ci}" for c in payload.cells[:10]) or f"batch {payload.batch_id}"
     auth_store.log(user["username"], "map_override_rollback", target, ip=_client_ip(request))
     return {"success": True, **result}
@@ -618,9 +697,9 @@ def map_override_delete(payload: OverrideDeletePayload, request: Request):
     try:
         result = delete_override(payload.id, user["username"], bool(user.get("is_super")))
     except OverrideError as e:
-        return JSONResponse(status_code=400, content={"error": str(e)})
+        return JSONResponse(status_code=400, content={"error": public_error(e)})
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return JSONResponse(status_code=500, content={"error": public_error(e)})
     auth_store.log(user["username"], "map_override_delete", f"{result['site_id']}_{result['ci']} #{payload.id}",
                    ip=_client_ip(request))
     return {"success": True, **result}
@@ -634,7 +713,7 @@ def map_override_history(request: Request, site_id: str = Query(...), include_de
         user = getattr(request.state, "user", None) or {}
         return get_override_history(site_id, include_deleted=include_deleted and bool(user.get("is_super")))
     except Exception as e:
-        return {"error": str(e), "rows": []}
+        return {"error": public_error(e), "rows": []}
 
 
 @app.get("/api/map/kpi")
@@ -643,7 +722,7 @@ def map_kpi(site_ids: str = Query(..., description="Comma separated site IDs (ma
     try:
         return get_map_kpi(site_ids=sorted({s.strip().upper() for s in site_ids.split(",") if s.strip()}))
     except Exception as e:
-        return {"error": str(e), "cells": {}}
+        return {"error": public_error(e), "cells": {}}
 
 @app.get("/api/map/covmo/weeks")
 def map_covmo_weeks():
@@ -651,7 +730,7 @@ def map_covmo_weeks():
     try:
         return {"weeks": get_covmo_weeks()["weeks"]}
     except Exception as e:
-        return {"error": str(e), "weeks": []}
+        return {"error": public_error(e), "weeks": []}
 
 
 @app.get("/api/map/covmo")
@@ -661,7 +740,7 @@ def map_covmo(south: float = Query(...), west: float = Query(...), north: float 
     try:
         return get_map_covmo(south=south, west=west, north=north, east=east, week=week or None)
     except Exception as e:
-        return {"error": str(e), "tiles": []}
+        return {"error": public_error(e), "tiles": []}
 
 class ElevationPayload(BaseModel):
     points: List[List[float]]  # [[lat, lon], ...], at most 400
@@ -673,7 +752,7 @@ async def map_elevation(payload: ElevationPayload):
     try:
         return await run_in_threadpool(get_elevations, payload.points)
     except Exception as e:
-        return {"error": str(e), "elevations": []}
+        return {"error": public_error(e), "elevations": []}
 
 @app.get("/api/map/sites")
 def map_sites(south: float = Query(...), west: float = Query(...), north: float = Query(...), east: float = Query(...)):
@@ -681,7 +760,7 @@ def map_sites(south: float = Query(...), west: float = Query(...), north: float 
     try:
         return get_map_sites_in_bbox(south=south, west=west, north=north, east=east)
     except Exception as e:
-        return {"error": str(e), "sites": []}
+        return {"error": public_error(e), "sites": []}
 
 @app.get("/api/hourly/properties")
 @app.get("/api/daily/properties")
@@ -690,13 +769,28 @@ def get_daily_properties(site_id: str = Query(..., description="Site ID e.g. MRW
     try:
         return get_site_properties(site_id=site_id)
     except Exception as e:
-        return {"error": str(e), "site_id": site_id, "columns": [], "rows": []}
+        return {"error": public_error(e), "site_id": site_id, "columns": [], "rows": []}
+
+EXPORT_MAX_BYTES = 50 * 1024 * 1024
+EXPORT_MAX_ROWS = 300_000
 
 @app.post("/api/export/xlsx")
 async def export_xlsx(request: Request):
     """Turns the page's export payload {filename, sheets: [{name, columns, rows}]} into an .xlsx download."""
-    payload = await request.json()
-    content = build_workbook(payload.get("sheets") or [])
+    if int(request.headers.get("content-length") or 0) > EXPORT_MAX_BYTES:
+        return JSONResponse(status_code=413, content={"error": "Data export terlalu besar. Persempit filter atau periode."})
+    body = await request.body()
+    if len(body) > EXPORT_MAX_BYTES:
+        return JSONResponse(status_code=413, content={"error": "Data export terlalu besar. Persempit filter atau periode."})
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return JSONResponse(status_code=400, content={"error": "Payload export tidak valid."})
+    sheets = payload.get("sheets") or []
+    if sum(len(sh.get("rows") or []) for sh in sheets if isinstance(sh, dict)) > EXPORT_MAX_ROWS:
+        return JSONResponse(status_code=413, content={
+            "error": f"Export dibatasi {EXPORT_MAX_ROWS:,} baris. Persempit filter atau periode."})
+    content = build_workbook(sheets)
     filename = safe_filename(payload.get("filename"))
     return Response(
         content=content,
@@ -722,7 +816,7 @@ def get_overview_dataset_endpoint(
             refresh=refresh
         )
     except Exception as e:
-        return {"error": str(e), "year": year, "rows": []}
+        return {"error": public_error(e), "year": year, "rows": []}
 
 @app.get("/api/overview/inventory")
 def get_overview_inventory_endpoint(
@@ -740,7 +834,7 @@ def get_overview_inventory_endpoint(
             refresh=refresh
         )
     except Exception as e:
-        return {"error": str(e), "week": "Unknown", "nops": {}}
+        return {"error": public_error(e), "week": "Unknown", "nops": {}}
 
 @app.get("/api/overview/drill")
 def get_overview_drill_endpoint(
@@ -762,7 +856,7 @@ def get_overview_drill_endpoint(
             kabupaten=kabupaten
         )
     except Exception as e:
-        return {"error": str(e), "items": []}
+        return {"error": public_error(e), "items": []}
 
 @app.get("/api/overview/top_decline")
 def get_overview_top_decline_endpoint(
@@ -784,7 +878,7 @@ def get_overview_top_decline_endpoint(
             top_n=top_n
         )
     except Exception as e:
-        return {"error": str(e), "sites": []}
+        return {"error": public_error(e), "sites": []}
 
 @app.get("/api/worstcell")
 def get_worstcell_endpoint(
@@ -803,7 +897,7 @@ def get_worstcell_endpoint(
         return get_worst_cells(tech=tech, start_date=start_date, end_date=end_date, top_n=top_n,
                                scope=scope, nops=nops, cities=cities, kecamatans=kecamatans, sites=sites)
     except Exception as e:
-        return {"error": str(e), "kpis": []}
+        return {"error": public_error(e), "kpis": []}
 
 @app.get("/api/ztzp")
 def get_ztzp_endpoint(
@@ -821,7 +915,7 @@ def get_ztzp_endpoint(
         return get_ztzp(tech=tech, date=date, scope=scope, nops=nops, cities=cities,
                         kecamatans=kecamatans, category=category, limit=limit)
     except Exception as e:
-        return {"error": str(e), "rows": []}
+        return {"error": public_error(e), "rows": []}
 
 @app.get("/api/hourly/aggregation")
 def get_hourly_aggregation_endpoint(
@@ -842,7 +936,7 @@ def get_hourly_aggregation_endpoint(
             nops=nops, cities=cities, kecamatans=kecamatans, sites=sites, bands=bands,
         )
     except Exception as e:
-        return {"error": str(e), "scope": scope, "mode": mode, "kpis": {}, "timestamps": []}
+        return {"error": public_error(e), "scope": scope, "mode": mode, "kpis": {}, "timestamps": []}
 
 
 @app.get("/api/daily/aggregation")
@@ -880,7 +974,7 @@ def get_daily_aggregation_endpoint(
         return data
     except Exception as e:
         return {
-            "error": str(e),
+            "error": public_error(e),
             "scope": scope,
             "mode": mode,
             "kpis": {},
@@ -943,7 +1037,7 @@ def get_5g_payload_sectors_endpoint(
             days_back=d_back
         )
     except Exception as e:
-        return {"error": str(e), "site_id": site_id, "sectors": {}}
+        return {"error": public_error(e), "site_id": site_id, "sectors": {}}
 
 @app.get("/api/5g/aggregation")
 def get_5g_aggregation_endpoint(
@@ -981,7 +1075,7 @@ def get_5g_aggregation_endpoint(
         return data
     except Exception as e:
         return {
-            "error": str(e),
+            "error": public_error(e),
             "scope": scope,
             "mode": mode,
             "kpis": {},
@@ -1044,7 +1138,7 @@ def get_2g_payload_sectors_endpoint(
             days_back=d_back
         )
     except Exception as e:
-        return {"error": str(e), "site_id": site_id, "sectors": {}}
+        return {"error": public_error(e), "site_id": site_id, "sectors": {}}
 
 @app.get("/api/2g/aggregation")
 def get_2g_aggregation_endpoint(
@@ -1082,7 +1176,7 @@ def get_2g_aggregation_endpoint(
         return data
     except Exception as e:
         return {
-            "error": str(e),
+            "error": public_error(e),
             "scope": scope,
             "mode": mode,
             "kpis": {},
@@ -1203,14 +1297,14 @@ def _cluster_actor(request: Request) -> dict:
 
 def _cluster_error(e: Exception) -> JSONResponse:
     if isinstance(e, cluster_store.Forbidden):
-        return JSONResponse(status_code=403, content={"error": str(e)})
+        return JSONResponse(status_code=403, content={"error": public_error(e)})
     if isinstance(e, ValueError):
-        return JSONResponse(status_code=400, content={"error": str(e)})
+        return JSONResponse(status_code=400, content={"error": public_error(e)})
     if isinstance(e, LookupError):
-        return JSONResponse(status_code=404, content={"error": str(e)})
+        return JSONResponse(status_code=404, content={"error": public_error(e)})
     if getattr(e, "pgcode", None) == "23505":
         return JSONResponse(status_code=409, content={"error": "That cluster name is already taken."})
-    return JSONResponse(status_code=503, content={"error": str(e)})
+    return JSONResponse(status_code=503, content={"error": public_error(e)})
 
 @app.get("/api/clusters")
 def list_clusters_endpoint():
@@ -1248,7 +1342,7 @@ def cluster_site_sectors_endpoint():
     try:
         return {"site_sectors": get_site_sectors()}
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return JSONResponse(status_code=500, content={"error": public_error(e)})
 
 @app.post("/api/cluster/compare")
 async def cluster_compare_endpoint(request: Request):
@@ -1262,13 +1356,13 @@ async def cluster_compare_endpoint(request: Request):
                ("start_date", "end_date", "before_start", "before_end", "after_start", "after_end")},
         )
     except Exception as e:
-        return JSONResponse(status_code=400 if isinstance(e, ValueError) else 500, content={"error": str(e)})
+        return JSONResponse(status_code=400 if isinstance(e, ValueError) else 500, content={"error": public_error(e)})
 
 # ---------------------------------------------------------------------------
 # OKR > CEI
 # ---------------------------------------------------------------------------
 def _cei_error(e: Exception):
-    return JSONResponse(status_code=400 if isinstance(e, ValueError) else 503, content={"error": str(e)})
+    return JSONResponse(status_code=400 if isinstance(e, ValueError) else 503, content={"error": public_error(e)})
 
 def _drop_cei_cache():
     """Targets and events are part of the CEI results, so an edit must not wait for the 10-minute cache."""
@@ -1382,8 +1476,8 @@ def cei_delete_event_endpoint(event_id: int):
 # ---------------------------------------------------------------------------
 def _crowd_error(e: Exception):
     if isinstance(e, PermissionError):
-        return JSONResponse(status_code=403, content={"error": str(e)})
-    return JSONResponse(status_code=400 if isinstance(e, ValueError) else 503, content={"error": str(e)})
+        return JSONResponse(status_code=403, content={"error": public_error(e)})
+    return JSONResponse(status_code=400 if isinstance(e, ValueError) else 503, content={"error": public_error(e)})
 
 def _drop_crowd_cache():
     with _RESULT_CACHE_LOCK:
@@ -1565,6 +1659,14 @@ def crowdsource_delete_manual_endpoint(region: str, yearweek: int, kpi_key: str,
 DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 if DIST_DIR.exists() and (DIST_DIR / "index.html").exists():
     app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
+
+    @app.middleware("http")
+    async def immutable_assets(request: Request, call_next):
+        response = await call_next(request)
+        # file names under /assets carry a content hash, so a new build gets new names
+        if request.url.path.startswith("/assets/") and response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):

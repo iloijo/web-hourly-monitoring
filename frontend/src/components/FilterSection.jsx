@@ -1,17 +1,16 @@
 import React, { useState } from 'react';
-import { 
-  Globe, 
-  Network, 
-  Building2, 
-  FolderGit2, 
-  Radio, 
-  Antenna, 
-  Camera, 
-  FileSpreadsheet, 
-  ChevronDown, 
-  ChevronUp, 
+import {
+  Globe,
+  Network,
+  Building2,
+  FolderGit2,
+  Radio,
+  Antenna,
+  Camera,
+  FileSpreadsheet,
+  ChevronDown,
+  ChevronUp,
   SlidersHorizontal,
-  Check
 } from 'lucide-react';
 
 export default function FilterSection({

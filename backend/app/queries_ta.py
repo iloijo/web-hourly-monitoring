@@ -3,6 +3,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
+from .errors import public_error
 from .db import get_onedb_connection, get_latest_data_date
 from .bands import lte_band
 from .queries import get_clean_carrier_label
@@ -186,7 +187,7 @@ def get_ta_4g_data(
         conn.close()
         return {
             "status": "error",
-            "message": str(e),
+            "message": public_error(e),
             "site_id": site_clean,
             "sectors": [],
             "bands": [],
@@ -413,7 +414,7 @@ def get_ta_5g_data(
         conn.close()
         return {
             "status": "error",
-            "message": str(e),
+            "message": public_error(e),
             "site_id": site_clean,
             "sectors": [],
             "bands": [],

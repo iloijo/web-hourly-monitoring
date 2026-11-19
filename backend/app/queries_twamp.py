@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
+from .errors import public_error
 from .db import get_onedb_connection, get_latest_data_date
 from .site_names import get_site_display_name
 
@@ -84,7 +85,7 @@ def get_twamp_packet_loss_data(
         conn.close()
         return {
             "status": "error",
-            "message": str(e),
+            "message": public_error(e),
             "site_id": site_clean,
             "dates": [],
             "series": {},
@@ -322,7 +323,7 @@ def get_twamp_scope_aggregation(
         conn.close()
         return {
             "status": "error",
-            "message": str(e),
+            "message": public_error(e),
             "scope": scope_clean,
             "dates": [],
             "entities": [],

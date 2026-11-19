@@ -421,7 +421,8 @@ def delete_user(user_id: int, actor_id: Optional[int]) -> str:
         return row["username"]
 
 
-def change_own_password(user_id: int, old_password: str, new_password: str):
+def change_own_password(user_id: int, old_password: str, new_password: str, keep_token: str = ""):
+    """Sets a new password and ends every other session of the user (keep_token stays logged in)."""
     with _LOCK:
         c = _conn()
         row = c.execute("SELECT password_hash FROM users WHERE id = ?", (user_id,)).fetchone()
@@ -431,6 +432,8 @@ def change_own_password(user_id: int, old_password: str, new_password: str):
     with _LOCK:
         _conn().execute("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?",
                         (hash_password(new_password), _now(), user_id))
+        _conn().execute("DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?",
+                        (user_id, _token_hash(keep_token or "")))
 
 
 # ---------------------------------------------------------------- login / sessions

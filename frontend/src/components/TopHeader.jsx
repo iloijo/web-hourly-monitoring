@@ -1,14 +1,12 @@
 import React from 'react';
-import { 
-  BarChart2, 
-  Clock, 
-  Palette, 
-  Moon, 
-  Sun, 
-  Maximize, 
-  Database,
+import {
+  BarChart2,
+  Clock,
+  Palette,
+  Moon,
+  Sun,
+  Maximize,
   CheckCircle2,
-  AlertCircle
 } from 'lucide-react';
 
 export default function TopHeader({ dbStatus, lastDate = "2026-10-30", darkMode, setDarkMode }) {

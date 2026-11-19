@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Eye, EyeOff, Globe, Key, Lock, Play, Shield, Sparkles, Volume2, VolumeX, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { Eye, EyeOff, Globe, Shield, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { postJson, setAuthSession } from '../api/client';
 import DataLoadingOverlay from '../components/DataLoadingOverlay';
 

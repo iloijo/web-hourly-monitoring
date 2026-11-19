@@ -1,10 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import {
-  Building2, ChevronLeft, ChevronRight, Download, FileSpreadsheet,
-  ListOrdered, Search, ArrowUpDown, ArrowUp, ArrowDown
+  Building2,
+  ChevronLeft,
+  ChevronRight,
+  FileSpreadsheet,
+  ListOrdered,
+  Search,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { downloadXlsx } from '../../api/export';
-import { fmt, weekLabel } from './charts';
+import { fmt } from './charts';
 
 const KQI_CONFIG = [
   { key: 'wrtt', label: 'Web browsing RTT', color: '#f59e0b' },
