@@ -14,6 +14,20 @@ export const BORDER_LAYERS = {
 };
 const ORDER = ['kec', 'kab', 'nop'];   // drawn bottom to top
 const PANE = 'borders';
+const LABEL_PANE = 'borderLabels';
+// Name labels: black text with a yellow outline, each level only in the zoom range where it reads well
+const LABEL_ZOOM = { nop: [0, 10], kab: [8, 11], kec: [12, 22] };
+const LABEL_SIZE = { nop: 13, kab: 12, kec: 11 };
+const HALO = '#facc15';
+const haloShadow = [[-1.5, 0], [1.5, 0], [0, -1.5], [0, 1.5], [-1, -1], [1, -1], [-1, 1], [1, 1]]
+  .map(([x, y]) => `${x}px ${y}px 0 ${HALO}`).join(',');
+const labelIcon = (id, name) => L.divIcon({
+  className: '',
+  iconSize: null,
+  html: `<div style="transform:translate(-50%,-50%);white-space:nowrap;color:#000;font-weight:${id === 'kec' ? 600 : 800};`
+    + `font-size:${LABEL_SIZE[id]}px;letter-spacing:${id === 'kec' ? 0 : 0.3}px;text-shadow:${haloShadow};pointer-events:none">`
+    + `${id === 'nop' ? 'NOP ' : id === 'kec' ? 'Kec. ' : ''}${String(name).replace(/[<>&]/g, '')}</div>`,
+});
 
 // Ray casting on one ring of [lon, lat]
 function inRing(x, y, ring) {
@@ -68,6 +82,11 @@ export default function BorderLayer({ layers, dark, onHover }) {
       pane.style.zIndex = 390;              // above tiles and covmo, below the sectors (overlayPane 400)
       pane.style.pointerEvents = 'none';
     }
+    if (!map.getPane(LABEL_PANE)) {
+      const pane = map.createPane(LABEL_PANE);
+      pane.style.zIndex = 450;              // above the sectors, under popups; never takes the mouse
+      pane.style.pointerEvents = 'none';
+    }
     const t = setTimeout(readView, 50);
     return () => clearTimeout(t);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -108,6 +127,20 @@ export default function BorderLayer({ layers, dark, onHover }) {
     });
   }, [data, layers.kab, layers.kec, layers.nop, zoom >= BORDER_LAYERS.kec.minZoom, dark, map]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => () => ORDER.forEach(id => drawnRef.current[id]?.remove()), []);
+  // Labels at the point the backend picked inside the largest part of each area
+  const labelsRef = useRef({});
+  useEffect(() => {
+    ORDER.forEach(id => {
+      labelsRef.current[id]?.remove();
+      labelsRef.current[id] = null;
+      const [z0, z1] = LABEL_ZOOM[id];
+      if (!layers[id] || !data[id] || zoom < Math.max(z0, BORDER_LAYERS[id].minZoom) || zoom > z1) return;
+      labelsRef.current[id] = L.layerGroup(data[id].features.filter(f => f.properties.label).map(f => L.marker(f.properties.label, {
+        icon: labelIcon(id, f.properties.name), pane: LABEL_PANE, interactive: false, keyboard: false,
+      }))).addTo(map);
+    });
+  }, [data, layers.kab, layers.kec, layers.nop, zoom, map]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => ORDER.forEach(id => { drawnRef.current[id]?.remove(); labelsRef.current[id]?.remove(); }), []);
   return null;
 }

@@ -10,8 +10,8 @@ import { BAND_VBW_DEG } from './profile';
 // Current tilt and a proposed tilt are computed together, so switching between them is instant.
 
 export const HORIZON_ZONES = {
-  high: { label: 'High (upper beam, far)', color: '#2563eb' },
-  mid: { label: 'Mid (main beam)', color: '#f97316' },
+  high: { label: 'High (upper beam, far)', color: '#dc2626' },
+  mid: { label: 'Mid (main beam)', color: '#2563eb' },
   low: { label: 'Low (lower beam, near)', color: '#16a34a' },
   under: { label: 'Under the beam', color: '#94a3b8' },
 };
@@ -34,7 +34,15 @@ function wedge(lat, lon, az0, az1, d0, d1) {
 // Map layer: one polygon per run (same zone and blocking class along a ray)
 export function HorizonShapes({ horizon, opacity = 0.5 }) {
   const map = useMap();
-  if (!map.getPane('horizon')) map.createPane('horizon').style.zIndex = 395;   // under the sectors, over borders
+  if (!map.getPane('horizon')) {
+    // Wedges are drawn opaque and the pane carries the transparency, so neighbouring wedges merge into one
+    // colour field without seams; a light blur gives the footprint and the colour changes a soft edge.
+    const pane = map.createPane('horizon');
+    pane.style.zIndex = 395;                  // under the sectors, over the borders
+    pane.style.pointerEvents = 'none';
+    pane.style.filter = 'blur(3px)';
+  }
+  map.getPane('horizon').style.opacity = String(opacity);
   const res = horizon?.data?.results?.[horizon.view === 'prop' && horizon.data.results.length > 1 ? 1 : 0];
   const shapes = useMemo(() => {
     if (!res) return [];
@@ -56,7 +64,7 @@ export function HorizonShapes({ horizon, opacity = 0.5 }) {
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
   return shapes.map(s => (
     <Polygon key={s.key} positions={s.positions} interactive={false} pane="horizon"
-      pathOptions={{ stroke: true, weight: 0.7, color: s.color, opacity, fillColor: s.color, fillOpacity: opacity }} />
+      pathOptions={{ stroke: true, weight: 1, color: s.color, opacity: 1, fillColor: s.color, fillOpacity: 1 }} />
   ));
 }
 

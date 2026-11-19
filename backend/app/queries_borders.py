@@ -53,8 +53,13 @@ def get_borders(layer: str, zoom: int, south: float, west: float, north: float, 
     try:
         cur = conn.cursor()
         cur.execute(f"""
-            SELECT t.{id_col}, t.{name_col}, {kab_expr}, {nop_expr}, ST_AsGeoJSON(t.{level}, 5)
+            SELECT t.{id_col}, t.{name_col}, {kab_expr}, {nop_expr}, ST_AsGeoJSON(t.{level}, 5),
+                   ST_Y(l.p), ST_X(l.p)
             FROM {table} t
+            -- label on the largest part (an island must not take the name of a whole kabupaten)
+            CROSS JOIN LATERAL (
+                SELECT ST_PointOnSurface(d.geom) AS p FROM ST_Dump(t.geom_mid) d ORDER BY ST_Area(d.geom) DESC LIMIT 1
+            ) l
             WHERE t.{level} && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
         """, (box[1], box[0], box[3], box[2]))
         rows = cur.fetchall()
@@ -63,7 +68,8 @@ def get_borders(layer: str, zoom: int, south: float, west: float, north: float, 
         conn.close()
     features = [{
         "type": "Feature",
-        "properties": {"id": r[0], "name": r[1], "kab": r[2], "nop": r[3]},
+        "properties": {"id": r[0], "name": r[1], "kab": r[2], "nop": r[3],
+                       "label": [round(r[5], 5), round(r[6], 5)] if r[5] is not None else None},
         "geometry": json.loads(r[4]),
     } for r in rows if r[4]]
     out = {"type": "FeatureCollection", "layer": layer, "level": level, "features": features}
