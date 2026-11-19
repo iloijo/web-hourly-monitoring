@@ -1,22 +1,19 @@
 import DataLoadingOverlay from './DataLoadingOverlay';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactECharts from '../lib/echarts';
-import { 
-  Calendar, 
-  Search, 
-  RotateCw, 
-  Download, 
-  FileSpreadsheet, 
-  Filter, 
-  ChevronDown, 
-  Check, 
-  X,
+import {
+  Search,
+  RotateCw,
+  Download,
+  FileSpreadsheet,
+  ChevronDown,
+  Check,
   Layers,
   AlertCircle,
   GitCompare,
-  ArrowRight
+  ArrowRight,
 } from 'lucide-react';
-import { BAND_COLORS, BAND_COLOR_VARIANTS, getCarrierStyle, getColorForCarrier } from './SectorPayloadChart';
+import { BAND_COLORS, BAND_COLOR_VARIANTS, getCarrierStyle } from './SectorPayloadChart';
 import { loadLatestDates, shiftDate } from '../constants/dates';
 import { objectRowsSheet } from '../api/export';
 import { getJson } from '../api/client';

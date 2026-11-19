@@ -52,46 +52,43 @@ def get_latest_data_date(db: str, table: str) -> datetime:
     _LATEST_DATE_CACHE[key] = (time.time(), latest_date)
     return latest_date
 
-def get_twodb_connection(timeout: int = 12):
-    """
-    Connects to TwoDb.
-    Priority 1: Direct LAN IP 192.168.1.231:5432 (blazing fast, ~0.08s when on local LAN)
-    Priority 2: Cloudflare Tunnel 127.0.0.1:5434 (robust fallback, timeout=12s)
-    """
-    # Try 1: Local LAN IP (192.168.1.231:5432) with 1s timeout
-    try:
-        conn = psycopg2.connect(
-            host=settings.TWODB_LAN_HOST,
-            port=settings.TWODB_LAN_PORT,
-            dbname=settings.TWODB_DB,
-            user=settings.TWODB_USER,
-            password=settings.TWODB_PASS,
-            connect_timeout=1
-        )
-        return conn
-    except Exception:
-        pass
+# Every connection gets a server-side statement timeout, so a heavy query that nobody waits for any
+# more (page closed, filter changed) is cancelled by Postgres instead of holding the DB and a worker.
+_PG_OPTIONS = f"-c statement_timeout={max(1, settings.DB_STATEMENT_TIMEOUT_SEC) * 1000}"
 
-    # Try 2: Cloudflare Tunnel 127.0.0.1:5434
-    try:
-        conn = psycopg2.connect(
-            host=settings.TWODB_TUNNEL_HOST,
-            port=settings.TWODB_TUNNEL_PORT,
-            dbname=settings.TWODB_DB,
-            user=settings.TWODB_USER,
-            password=settings.TWODB_PASS,
-            sslmode="disable",
-            connect_timeout=timeout
-        )
-        return conn
-    except Exception as e:
-        logger.warning(f"Could not connect to TwoDb via LAN ({settings.TWODB_LAN_HOST}) or Tunnel ({settings.TWODB_TUNNEL_PORT}): {e}")
+
+class _Pool:
+    """Small idle pool: close() on a borrowed connection hands it back instead of closing it."""
+    def __init__(self, name: str, max_idle: int = 8, max_idle_sec: int = 120):
+        self.name = name
+        self.max_idle = max_idle
+        self.max_idle_sec = max_idle_sec  # drop connections idle longer than this (server/NAT may have cut them)
+        self.idle: list = []  # [(connection, returned_at_epoch)]
+        self.lock = threading.Lock()
+
+    def take(self):
+        now = time.time()
+        with self.lock:
+            while self.idle:
+                conn, returned_at = self.idle.pop()
+                if not conn.closed and now - returned_at < self.max_idle_sec:
+                    return _PooledConnection(conn, self)
+                conn.close()
         return None
 
+    def give_back(self, conn):
+        with self.lock:
+            if len(self.idle) < self.max_idle:
+                self.idle.append((conn, time.time()))
+                return
+        conn.close()
+
+
 class _PooledConnection:
-    """Wraps a psycopg2 connection; close() hands it back to the idle pool instead of closing it."""
-    def __init__(self, conn):
+    """Wraps a psycopg2 connection; close() hands it back to its idle pool instead of closing it."""
+    def __init__(self, conn, pool: "_Pool"):
         self._conn = conn
+        self._pool = pool
 
     def __getattr__(self, name):
         return getattr(self._conn, name)
@@ -105,27 +102,51 @@ class _PooledConnection:
         except Exception:
             conn.close()
             return
-        with _ONEDB_POOL_LOCK:
-            if len(_ONEDB_IDLE) < _ONEDB_POOL_MAX_IDLE:
-                _ONEDB_IDLE.append((conn, time.time()))
-                return
-        conn.close()
+        self._pool.give_back(conn)
 
-# Reusing connections saves ~0.3 s per request on the remote onedb link
-_ONEDB_IDLE: list = []  # [(connection, returned_at_epoch)]
-_ONEDB_POOL_LOCK = threading.Lock()
-_ONEDB_POOL_MAX_IDLE = 8
-_ONEDB_MAX_IDLE_SEC = 120  # drop connections idle longer than this (server/NAT may have cut them)
+
+# Reusing connections saves ~0.3 s per request on the remote onedb link and the tunnel to twodb
+_ONEDB_POOL = _Pool("onedb")
+_TWODB_POOL = _Pool("twodb")
+
+# When the LAN host did not answer, skip it for a while instead of paying its 1 s timeout on every request
+_TWODB_LAN_RETRY_SEC = 300
+_twodb_lan_failed_at = 0.0
+
+
+def get_twodb_connection(timeout: int = 12):
+    """
+    Connects to TwoDb, reusing an idle pooled connection when possible.
+    Priority 1: Direct LAN host (fast when on the office LAN, 1 s timeout; skipped for 5 min after a miss)
+    Priority 2: Cloudflare Tunnel 127.0.0.1:5434
+    """
+    global _twodb_lan_failed_at
+    pooled = _TWODB_POOL.take()
+    if pooled:
+        return pooled
+
+    common = dict(dbname=settings.TWODB_DB, user=settings.TWODB_USER, password=settings.TWODB_PASS, options=_PG_OPTIONS)
+    if time.time() - _twodb_lan_failed_at >= _TWODB_LAN_RETRY_SEC:
+        try:
+            conn = psycopg2.connect(host=settings.TWODB_LAN_HOST, port=settings.TWODB_LAN_PORT, connect_timeout=1, **common)
+            return _PooledConnection(conn, _TWODB_POOL)
+        except Exception:
+            _twodb_lan_failed_at = time.time()
+
+    try:
+        conn = psycopg2.connect(host=settings.TWODB_TUNNEL_HOST, port=settings.TWODB_TUNNEL_PORT, sslmode="disable",
+                                connect_timeout=timeout, **common)
+        return _PooledConnection(conn, _TWODB_POOL)
+    except Exception as e:
+        logger.warning(f"Could not connect to TwoDb via LAN ({settings.TWODB_LAN_HOST}) or Tunnel ({settings.TWODB_TUNNEL_PORT}): {e}")
+        return None
+
 
 def get_onedb_connection(timeout: int = 10):
-    """Connect to onedb (187.127.124.130:5432), reusing an idle pooled connection when possible."""
-    now = time.time()
-    with _ONEDB_POOL_LOCK:
-        while _ONEDB_IDLE:
-            conn, returned_at = _ONEDB_IDLE.pop()
-            if not conn.closed and now - returned_at < _ONEDB_MAX_IDLE_SEC:
-                return _PooledConnection(conn)
-            conn.close()
+    """Connect to onedb, reusing an idle pooled connection when possible."""
+    pooled = _ONEDB_POOL.take()
+    if pooled:
+        return pooled
     try:
         conn = psycopg2.connect(
             host=settings.ONEDB_HOST,
@@ -133,9 +154,10 @@ def get_onedb_connection(timeout: int = 10):
             dbname=settings.ONEDB_DB,
             user=settings.ONEDB_USER,
             password=settings.ONEDB_PASS,
-            connect_timeout=timeout
+            connect_timeout=timeout,
+            options=_PG_OPTIONS,
         )
-        return _PooledConnection(conn)
+        return _PooledConnection(conn, _ONEDB_POOL)
     except Exception as e:
         logger.warning(f"OneDb unreachable on {settings.ONEDB_HOST}:{settings.ONEDB_PORT}: {e}")
         return None
@@ -150,8 +172,23 @@ def get_onedb_rw_connection(timeout: int = 10):
         dbname=settings.ONEDB_DB,
         user=settings.ONEDB_RW_USER,
         password=settings.ONEDB_RW_PASS,
-        connect_timeout=timeout
+        connect_timeout=timeout,
+        options=_PG_OPTIONS,
     )
+
+def _ping(conn) -> bool:
+    """A pooled connection may have been cut by the server or NAT: check it really answers."""
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+        return True
+    except Exception:
+        try:
+            conn._conn.close() if isinstance(conn, _PooledConnection) else conn.close()
+        except Exception:
+            pass
+        return False
 
 def check_db_health() -> Dict[str, Any]:
     """Check connectivity to TwoDb and OneDb."""
@@ -160,14 +197,15 @@ def check_db_health() -> Dict[str, Any]:
     
     conn = get_twodb_connection(timeout=5)
     if conn:
-        twodb_ok = True
-        connected_target = conn.get_dsn_parameters()
+        twodb_ok = _ping(conn)
+        if twodb_ok:
+            connected_target = {k: v for k, v in conn.get_dsn_parameters().items() if k in ("host", "port", "dbname")}
         conn.close()
 
     onedb_ok = False
     conn_one = get_onedb_connection(timeout=5)
     if conn_one:
-        onedb_ok = True
+        onedb_ok = _ping(conn_one)
         conn_one.close()
 
     return {

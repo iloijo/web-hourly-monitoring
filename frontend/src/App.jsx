@@ -6,7 +6,6 @@ import AppFooter from './components/layout/AppFooter';
 import ThemePicker from './components/layout/ThemePicker';
 import ExportButton from './components/layout/ExportButton';
 import { THEMES, readStoredTheme, storeTheme } from './constants/themes';
-import KpiMonitoringView from './views/KpiMonitoringView';
 import LoginPage from './views/LoginPage';
 import useReferenceData from './hooks/useReferenceData';
 import useKpiMonitoring from './hooks/useKpiMonitoring';
@@ -24,6 +23,7 @@ const ClusterMonitoringView = lazy(() => import('./views/ClusterMonitoringView')
 const CeiView = lazy(() => import('./views/CeiView'));
 const CrowdsourceView = lazy(() => import('./views/CrowdsourceView'));
 const AdminView = lazy(() => import('./views/AdminView'));
+const KpiMonitoringView = lazy(() => import('./views/KpiMonitoringView'));
 
 // A page kept mounted between visits: hidden (not unmounted) while another menu is open
 function KeptPage({ active, children }) {
@@ -261,18 +261,20 @@ export default function App() {
           )}
 
           {isKpiMenu && (
-            <KpiMonitoringView
-              km={km}
-              activeMenu={activeMenu}
-              siteNamesMap={ref.siteNamesMap}
-              chartsPerRow={chartsPerRow}
-              sidebarOpen={sidebarOpen}
-              setSidebarOpen={setSidebarOpen}
-              markers={markers}
-              setMarkers={setMarkers}
-              darkMode={darkMode}
-              onExportData={exportRegistrars.kpi}
-            />
+            <Suspense fallback={<DataLoadingOverlay />}>
+              <KpiMonitoringView
+                km={km}
+                activeMenu={activeMenu}
+                siteNamesMap={ref.siteNamesMap}
+                chartsPerRow={chartsPerRow}
+                sidebarOpen={sidebarOpen}
+                setSidebarOpen={setSidebarOpen}
+                markers={markers}
+                setMarkers={setMarkers}
+                darkMode={darkMode}
+                onExportData={exportRegistrars.kpi}
+              />
+            </Suspense>
           )}
         </main>
 

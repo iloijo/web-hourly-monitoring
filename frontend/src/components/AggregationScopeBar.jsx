@@ -1,13 +1,11 @@
 import React from 'react';
-import { 
-  Globe, 
-  Network, 
-  Building2, 
-  MapPin, 
-  Radio, 
-  Antenna, 
-  Layers,
-  Sparkles
+import {
+  Globe,
+  Network,
+  Building2,
+  MapPin,
+  Radio,
+  Antenna,
 } from 'lucide-react';
 
 export const AGGREGATION_SCOPES = [

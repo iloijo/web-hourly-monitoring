@@ -20,6 +20,7 @@ import uuid
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
+from .errors import public_error
 from .db import get_onedb_connection
 
 FIELDS = ("azimuth", "mt", "et")
@@ -165,7 +166,7 @@ def apply_overrides(data: Dict[str, Any]) -> Dict[str, Any]:
         cur.close()
     except Exception as e:  # the map still works without the edits
         conn.rollback()
-        out["override_error"] = f"Edits could not be read: {e}"
+        out["override_error"] = f"Edits could not be read: {public_error(e)}"
         return out
     finally:
         conn.close()

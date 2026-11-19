@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getJson } from '../api/client';
 import {
-  ALL_BAND_IDS, HOURLY_KPIS, SECTORAL_KPIS, DEFAULT_HOURLY_KPIS, DEFAULT_DAILY_KPIS, FALLBACK_DAILY_KPIS,
-  REGIONAL_DEFAULT_KPIS, KPI_MENUS, BAND_OPTIONS_4G, BAND_OPTIONS_5G, BAND_OPTIONS_2G, bandOptionsFor, orderKpiIds,
+  ALL_BAND_IDS,
+  HOURLY_KPIS,
+  SECTORAL_KPIS,
+  DEFAULT_HOURLY_KPIS,
+  DEFAULT_DAILY_KPIS,
+  FALLBACK_DAILY_KPIS,
+  KPI_MENUS,
+  BAND_OPTIONS_4G,
+  BAND_OPTIONS_5G,
+  BAND_OPTIONS_2G,
+  bandOptionsFor,
+  orderKpiIds,
 } from '../constants/kpis';
 import { getInitialDateRange, loadLatestDates } from '../constants/dates';
 

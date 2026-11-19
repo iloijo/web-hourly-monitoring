@@ -35,5 +35,10 @@ class Settings(BaseModel):
     DASHBOARD_PASS: str = os.getenv("DASHBOARD_PASS", "")
     # User database (SQLite). Default: backend/data/netpulse_auth.sqlite3
     AUTH_DB_PATH: str = os.getenv("AUTH_DB_PATH", "")
+    # With no user in the database every API is refused, unless this is set to 1 (local testing only)
+    ALLOW_OPEN_ACCESS: bool = os.getenv("ALLOW_OPEN_ACCESS", "0").strip().lower() in ("1", "true", "yes")
+
+    # Postgres cancels any single query running longer than this (seconds)
+    DB_STATEMENT_TIMEOUT_SEC: int = int(os.getenv("DB_STATEMENT_TIMEOUT_SEC", "120"))
 
 settings = Settings()
