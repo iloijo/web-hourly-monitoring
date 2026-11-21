@@ -5,7 +5,7 @@ Supports:
 - Custom number_formats per column (e.g. 0.00, #,##0.00, 0.00%)
 - Remark coloring (Improve/Improved -> 16A34A, Maintain/Maintained -> F97316, Degrade/Degraded -> DC2626)
 - Polarity-aware Delta coloring (red/green)
-- Native Excel LineCharts with custom series colors and secondary right-axis for Total
+- Native Excel charts: smooth cell lines, Total as an area on the secondary right axis
 - Cluster summary headers (merged title + period banner) and grouped cluster tables
 """
 import io
@@ -13,7 +13,13 @@ import re
 from typing import Any, Dict, List, Optional
 
 from openpyxl import Workbook
-from openpyxl.chart import LineChart, Reference
+from openpyxl.chart import AreaChart, LineChart, Reference
+from openpyxl.chart.axis import ChartLines
+from openpyxl.chart.data_source import AxDataSource, StrRef
+from openpyxl.chart.shapes import GraphicalProperties
+from openpyxl.chart.text import RichText
+from openpyxl.drawing.line import LineProperties
+from openpyxl.drawing.text import CharacterProperties, Font as DrawingFont, Paragraph, ParagraphProperties, RichTextProperties
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -89,6 +95,79 @@ def _format_cell_val(val: Any, col_name: str, number_formats: dict) -> Any:
     return val
 
 
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+_ISO_TIME = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?")
+
+
+def _short_time(cat: Any) -> str:
+    """'2026-11-13 10:00:00' -> '13 Nov 10:00', '2026-11-13' -> '13 Nov 26'; other labels unchanged."""
+    m = _ISO_TIME.match(str(cat))
+    if not m or not 1 <= int(m.group(2)) <= 12:
+        return str(cat)
+    day, mon = int(m.group(3)), _MONTHS[int(m.group(2)) - 1]
+    return f"{day} {mon} {m.group(4)}:{m.group(5)}" if m.group(4) else f"{day} {mon} {m.group(1)[2:]}"
+
+
+def _axis_text(size: int = 800, color: str = "64748B") -> RichText:
+    """Axis tick labels: small slate text."""
+    return RichText(bodyPr=RichTextProperties(), p=[Paragraph(
+        pPr=ParagraphProperties(defRPr=CharacterProperties(sz=size, solidFill=color, latin=DrawingFont(typeface="Segoe UI"))),
+        endParaRPr=CharacterProperties())])
+
+
+def _title_par(size: int, color: str, bold: bool = True) -> ParagraphProperties:
+    return ParagraphProperties(defRPr=CharacterProperties(sz=size, b=bold, solidFill=color, latin=DrawingFont(typeface="Segoe UI")))
+
+
+def _style_line(ser, color_hex: str, width: int) -> None:
+    ser.graphicalProperties.line.solidFill = color_hex
+    ser.graphicalProperties.line.width = width
+    ser.graphicalProperties.line.cap = "rnd"
+    ser.marker.symbol = "none"
+    ser.smooth = True
+
+
+def _style_value_axis(y, title: str, gridlines: bool) -> None:
+    """Value axis: title, small labels, no axis line; thin dashed light gridlines on the primary axis."""
+    y.delete = False
+    y.title = title or None
+    if title:
+        y.title.tx.rich.p[0].pPr = _title_par(900, "475569")
+        y.title.overlay = False
+    y.number_format = "General"
+    y.majorTickMark = "none"
+    y.txPr = _axis_text()
+    y.spPr = GraphicalProperties(ln=LineProperties(noFill=True))
+    y.majorGridlines = ChartLines(spPr=GraphicalProperties(ln=LineProperties(solidFill="E2E8F0", w=6350, prstDash="dash"))) if gridlines else None
+
+
+def _style_chart(chart, title: str, n_points: int) -> None:
+    """Clean look: visible date and value axes, light gridlines, legend under the plot, empty points as gaps."""
+    chart.title = title
+    chart.title.tx.rich.p[0].pPr = _title_par(1200, "1E293B")
+    chart.title.overlay = False
+    chart.style = 2
+    chart.width = 26
+    chart.height = 11
+    chart.display_blanks = "gap"
+    chart.varyColors = False
+    chart.roundedCorners = False
+    chart.graphical_properties = GraphicalProperties(solidFill="FFFFFF", ln=LineProperties(solidFill="E2E8F0", w=9525))
+    chart.legend.position = "b"
+    chart.legend.overlay = False
+    chart.legend.txPr = _axis_text(800, "334155")
+
+    # Category (time) axis: labels at the bottom, about 12 of them, no axis line clutter
+    x = chart.x_axis
+    x.delete = False
+    x.tickLblPos = "low"
+    x.tickLblSkip = max(1, -(-n_points // 12))
+    x.tickMarkSkip = x.tickLblSkip
+    x.majorTickMark = "out"
+    x.txPr = _axis_text()
+    x.spPr = GraphicalProperties(ln=LineProperties(solidFill="CBD5E1", w=9525))
+
+
 def _render_charts_sheet(wb: Workbook, sheet: Dict[str, Any], used: set) -> None:
     """Renders a sheet containing native Excel LineCharts with data in 'Chart Data'."""
     charts = sheet.get("charts") or []
@@ -138,7 +217,7 @@ def _render_charts_sheet(wb: Workbook, sheet: Dict[str, Any], used: set) -> None
         # 2. Write data points
         for r_idx, cat in enumerate(categories):
             r_num = 2 + r_idx
-            ws_data.cell(row=r_num, column=curr_col, value=str(cat))
+            ws_data.cell(row=r_num, column=curr_col, value=_short_time(cat))
             for s_idx, s in enumerate(series):
                 v_list = s.get("values") or []
                 v = v_list[r_idx] if r_idx < len(v_list) else None
@@ -148,48 +227,52 @@ def _render_charts_sheet(wb: Workbook, sheet: Dict[str, Any], used: set) -> None
                 t_v = t_list[r_idx] if r_idx < len(t_list) else None
                 ws_data.cell(row=r_num, column=tot_col, value=t_v)
 
-        # 3. Create openpyxl LineChart
-        chart = LineChart()
-        chart.title = c.get("title", "")
-        chart.style = 13
-        chart.width = 24
-        chart.height = 9
-        chart.legend.position = "b"
-        chart.y_axis.title = c.get("unit", "")
-
+        # 3. Cells as smooth lines on the left axis
         cats_ref = Reference(ws_data, min_col=curr_col, min_row=2, max_row=max_row)
-        chart.set_categories(cats_ref)
+        # Time labels are text: link them as a string reference (openpyxl's default numeric reference shows 1, 2, 3...)
+        cat_src = AxDataSource(strRef=StrRef(f=str(cats_ref)))
+        line = LineChart()
+        _style_value_axis(line.y_axis, c.get("unit", ""), gridlines=True)
+        # a percentage axis stops at 100 when no value is above it (as in the app)
+        vals = [v for s in series for v in (s.get("values") or []) if isinstance(v, (int, float))]
+        if c.get("unit") == "%" and vals and max(vals) <= 100:
+            line.y_axis.scaling.max = 100
 
         if series:
             data_ref = Reference(ws_data, min_col=curr_col + 1, min_row=1, max_col=curr_col + len(series), max_row=max_row)
-            chart.add_data(data_ref, titles_from_data=True)
+            line.add_data(data_ref, titles_from_data=True)
             for s_idx, s in enumerate(series):
-                if s_idx < len(chart.series):
-                    ser = chart.series[s_idx]
+                if s_idx < len(line.series):
                     color_hex = str(s.get("color") or "4e79a7").lstrip("#").upper()
-                    ser.graphicalProperties.line.solidFill = color_hex
-                    ser.graphicalProperties.line.width = 15000  # ~1.2 pt
-                    ser.smooth = False
+                    _style_line(line.series[s_idx], color_hex, 19050)   # 1.5 pt
+                    line.series[s_idx].cat = cat_src
 
-        # Secondary axis for Total Payload
+        # Total (payload / traffic): always an area on the secondary (right) axis, drawn behind the cell lines
         if has_total:
             tot_ref = Reference(ws_data, min_col=tot_col, min_row=1, max_col=tot_col, max_row=max_row)
-            tot_chart = LineChart()
-            tot_chart.add_data(tot_ref, titles_from_data=True)
-            tot_chart.y_axis.title = f"Total ({c.get('unit', '')})"
-            tot_chart.y_axis.axId = 200
-            tot_chart.y_axis.crosses = "max"
-            tot_chart.legend = None
-            if tot_chart.series:
-                tot_ser = tot_chart.series[0]
-                tot_ser.graphicalProperties.line.solidFill = "F43F5E"
-                tot_ser.graphicalProperties.line.width = 20000  # ~1.5 pt
-                tot_ser.smooth = False
-            chart += tot_chart
+            chart = AreaChart()
+            chart.add_data(tot_ref, titles_from_data=True)
+            chart.y_axis.axId = 200
+            chart.y_axis.crosses = "max"
+            _style_value_axis(chart.y_axis, f"Total ({c.get('unit', '')})" if c.get("unit") else "Total", gridlines=False)
+            if not series:   # the total alone: its axis keeps the gridlines
+                chart.y_axis.majorGridlines = line.y_axis.majorGridlines
+            if chart.series:
+                ser = chart.series[0]
+                ser.graphicalProperties.solidFill = "FBD0D8"
+                ser.graphicalProperties.line.solidFill = "F43F5E"
+                ser.graphicalProperties.line.width = 19050
+                ser.cat = cat_src
+            chart.x_axis = line.x_axis
+            if series:
+                chart += line
+        else:
+            chart = line
+        _style_chart(chart, c.get("title", ""), len(categories))
 
-        # Position chart (2 charts per row: A1, P1, A21, P21...)
-        grid_r = (c_idx // 2) * 20 + 1
-        grid_c = "A" if (c_idx % 2 == 0) else "P"
+        # Position chart (2 charts per row: A1, Q1, A23, Q23...)
+        grid_r = (c_idx // 2) * 23 + 1
+        grid_c = "A" if (c_idx % 2 == 0) else "Q"
         ws_charts.add_chart(chart, f"{grid_c}{grid_r}")
 
         # Advance curr_col (plus 1 column gap)

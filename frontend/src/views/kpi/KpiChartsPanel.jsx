@@ -112,7 +112,7 @@ export default function KpiChartsPanel({
   const comboTimestamps = scope === 'sector' ? (currentSectorData?.timestamps || sectorData?.timestamps || []) : aggData?.timestamps;
   const comboCharts = (comboSource?.kpis ? (combos?.[comboTech] || []) : []).map(c => ({
     id: c.id,
-    kpis: c.kpis.map(id => ({ id, data: comboSource.kpis[id] })).filter(k => k.data),
+    kpis: c.kpis.map(k => ({ ...k, data: comboSource.kpis[k.id] })).filter(k => k.data),
   })).filter(c => c.kpis.length >= 2);
   const removeCombo = (id) => {
     const next = { ...combos, [comboTech]: combos[comboTech].filter(c => c.id !== id) };

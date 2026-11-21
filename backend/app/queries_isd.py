@@ -1,7 +1,6 @@
 """Directional ISD per cell and the TA70 / ISD remark (method of the TA_ISD_TA70 workbook, Sulawesi).
 
-ISD of a cell = distance to the nearest 4G site in the direction of its azimuth: first within +-60 deg, then
-+-90 deg; when there is none, the nearest site in any direction and the cell is "Cover Open Area / End Cell".
+ISD of a cell = distance to the nearest 4G site in the direction of its azimuth, within +-90 deg; when there is none, the nearest site in any direction and the cell is "Cover Open Area / End Cell".
 - Sites closer than 50 m (same tower) and farther than 20 km are ignored.
 - Target sites exclude indoor-only sites and Combat / micro sites (COI, _MCP, _MCR in the name): they are
   temporary or low antennas, not the edge of macro coverage. Those cells are still judged themselves.
@@ -16,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from .db import get_onedb_connection
 
-WINDOWS = (60.0, 90.0)
+WINDOWS = (90.0,)
 MIN_KM = 0.05
 MAX_KM = 20.0
 GRID_DEG = 0.1                    # ~11 km buckets; 20 km is reached by looking 2 buckets around

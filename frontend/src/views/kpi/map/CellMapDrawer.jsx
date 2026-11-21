@@ -198,7 +198,7 @@ function KpiSection({ kpi, meta, cell }) {
     ['TA 70 / 80 / 90', k.ta90 !== undefined && k.ta90 !== null
       ? `${formatDistance(k.ta70)} / ${formatDistance(k.ta80)} / ${formatDistance(k.ta90)}` : null],
   ];
-  // Directional ISD (nearest site ahead within +-60 / +-90 deg) and TA70 / ISD
+  // Directional ISD (nearest site ahead within +-90 deg) and TA70 / ISD
   const isd = cell?.isd;
   const tr = cell && !cell.indoor ? taIsdRemark(cell, k) : null;
   return (

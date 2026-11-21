@@ -27,7 +27,7 @@ export default function TaIsdTable({ rows, sectorFilter = 'all', bandFilter = 'a
         <div>
           <h3 className="font-bold text-xs uppercase tracking-wider text-slate-500">TA70 vs ISD per cell</h3>
           <p className="text-[11px] text-slate-400">
-            TA70 of {fromDate} – {toDate}. ISD = nearest 4G site ahead of the azimuth (±60°, then ±90°; sites &lt; 50 m, indoor, Combat and micro skipped).
+            TA70 of {fromDate} – {toDate}. ISD = nearest 4G site ahead of the azimuth (within ±90°; sites &lt; 50 m, indoor, Combat and micro skipped).
             Ratio &lt; 0.3 Undershooting · 0.3 – 1.0 Normal · 1.0 – 1.3 Overlap · &gt; 1.3 Overshooting.
           </p>
         </div>
