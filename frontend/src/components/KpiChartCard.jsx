@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactECharts from 'echarts-for-react';
+import { sideTooltipPosition, TOOLTIP_BG } from './chartTooltip';
 
 export default function KpiChartCard({
   title,
@@ -45,7 +46,9 @@ export default function KpiChartCard({
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
-      backgroundColor: 'rgba(15, 23, 42, 0.92)',
+      confine: true,
+      position: sideTooltipPosition,
+      backgroundColor: TOOLTIP_BG,
       borderColor: '#334155',
       borderWidth: 1,
       textStyle: {

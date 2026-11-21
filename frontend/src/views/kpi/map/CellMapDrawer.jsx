@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CircleMarker, MapContainer, Polygon, Popup, ScaleControl, TileLayer, Tooltip, useMap, useMapEvents,
+  CircleMarker, MapContainer, Polygon, Polyline, Popup, ScaleControl, TileLayer, Tooltip, useMap, useMapEvents,
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
@@ -16,6 +16,7 @@ import DesiqaEditor, { RNO_COLOR } from './DesiqaEditor';
 import { HorizonPanel, HorizonShapes, horizonFor } from './HorizonLayer';
 import { COVMO_METRICS, COVMO_MIN_ZOOM } from './covmo';
 import { bandColor, COLOR_MODES, NO_DATA, statusColor } from './colorModes';
+import { ISD_REMARK_COLORS, taIsdRemark } from './isd';
 import { bandLength, destination, distanceM, formatDistance, sectorPolygon, siteSectorBase } from './geo';
 import { azimuthPath } from './profile';
 import ProfilePanel from './ProfilePanel';
@@ -185,7 +186,7 @@ const StatusChip = ({ label, value, color }) => (
   </span>
 );
 
-function KpiSection({ kpi, meta }) {
+function KpiSection({ kpi, meta, cell }) {
   if (!meta) return <div className="mt-1.5 pt-1.5 border-t border-slate-200 opacity-60">Loading KPI...</div>;
   const k = kpi || {};
   const pair = (a, b, u) => (a === undefined && b === undefined ? null : `${fmt(a)} / ${fmt(b)}${u}`);
@@ -197,6 +198,9 @@ function KpiSection({ kpi, meta }) {
     ['TA 70 / 80 / 90', k.ta90 !== undefined && k.ta90 !== null
       ? `${formatDistance(k.ta70)} / ${formatDistance(k.ta80)} / ${formatDistance(k.ta90)}` : null],
   ];
+  // Directional ISD (nearest site ahead within +-60 / +-90 deg) and TA70 / ISD
+  const isd = cell?.isd;
+  const tr = cell && !cell.indoor ? taIsdRemark(cell, k) : null;
   return (
     <div className="mt-1.5 pt-1.5 border-t border-slate-200">
       <div className="opacity-60 mb-0.5">KPI {meta.kpi_date} (BDBH)</div>
@@ -208,6 +212,21 @@ function KpiSection({ kpi, meta }) {
               <td className="py-px font-semibold">{fmt(v)}</td>
             </tr>
           ))}
+          {isd && (
+            <tr title={`Nearest 4G site ahead of the azimuth (window ${isd.window}, sites < 50 m and indoor / Combat / micro sites skipped)`}>
+              <td className="pr-2 py-px opacity-60 whitespace-nowrap">ISD</td>
+              <td className="py-px font-semibold">{formatDistance(isd.isd_m)} → {isd.target} <span className="font-normal opacity-60">({isd.window})</span></td>
+            </tr>
+          )}
+          {tr && (
+            <tr title="TA70 / ISD: < 0.3 Undershooting, 0.3 – 1.0 Normal, 1.0 – 1.3 Overlap, > 1.3 Overshooting">
+              <td className="pr-2 py-px opacity-60 whitespace-nowrap">TA70 / ISD</td>
+              <td className="py-px font-semibold">
+                {tr.ratio ?? '–'}{' '}
+                <span className="px-1.5 rounded text-white text-[10px]" style={{ background: ISD_REMARK_COLORS[tr.remark] || NO_DATA }}>{tr.remark}</span>
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
       <div className="mt-1 flex flex-wrap">
@@ -331,7 +350,7 @@ function CellPopup({
         </div>
         <div className="min-w-0 border-l border-slate-200 pl-4">
           {actions}
-          <KpiSection kpi={kpi} meta={kpiMeta} />
+          <KpiSection kpi={kpi} meta={kpiMeta} cell={cell} />
           {edit}
         </div>
       </div>
@@ -340,7 +359,7 @@ function CellPopup({
   return (
     <div className="text-[11px] min-w-60">
       {info}
-      <KpiSection kpi={kpi} meta={kpiMeta} />
+      <KpiSection kpi={kpi} meta={kpiMeta} cell={cell} />
       {sameDirection}
       {actions}
       {edit}
@@ -352,7 +371,8 @@ function Legend({ bands, darkMode, tier, mode, kpiMeta, ta, edited }) {
   const m = COLOR_MODES[mode] || COLOR_MODES.band;
   const items = m.legend ? [...m.legend, [NO_DATA, 'No data']] : bands.map(b => [bandColor(b), b]);
   const week = m.week && kpiMeta?.[m.week] ? ` W${kpiMeta[m.week]}` : '';
-  const day = (mode === 'dl_prb' || mode === 'dl_thp') && kpiMeta?.kpi_date ? ` ${kpiMeta.kpi_date}` : '';
+  const day = (mode === 'dl_prb' || mode === 'dl_thp') && kpiMeta?.kpi_date ? ` ${kpiMeta.kpi_date}`
+    : m.day && kpiMeta?.[m.day] ? ` TA ${kpiMeta[m.day]}` : '';
   return (
     <div className={`absolute bottom-6 right-2 z-[500] rounded-lg border px-2.5 py-2 text-[10px] shadow-md space-y-1 max-w-56 ${
       darkMode ? 'bg-slate-900/90 border-slate-700 text-slate-200' : 'bg-white/95 border-slate-200 text-slate-700'
@@ -518,6 +538,7 @@ export default function CellMapDrawer({
   const [borderHover, setBorderHover] = useState(null);
   const borders = prefs.borders || {};
   const [popupOpen, setPopupOpen] = useState(false);
+  const [isdCell, setIsdCell] = useState(null);   // sector whose popup is open: its ISD line is drawn
   const updatePrefs = (patch) => setPrefs(p => { const next = { ...p, ...patch }; writePrefs(next); return next; });
   const [measuring, setMeasuring] = useState(false);
   const [cursor, setCursor] = useState('pan');
@@ -843,6 +864,16 @@ export default function CellMapDrawer({
             <BorderLayer layers={borders} dark={prefs.basemap === 'satellite'} onHover={setBorderHover} />
             <CovmoLayer metric={covmoMetric} week={covmoWeek} opacity={prefs.covmoOpacity ?? 0.4} onStatus={setCovmoStatus} onHover={setCovmoHover} />
 
+            {/* open sector: dashed line to the site that sets its ISD */}
+            {isdCell?.isd && (
+              <Polyline positions={[[isdCell.lat, isdCell.lon], [isdCell.isd.target_lat, isdCell.isd.target_lon]]} interactive={false}
+                pathOptions={{ color: '#0f172a', weight: 2, dashArray: '6 5', opacity: 0.9 }}>
+                <Tooltip permanent direction="center" className="!text-[10px] !py-0 !px-1">
+                  ISD {formatDistance(isdCell.isd.isd_m)} → {isdCell.isd.target}
+                </Tooltip>
+              </Polyline>
+            )}
+
             {shapes.map(({ cell, site, positions, noTa, indoor, ring }) => {
               const isMain = cell.site_id === mainSite;
               const highlighted = isMain && sectorSet.has(cell.sector);
@@ -862,6 +893,7 @@ export default function CellMapDrawer({
                   pane={CELL_PANE}
                   positions={positions}
                   interactive={!busy}
+                  eventHandlers={{ popupopen: () => setIsdCell(cell), popupclose: () => setIsdCell(o => (o === cell ? null : o)) }}
                   pathOptions={ring ? {
                     // indoor TA ring: outline only, so only the line is clickable and nothing is shaded
                     color: outline,

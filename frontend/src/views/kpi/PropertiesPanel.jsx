@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Map as MapIcon, Table2, X } from 'lucide-react';
 
 const fmt = (v) => (v === null || v === undefined || v === '' ? '–' : v);
@@ -71,7 +72,17 @@ export default function PropertiesPanel({
   sortConfig,
   onSort,
   rightOffset = 0, // width of the open map drawer: the sheet stays left of it
+  onHeight,        // reports the sheet height, so the page can leave the same room under the charts
 }) {
+  // The sheet is as tall as its rows, up to 46% of the screen
+  const sheetRef = useRef(null);
+  useEffect(() => {
+    const el = sheetRef.current;
+    if (!el || !onHeight) return undefined;
+    const ro = new ResizeObserver(() => onHeight(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [onHeight]);
 
   const panel = darkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800';
   const headCell = darkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700/80' : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80';
@@ -80,8 +91,9 @@ export default function PropertiesPanel({
   return (
     <>
       <div
+        ref={sheetRef}
         style={{ right: rightOffset }}
-        className={`fixed bottom-0 z-30 h-[46vh] border-t flex flex-col transition-all duration-300 ease-out ${panel} ${
+        className={`fixed bottom-0 z-30 max-h-[46vh] border-t flex flex-col transition-all duration-300 ease-out ${panel} ${
           // the shadow only while open: a closed sheet sits below the screen and its shadow showed as a grey band
           open ? 'translate-y-0 shadow-[0_-12px_32px_rgba(0,0,0,0.18)]' : 'translate-y-full pointer-events-none invisible'
         } ${sidebarOpen ? 'left-64' : 'left-0'}`}
@@ -103,7 +115,8 @@ export default function PropertiesPanel({
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto">
+        {/* bottom room: the 4G Properties / Map capsule floats over the sheet's last row */}
+        <div className="flex-1 min-h-0 overflow-auto pb-12">
           {p.loading && <div className="p-6 text-xs opacity-70">Loading properties...</div>}
           {!p.loading && p.error && <div className="p-6 text-xs text-rose-500">Failed to load: {p.error}</div>}
           {!p.loading && !p.error && p.loaded && rows.length === 0 && (

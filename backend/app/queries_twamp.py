@@ -448,3 +448,150 @@ def get_twamp_scope_aggregation(
         },
         "table_rows": table_rows
     }
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Before / After comparison (same idea as Cluster Monitoring): per entity of the scope, with a per-site breakdown.
+# Loss rate = lost / sent over the whole period; delay and jitter = mean of the daily values. Lower is better for
+# all three; the remark uses the Cluster Monitoring rule (growth beyond +-3 %).
+# ---------------------------------------------------------------------------------------------------------------
+TWAMP_COMPARE_KPIS = [
+    ("loss_rate", "Packet Loss Rate", "%", "down"),
+    ("delay", "Avg Delay", "ms", "down"),
+    ("jitter", "Avg Jitter", "ms", "down"),
+    ("tx", "Tx Packets / day", "packets", None),
+]
+OUTLIER_FACTOR = 20
+
+
+def get_twamp_compare(
+    scope: str,
+    before_start: str, before_end: str, after_start: str, after_end: str,
+    nops: Optional[List[str]] = None,
+    cities: Optional[List[str]] = None,
+    kecamatans: Optional[List[str]] = None,
+    sites: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    from .queries_cluster import _compare   # same Before/After/Delta/Growth/Remark rule
+
+    def _clean(items):
+        out = []
+        for it in items or []:
+            out += [p.strip().upper() for p in str(it).split(",") if p.strip()]
+        return list(dict.fromkeys(out)) or None
+
+    nops, cities, kecamatans, sites = _clean(nops), _clean(cities), _clean(kecamatans), _clean(sites)
+    scope = str(scope or "regional").strip().lower()
+    entity_expr = {
+        "regional": "'Region Sulawesi'",
+        "nop": "COALESCE(l.\"NOP\", 'OTHER')",
+        "city": "COALESCE(c.kabupaten, 'UNKNOWN')",
+        "kecamatan": "COALESCE(c.kecamatan, 'UNKNOWN')",
+    }.get(scope, "c.site_id")
+    where = ["t.\"Begin Time\" >= %s::date", "t.\"Begin Time\" < (%s::date + interval '1 day')"]
+    params: List[Any] = [min(before_start, after_start), max(before_end, after_end)]
+    filters = {
+        "nop": [("l.\"NOP\"", nops)],
+        "city": [("l.\"NOP\"", nops), ("c.kabupaten", cities)],
+        "kecamatan": [("c.kabupaten", cities), ("c.kecamatan", kecamatans)],
+        "site": [("c.site_id", sites)],
+    }.get(scope, [])
+    for col, values in filters:
+        if values:
+            where.append(f"{col} = ANY(%s)")
+            params.append(values)
+
+    # One row per eNodeB in the site list (CellListRCI has one row per cell: joining it directly would count the
+    # same TWAMP row once per cell). Site-days whose sent count is far above the usual (broken counter, e.g.
+    # 600 million packets against ~0.9 million a day) are left out: one of them would decide a whole NOP.
+    query = f"""
+        WITH enb AS (
+            SELECT DISTINCT ON (enodeb_id) enodeb_id, site_id, kabupaten, kecamatan
+            FROM "CellListRCI" WHERE enodeb_id IS NOT NULL ORDER BY enodeb_id, site_id
+        ), daily AS (
+            SELECT {entity_expr} AS entity, c.site_id, t."Begin Time"::date AS d,
+                   sum(COALESCE(t."Total Number of Twamp detect packets transmitted 1630557082985", 0)) AS tx,
+                   sum(COALESCE(t."Total number of TWAMP detect packets received", 0)) AS rx,
+                   avg(NULLIF(t."Average Delay of TWAMP Detecting Link(ms) 1630557082931", 0)) AS delay,
+                   avg(NULLIF(t."Average Jitter of TWAMP Detecting Link(ms) 1630557083091", 0)) AS jitter
+            FROM "measTwamp4g" t
+            JOIN enb c ON t."ManagedElement ID" = c.enodeb_id
+            LEFT JOIN "LookupSITEID" l ON c.site_id = l."Prefix Site ID"
+            WHERE {" AND ".join(where)}
+              AND (t."Begin Time"::date BETWEEN %s AND %s OR t."Begin Time"::date BETWEEN %s AND %s)
+            GROUP BY 1, 2, 3
+        ), lim AS (
+            SELECT {OUTLIER_FACTOR} * percentile_cont(0.5) WITHIN GROUP (ORDER BY tx) AS max_tx FROM daily WHERE tx > 0
+        )
+        SELECT entity, site_id, CASE WHEN d BETWEEN %s AND %s THEN 'b' ELSE 'a' END AS period,
+               count(*) FILTER (WHERE tx <= lim.max_tx) AS days,
+               sum(tx) FILTER (WHERE tx <= lim.max_tx), sum(rx) FILTER (WHERE tx <= lim.max_tx),
+               avg(delay) FILTER (WHERE tx <= lim.max_tx), avg(jitter) FILTER (WHERE tx <= lim.max_tx),
+               count(*) FILTER (WHERE tx > lim.max_tx) AS dropped
+        FROM daily CROSS JOIN lim
+        GROUP BY 1, 2, 3
+    """
+    conn = get_onedb_connection(timeout=15)
+    if not conn:
+        return {"status": "error", "message": "OneDb unreachable"}
+    try:
+        cur = conn.cursor()
+        cur.execute(query, (*params, before_start, before_end, after_start, after_end, before_start, before_end))
+        rows = cur.fetchall()
+        cur.close()
+    except Exception as e:
+        logger.error(f"Error querying TWAMP compare: {e}")
+        conn.rollback()
+        return {"status": "error", "message": public_error(e)}
+    finally:
+        conn.close()
+
+    # sums per (entity, site, period) -> KPI values; entity totals add the site sums up
+    acc = defaultdict(lambda: {"days": 0, "tx": 0.0, "rx": 0.0, "delay": [], "jitter": []})
+    dropped = []
+    for entity, site, period, days, tx, rx, delay, jitter, n_drop in rows:
+        if n_drop:
+            dropped.append({"site": site, "period": "before" if period == "b" else "after", "days": int(n_drop)})
+        for key in ((entity, None, period), (entity, site, period)):
+            a = acc[key]
+            a["days"] = max(a["days"], int(days or 0))
+            a["tx"] += float(tx or 0)
+            a["rx"] += float(rx or 0)
+            if delay is not None:
+                a["delay"].append(float(delay))
+            if jitter is not None:
+                a["jitter"].append(float(jitter))
+
+    def _values(a):
+        if not a or a["tx"] <= 0:
+            return {"loss_rate": None, "delay": None, "jitter": None, "tx": None}
+        return {
+            "loss_rate": round(max(0.0, a["tx"] - a["rx"]) / a["tx"] * 100, 4),
+            "delay": round(sum(a["delay"]) / len(a["delay"]), 2) if a["delay"] else None,
+            "jitter": round(sum(a["jitter"]) / len(a["jitter"]), 2) if a["jitter"] else None,
+            "tx": round(a["tx"] / max(1, a["days"]), 0),
+        }
+
+    def _row(entity, site):
+        b, a = _values(acc.get((entity, site, "b"))), _values(acc.get((entity, site, "a")))
+        return {k: _compare(b[k], a[k], pol) for k, _, _, pol in TWAMP_COMPARE_KPIS}
+
+    entities = sorted({k[0] for k in acc})
+    out = []
+    for ent in entities:
+        site_ids = sorted({k[1] for k in acc if k[0] == ent and k[1] is not None})
+        out.append({
+            "entity": ent,
+            "kpis": _row(ent, None),
+            "sites": [{"site": s, "name": get_site_display_name(s), "kpis": _row(ent, s)} for s in site_ids],
+        })
+    return {
+        "status": "success", "scope": scope,
+        "before": {"start": before_start, "end": before_end},
+        "after": {"start": after_start, "end": after_end},
+        "kpis": [{"id": k, "title": t, "unit": u, "polarity": p or "neutral"} for k, t, u, p in TWAMP_COMPARE_KPIS],
+        "entities": out,
+        # site-days left out for an abnormal sent count (more than OUTLIER_FACTOR x the median site-day)
+        "dropped": sorted(dropped, key=lambda x: (x["site"], x["period"])),
+        "outlier_factor": OUTLIER_FACTOR,
+    }

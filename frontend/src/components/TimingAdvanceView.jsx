@@ -17,6 +17,7 @@ import { BAND_COLORS, BAND_COLOR_VARIANTS, getCarrierStyle } from './SectorPaylo
 import { loadLatestDates, shiftDate } from '../constants/dates';
 import { objectRowsSheet } from '../api/export';
 import { getJson } from '../api/client';
+import TaIsdTable, { taIsdSheetRows } from './TaIsdTable';
 
 const BAND_ORDER = {
   'L700': 1, 'L900': 2, 'L1800': 3, 'L2100': 4,
@@ -224,7 +225,10 @@ export default function TimingAdvanceView({
     if (!rows?.length) { onExportData(null); return undefined; }
     onExportData(() => ({
       filename: `${compareMode ? 'TA_Compare' : 'TA'}_${tech.toUpperCase()}_${activeDataSource.site_id || selectedSite}`,
-      sheets: [objectRowsSheet(compareMode ? 'TA Compare' : 'Timing Advance', rows)],
+      sheets: [
+        objectRowsSheet(compareMode ? 'TA Compare' : 'Timing Advance', rows),
+        ...(!compareMode && activeDataSource?.cell_isd?.length ? [objectRowsSheet('TA70 vs ISD', taIsdSheetRows(activeDataSource.cell_isd))] : []),
+      ],
     }));
     return () => onExportData(null);
   }, [activeDataSource, compareMode, onExportData]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1118,6 +1122,12 @@ export default function TimingAdvanceView({
           )}
 
         </div>
+      )}
+
+      {/* TA70 against the directional ISD of each cell (4G, one period) */}
+      {!is5G && !compareMode && data?.cell_isd?.length > 0 && (
+        <TaIsdTable rows={data.cell_isd} sectorFilter={sectorFilter} bandFilter={bandFilter}
+          fromDate={data.start_date} toDate={data.end_date} darkMode={darkMode} />
       )}
 
       {/* 5. TABLE VIEW RENDERING */}

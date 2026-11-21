@@ -53,7 +53,7 @@ DEFAULT_ROLES = [
 # Permissions added after a release, granted once to existing built-in roles (an admin may remove them later)
 PERMISSION_MIGRATIONS = [("2026-11-map-edit", "rno", "map-edit")]
 
-SESSION_IDLE_SEC = 30 * 60          # matches the frontend idle logout
+SESSION_IDLE_SEC = 2 * 60 * 60      # matches the frontend idle logout (2 h)
 SESSION_MAX_SEC = 7 * 24 * 3600     # absolute lifetime of a token
 SESSION_TOUCH_SEC = 60              # last_seen is written at most once a minute per session
 MAX_FAILED_LOGINS = 5

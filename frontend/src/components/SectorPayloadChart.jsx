@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import ReactECharts from '../lib/echarts';
 import { legendRowsFor } from '../lib/legendLayout';
+import { sideTooltipPosition, TOOLTIP_BG } from './chartTooltip';
 
 // Distinct LTE Band palette (Tableau 10) optimized for high visual contrast across bands
 export const BAND_COLORS = {
@@ -697,6 +698,7 @@ function SectorPayloadChart({
       confine: true, // "Tidak Terpotong": ensures tooltip is never clipped outside chart boundaries
       className: 'echarts-tooltip',
       transitionDuration: 0.1,
+      position: sideTooltipPosition, // beside the cursor, away from the lines being read
       axisPointer: {
         type: 'line',
         animation: false,
@@ -707,7 +709,7 @@ function SectorPayloadChart({
           type: 'dashed'
         }
       },
-      backgroundColor: darkMode ? 'rgba(15, 23, 42, 0.96)' : 'rgba(15, 23, 42, 0.96)',
+      backgroundColor: TOOLTIP_BG,
       borderColor: darkMode ? '#475569' : '#334155',
       borderWidth: 1,
       textStyle: {

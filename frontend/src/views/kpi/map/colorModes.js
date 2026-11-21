@@ -1,4 +1,5 @@
 import { BAND_COLORS } from '../../../components/SectorPayloadChart';
+import { ISD_REMARK_COLORS, taIsdRemark } from './isd';
 
 export const GOOD = '#16a34a';
 export const WARN = '#eab308';
@@ -63,6 +64,18 @@ export const COLOR_MODES = {
     color: (_, k) => unbalanceColor(k?.unbalance),
     legend: [[GOOD, 'balanced'], ['#f97316', 'V1 – L18L21 >30%'], [BAD, 'V2 – L18L21 (vs L23) >40%'], ['#a855f7', 'V3 – thp L9 >3Mbps']],
     week: 'unbalance_week',
+  },
+  ta_isd: {
+    label: 'TA70 / ISD',
+    color: (c, k) => ISD_REMARK_COLORS[taIsdRemark(c, k).remark] || NO_DATA,
+    legend: [
+      [ISD_REMARK_COLORS.Overshooting, 'Overshooting > 1.3'],
+      [ISD_REMARK_COLORS.Overlap, 'Overlap 1.0 – 1.3'],
+      [ISD_REMARK_COLORS.Normal, 'Normal 0.3 – 1.0'],
+      [ISD_REMARK_COLORS.Undershooting, 'Undershooting < 0.3'],
+      [ISD_REMARK_COLORS['Cover Open Area / End Cell'], 'End cell (no site ahead)'],
+    ],
+    day: 'ta_date',
   },
 };
 

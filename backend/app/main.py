@@ -4,9 +4,10 @@ import os
 import threading
 from contextlib import asynccontextmanager
 import time
+from datetime import datetime
 from collections import OrderedDict
 from pathlib import Path
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -26,7 +27,9 @@ from .queries_daily import (
 from .queries_5g import get_5g_sites, get_site_payload_5g_data, get_scope_aggregation_5g_data, KPIS_5G_CONFIG
 from .queries_2g import get_2g_sites, get_site_payload_2g_data, get_scope_aggregation_2g_data, KPIS_2G_CONFIG
 from .queries_ta import get_ta_4g_data, get_ta_5g_data, get_ta_compare_data
-from .queries_twamp import get_twamp_packet_loss_data, get_twamp_scope_aggregation
+from .queries_twamp import get_twamp_packet_loss_data, get_twamp_scope_aggregation, get_twamp_compare
+from .queries_isd import add_isd, isd_for, ta_remark, _targets as isd_targets
+from .queries_map_kpi import ta_percentile_m
 from .site_names import load_site_names, get_site_display_name, get_site_name
 from .queries_properties import get_site_properties
 from .queries_map import get_map_cells, get_map_covmo, get_map_sites_in_bbox, get_covmo_weeks
@@ -123,6 +126,7 @@ get_ta_5g_data = _cached(get_ta_5g_data)
 get_twamp_packet_loss_data = _cached(get_twamp_packet_loss_data)
 get_ta_compare_data = _cached(get_ta_compare_data)
 get_twamp_scope_aggregation = _cached(get_twamp_scope_aggregation)
+get_twamp_compare = _cached(get_twamp_compare)
 get_site_properties = _cached(get_site_properties)
 get_map_cells = _cached(get_map_cells)
 get_map_kpi = _cached(get_map_kpi)
@@ -600,9 +604,9 @@ def map_cells(site_id: str = Query(..., description="Site ID e.g. MRW002"),
     data["source"] = source
     if source == "original":
         data["cells"] = [dict(c, desiqa={f: c.get(f) for f in ("azimuth", "mt", "et")}) for c in data["cells"]]
-        return data
-    # DESIQA geometry is cached; the edits are read fresh on every request
-    return apply_revisions(apply_overrides(data))
+        return add_isd(data)
+    # DESIQA geometry is cached; the edits are read fresh on every request. ISD follows the azimuth shown.
+    return add_isd(apply_revisions(apply_overrides(data)))
 
 
 class RevisionChange(BaseModel):
@@ -1290,8 +1294,8 @@ def get_ta_4g_endpoint(
     band: Optional[str] = Query(None),
     cell_type: Optional[str] = Query("all")
 ):
-    """Returns 4G Timing Advance distribution and cumulative data matching Bild 1 layout."""
-    return get_ta_4g_data(
+    """Returns 4G Timing Advance distribution and cumulative data matching Bild 1 layout, plus TA70 / ISD per cell."""
+    result = get_ta_4g_data(
         site_id=site_id,
         start_date=start_date,
         end_date=end_date,
@@ -1299,6 +1303,34 @@ def get_ta_4g_endpoint(
         band_filter=band,
         cell_type=cell_type
     )
+    if result.get("status") != "success":
+        return result
+    return {**result, "cell_isd": _ta_cell_isd(result)}
+
+
+def _ta_cell_isd(ta: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """TA70 of each cell over the TA period against its directional ISD (azimuth as on the map: RNO edits first)."""
+    try:
+        geo = get_map_cells(site_id=ta["site_id"], tier=0)
+        cells = {} if geo.get("error") else {c["ci"]: c for c in apply_revisions(apply_overrides(geo))["cells"]}
+        cache = isd_targets()
+    except Exception as e:
+        logger.warning("TA ISD for %s failed: %s", ta.get("site_id"), e)
+        return []
+    rows = []
+    for sec, by_cell in ta.get("data_by_sector", {}).items():
+        for v in by_cell.values():
+            c = cells.get(v.get("ci")) or {}
+            indoor = bool(c.get("indoor"))
+            isd = None if indoor else isd_for(c.get("lat"), c.get("lon"), c.get("azimuth"), ta["site_id"], cache)
+            ta70 = ta_percentile_m(v.get("counts") or [], 70)
+            rows.append({
+                "sector": sec, "band": v.get("band"), "ci": v.get("ci"), "cell_name": v.get("cell_name"),
+                "azimuth": c.get("azimuth"), "samples": v.get("total"), "ta70_m": ta70,
+                "isd_m": isd and isd["isd_m"], "target": isd and isd["target"], "window": isd and isd["window"],
+                **ta_remark(ta70, isd, indoor),
+            })
+    return rows
 
 @app.get("/api/timing_advance/5g")
 def get_ta_5g_endpoint(
@@ -1379,6 +1411,30 @@ def get_packet_loss_aggregation_endpoint(
         kecamatans=kecamatans,
         sites=sites
     )
+
+@app.get("/api/packet_loss/compare")
+def get_packet_loss_compare_endpoint(
+    scope: str = Query("regional"),
+    before_start: str = Query(...),
+    before_end: str = Query(...),
+    after_start: str = Query(...),
+    after_end: str = Query(...),
+    nops: Optional[List[str]] = Query(None),
+    cities: Optional[List[str]] = Query(None),
+    kecamatans: Optional[List[str]] = Query(None),
+    sites: Optional[List[str]] = Query(None)
+):
+    """TWAMP Before / After per entity of the scope, with a per-site breakdown."""
+    for d in (before_start, before_end, after_start, after_end):
+        try:
+            datetime.strptime(d, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Dates must be YYYY-MM-DD.")
+    if before_start > before_end or after_start > after_end or before_end >= after_start:
+        raise HTTPException(status_code=400, detail="The Before period must end before the After period starts.")
+    return get_twamp_compare(scope=scope, before_start=before_start, before_end=before_end,
+                             after_start=after_start, after_end=after_end,
+                             nops=nops, cities=cities, kecamatans=kecamatans, sites=sites)
 
 # =============================================================================
 # Cluster Monitoring: saved clusters (shared, onedb) and before/after comparison

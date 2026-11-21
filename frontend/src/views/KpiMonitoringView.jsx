@@ -4,6 +4,7 @@ import KpiChartsPanel from './kpi/KpiChartsPanel';
 import PropertiesPanel, { compareValues, PanelCapsule } from './kpi/PropertiesPanel';
 import MarkerControl from './kpi/MarkerControl';
 import ThresholdControl, { loadThresholdSettings } from './kpi/ThresholdControl';
+import { ComboControl, loadCombos } from './kpi/ComboChart';
 import { buildKpiExport } from './kpi/kpiExport';
 import useSiteProperties from '../hooks/useSiteProperties';
 
@@ -41,8 +42,10 @@ export default function KpiMonitoringView({
     setMapWidth(w);
     try { localStorage.setItem(MAP_WIDTH_KEY, String(Math.round(w))); } catch { /* storage unavailable */ }
   }, []);
+  const [propsHeight, setPropsHeight] = useState(0);
   const [propSort, setPropSort] = useState({ key: 'siteid_ci', direction: 'asc' });
   const [thresholdSettings, setThresholdSettings] = useState(loadThresholdSettings);
+  const [combos, setCombos] = useState(loadCombos);
   const showProperties = (activeMenu === '4g-daily' || activeMenu === '4g-hourly') && km.aggregationScope === 'sector' && !!km.siteId;
   const hasThresholds = ['2g', '4g-hourly', '4g-daily', '5g'].includes(activeMenu);
   const props = useSiteProperties(showProperties && propsOpen, km.siteId);
@@ -126,6 +129,8 @@ export default function KpiMonitoringView({
         darkMode={darkMode}
         markers={markers}
         thresholdSettings={thresholdSettings}
+        combos={combos}
+        setCombos={setCombos}
         headerExtra={
           <div className="flex items-center gap-1.5 flex-wrap">
             <MarkerControl markers={markers} setMarkers={setMarkers} defaultDate={km.endDate} darkMode={darkMode} />
@@ -138,13 +143,16 @@ export default function KpiMonitoringView({
                 darkMode={darkMode}
               />
             )}
+            {hasThresholds && (
+              <ComboControl activeMenu={activeMenu} combos={combos} setCombos={setCombos} kpiCatalog={km.activeKpiCatalog} darkMode={darkMode} />
+            )}
           </div>
         }
       />
       {showProperties && (
         <>
           {/* keeps the last charts reachable above the open sheet */}
-          {propsOpen && <div className="h-[46vh]" />}
+          {propsOpen && <div style={{ height: propsHeight }} />}
           <PropertiesPanel
             props={props}
             rows={propertyRows}
@@ -156,6 +164,7 @@ export default function KpiMonitoringView({
             sortConfig={propSort}
             onSort={handlePropSort}
             rightOffset={overlayOffset}
+            onHeight={setPropsHeight}
           />
           <PanelCapsule
             propsOpen={propsOpen}
