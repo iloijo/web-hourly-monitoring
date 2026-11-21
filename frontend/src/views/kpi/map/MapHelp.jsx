@@ -24,6 +24,7 @@ const SECTIONS = [
     items: [
       ['Colour by', 'Band, DL PRB, User DL Thp, RCI, CEI atau Unbalance. Legenda kanan bawah menunjukkan arti warna dan minggu/tanggal datanya.'],
       ['TA70 / TA80 / TA90', 'Panjang sektor mengikuti jarak TA cell tersebut. Garis titik-titik = cell tanpa data TA. Cell indoor menjadi cincin putus-putus (TA jauh di luar gedung = indikasi leakage).'],
+      ['TA70 / ISD', 'Warna sektor (menu Sectors → TA70 / ISD) dan baris ISD di popup: ISD = jarak ke site 4G terdekat di depan azimuth (dalam ±90°; site < 50 m, indoor, Combat dan micro dilewati). TA70 / ISD < 0.3 Undershooting, 0.3–1.0 Normal, 1.0–1.3 Overlap, > 1.3 Overshooting; tanpa site di depan = End Cell. Saat popup sektor terbuka, garis putus-putus menunjuk site ISD-nya.'],
       ['Opacity', 'Transparansi isi sektor.'],
       ['Covmo RSRP / RSRQ', 'Grid MR (~38 m) hanya untuk area yang terlihat, mulai zoom 13. Default minggu terakhir; pilih minggu sebelumnya di dropdown Week untuk membandingkan (misal sebelum vs sesudah reazimuth). Arahkan kursor ke grid untuk nilai dan jumlah MR.'],
     ],

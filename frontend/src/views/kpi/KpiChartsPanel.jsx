@@ -1,6 +1,7 @@
 import { AlertTriangle, Building2, Globe, MapPin, MousePointerClick, Network, Radio, SlidersHorizontal } from 'lucide-react';
 import SectorPayloadChart from '../../components/SectorPayloadChart';
 import { thresholdTech } from './ThresholdControl';
+import ComboChart from './ComboChart';
 
 const SCOPE_ICON = { regional: Globe, nop: Network, city: Building2, kecamatan: MapPin };
 const SCOPE_CAPTION = {
@@ -27,6 +28,8 @@ export default function KpiChartsPanel({
   markers = [],
   headerExtra = null,
   thresholdSettings = null,
+  combos = null,
+  setCombos = null,
 }) {
   const scope = km.aggregationScope;
   const ScopeIcon = SCOPE_ICON[scope] || Radio;
@@ -103,6 +106,20 @@ export default function KpiChartsPanel({
 
   const kpiIds = km.activeSelectedKpiIds;
 
+  // Combo charts of this technology, from the KPI blocks already loaded (any KPI loaded for the scope)
+  const comboTech = thresholdTech(activeMenu);
+  const comboSource = scope === 'sector' ? (isSectoralView ? null : currentSectorData) : aggData;
+  const comboTimestamps = scope === 'sector' ? (currentSectorData?.timestamps || sectorData?.timestamps || []) : aggData?.timestamps;
+  const comboCharts = (comboSource?.kpis ? (combos?.[comboTech] || []) : []).map(c => ({
+    id: c.id,
+    kpis: c.kpis.map(k => ({ ...k, data: comboSource.kpis[k.id] })).filter(k => k.data),
+  })).filter(c => c.kpis.length >= 2);
+  const removeCombo = (id) => {
+    const next = { ...combos, [comboTech]: combos[comboTech].filter(c => c.id !== id) };
+    try { localStorage.setItem('netpulse_combo_charts', JSON.stringify(next)); } catch { /* storage unavailable */ }
+    setCombos(next);
+  };
+
   return (
     <div className={`p-5 rounded-2xl border transition-all ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
       <div className="flex flex-wrap items-center justify-between gap-3 pb-4 mb-5 border-b border-slate-100 dark:border-slate-800">
@@ -172,6 +189,19 @@ export default function KpiChartsPanel({
             <p className="text-xs opacity-75 mt-1">Open Filter KPI above to choose the metrics to show.</p>
           </div>
         )}
+
+        {comboCharts.map(c => (
+          <ComboChart
+            key={`combo_${c.id}`}
+            kpis={c.kpis}
+            timestamps={comboTimestamps}
+            timeMode={km.timeMode}
+            bandFilter={scope === 'sector' || km.aggregationMode === 'band' ? km.selectedBands : 'all'}
+            availableBands={currentAvailableBands}
+            darkMode={darkMode}
+            onRemove={() => removeCombo(c.id)}
+          />
+        ))}
 
         {isSectoralView && sectorData?.sectors && kpiIds.flatMap(kpiId => {
           const kpiLabel = km.activeKpiCatalog.find(k => k.id === kpiId)?.label || kpiId;

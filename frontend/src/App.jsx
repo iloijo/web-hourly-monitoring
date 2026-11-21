@@ -149,8 +149,8 @@ export default function App() {
     clearSession();
   }, [clearSession]);
 
-  // Auto logout after 30 minutes without mouse/keyboard/touch/scroll activity
-  useIdleLogout(isAuthenticated, handleLogout, 30 * 60 * 1000);
+  // Auto logout after 2 hours without mouse/keyboard/touch/scroll activity
+  useIdleLogout(isAuthenticated, handleLogout, 2 * 60 * 60 * 1000);
 
   // Opening a menu never queries KPI data; the user picks a site or clicks Generate
   const rememberScroll = () => { scrollByMenu.current[activeMenu] = window.scrollY; };

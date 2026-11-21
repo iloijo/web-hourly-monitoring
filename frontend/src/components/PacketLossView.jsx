@@ -24,6 +24,7 @@ import { formatAxisDate } from './SectorPayloadChart';
 import MultiSelectDropdown from './MultiSelectDropdown';
 import { objectRowsSheet } from '../api/export';
 import { getJson } from '../api/client';
+import PacketLossCompare, { compareSheetRows } from './PacketLossCompare';
 
 // Aggregation scopes matching Gambar 2
 const AGGREGATION_SCOPES = [
@@ -89,7 +90,9 @@ export default function PacketLossView({
   const siteDropdownRef = useRef(null);
 
   // 5. View options & Threshold
-  const [viewMode, setViewMode] = useState('chart'); // 'chart' | 'table'
+  const [viewMode, setViewMode] = useState('chart'); // 'chart' | 'table' | 'compare'
+  const [comparePeriod, setComparePeriod] = useState(null); // null = last 7 days vs the 7 before
+  const [compareResult, setCompareResult] = useState(null);
   const [chartsPerRow, setChartsPerRow] = useState(2); // 1, 2, 3
   const [thresholdPct, setThresholdPct] = useState(0.1); // Packet loss threshold %
 
@@ -98,17 +101,30 @@ export default function PacketLossView({
   const [data, setData] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  // Header "Export Excel": the TWAMP table rows currently loaded
+  // Header "Export Excel": the TWAMP table rows currently loaded, plus the Before vs After table when open
   useEffect(() => {
     if (!onExportData) return undefined;
     const rows = data?.table_rows;
-    if (!rows?.length) { onExportData(null); return undefined; }
+    const cmp = viewMode === 'compare' && compareResult?.entities?.length ? compareResult : null;
+    if (!rows?.length && !cmp) { onExportData(null); return undefined; }
     onExportData(() => ({
       filename: `TWAMP_PacketLoss_${scope}_${fromDate}_${toDate}`,
-      sheets: [objectRowsSheet('TWAMP Packet Loss', rows)],
+      sheets: [
+        ...(cmp ? [objectRowsSheet('Before vs After', compareSheetRows(cmp))] : []),
+        ...(rows?.length ? [objectRowsSheet('TWAMP Packet Loss', rows)] : []),
+      ],
     }));
     return () => onExportData(null);
-  }, [data, onExportData]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, compareResult, viewMode, onExportData]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Filters of the current scope, as the compare endpoint takes them
+  const compareParams = (() => {
+    if (scope === 'nop') return { scope, nops: selectedNops };
+    if (scope === 'city') return { scope, cities: selectedCities };
+    if (scope === 'kecamatan') return { scope, cities: parentCity, kecamatans: selectedKecamatans };
+    if (scope === 'site') return { scope, sites: siteMode === 'single' ? [selectedSite] : selectedSites };
+    return { scope };
+  })();
 
   const chartRefs = useRef({});
 
@@ -1421,6 +1437,18 @@ export default function PacketLossView({
           >
             Table
           </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('compare')}
+            title="Before vs After per entity, with a per-site breakdown"
+            className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
+              viewMode === 'compare'
+                ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            Before vs After
+          </button>
         </div>
 
         <div className="flex items-center gap-3">
@@ -1672,6 +1700,18 @@ export default function PacketLossView({
             </table>
           </div>
         </div>
+      )}
+
+      {viewMode === 'compare' && (
+        <PacketLossCompare
+          params={compareParams}
+          toDate={toDate}
+          period={comparePeriod}
+          setPeriod={setComparePeriod}
+          result={compareResult}
+          setResult={setCompareResult}
+          darkMode={darkMode}
+        />
       )}
 
       {loading && <DataLoadingOverlay message="Analyzing Packet Loss Telemetry..." />}

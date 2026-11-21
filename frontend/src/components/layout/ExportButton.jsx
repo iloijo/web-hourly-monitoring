@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { FileSpreadsheet, Loader2 } from 'lucide-react';
 import { downloadXlsx } from '../../api/export';
+import { collectScreenCharts } from '../../api/screenCharts';
 
 // Header button: exports what the current page registered (getPayload returns the sheets, may be async)
 export default function ExportButton({ getPayload, darkMode }) {
@@ -11,7 +12,14 @@ export default function ExportButton({ getPayload, darkMode }) {
     if (disabled) return;
     setBusy(true);
     try {
-      await downloadXlsx(await getPayload());
+      const payload = await getPayload();
+      // Pages without their own Charts sheet get the charts on screen as native Excel charts
+      const sheets = payload.sheets || [];
+      if (!sheets.some(sh => sh.charts?.length)) {
+        const charts = collectScreenCharts(document.querySelector('main') || document);
+        if (charts.length) payload.sheets = [...sheets, { name: 'Charts', charts }];
+      }
+      await downloadXlsx(payload);
     } catch (err) {
       console.error('Export failed:', err);
       alert(`Excel export failed: ${err.message || err}`);
